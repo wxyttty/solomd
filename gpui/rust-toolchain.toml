@@ -1,0 +1,6 @@
+# 与上游 zed main 保持同一稳定版工具链。
+# 本仓库默认 nightly 会在 pathfinder_simd（gpui → font-kit → pathfinder_geometry 链）上
+# 因内部 SIMD intrinsics 变动而编译失败；上游按稳定版开发，勿用 nightly 构建。
+[toolchain]
+channel = "1.97.1"
+profile = "minimal"

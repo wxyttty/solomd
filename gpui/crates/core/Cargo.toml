@@ -1,0 +1,40 @@
+[package]
+name = "solomd-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "multipart"] }
+futures-util.workspace = true
+once_cell.workspace = true
+walkdir.workspace = true
+git2.workspace = true
+dirs.workspace = true
+regex-lite = "0.1"
+chardetng = "1.0.0"
+encoding_rs = "0.8"
+quick-xml = "0.37"
+calamine = "0.26"
+zip = "2"
+csv = "1"
+htmd = "0.5"
+pdf-extract = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
+cron = "0.12"
+globset = "0.4"
+hex = "0.4"
+rusqlite = { version = "0.32", features = ["bundled"] }
+notify = "6"
+notify-debouncer-mini = "0.4"
+serde_yaml = "0.9"
+keyring = "3"
+rand = "0.8"
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+sha2 = "0.10"

@@ -1,0 +1,23 @@
+[package]
+name = "spike"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "spike"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component.workspace = true
+gpui-component-assets.workspace = true
+gpui-editor.workspace = true
+gpui-wry.workspace = true
+wry.workspace = true
+raw-window-handle.workspace = true
+serde_json.workspace = true
+image.workspace = true
+mermaid-rs-renderer.workspace = true
