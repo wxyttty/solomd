@@ -2997,7 +2997,6 @@ dependencies = [
 [[package]]
 name = "gpui-bidi"
 version = "0.1.0"
-source = "git+https://github.com/packetThrower/zorite?branch=main#7915aad50aca69201382b83af6d7e2bbded62b7a"
 dependencies = [
  "gpui",
  "unicode-bidi",
@@ -3080,7 +3079,6 @@ dependencies = [
 [[package]]
 name = "gpui-editor"
 version = "0.1.0"
-source = "git+https://github.com/packetThrower/zorite?branch=main#7915aad50aca69201382b83af6d7e2bbded62b7a"
 dependencies = [
  "gpui",
  "gpui-bidi",
@@ -3091,7 +3089,11 @@ dependencies = [
 [[package]]
 name = "gpui-markdown"
 version = "0.1.0"
-source = "git+https://github.com/packetThrower/zorite?branch=main#7915aad50aca69201382b83af6d7e2bbded62b7a"
+dependencies = [
+ "gpui",
+ "gpui-bidi",
+ "markdown",
+]
 
 [[package]]
 name = "gpui-wry"

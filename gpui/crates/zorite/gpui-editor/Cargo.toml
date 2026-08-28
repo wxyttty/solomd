@@ -1,0 +1,28 @@
+# Vendored from https://github.com/packetThrower/zorite @ 7915aad
+# （2026-08-29，解锁锁步：原仓库 pin 决定权收回本工作区，见 gpui/Cargo.toml 注释）
+# GPL-3.0-or-later，许可证见 ../LICENSE-zorite。
+[package]
+name = "gpui-editor"
+version = "0.1.0"
+edition = "2024"
+description = "A from-scratch multi-line text editor for GPUI — the basis for Zorite's note editor (built on gpui's EntityInputHandler + text-shaping primitives, no gpui-component)."
+license = "GPL-3.0-or-later"
+
+[dependencies]
+# Shared workspace spec（本工作区根统一 pin）so Cargo unifies to one gpui.
+gpui = { workspace = true }
+
+# Grapheme-cluster boundaries for cursor movement, so an emoji / combining mark
+# moves as a single unit (matches gpui's own input example).
+unicode-segmentation = "1"
+
+# Shared markdown-construct recognition (`gpui_markdown::syntax`): alert kinds,
+# table styles, heading scales — so WYSIWYG and the reader can never drift
+# apart on what a construct IS. The one sanctioned sibling-crate dependency
+# (see AGENTS.md); rendering stays entirely this crate's own.
+gpui-markdown = { path = "../gpui-markdown", default-features = false }
+
+# Bidi index↔x mapping (#66). gpui's own `x_for_index` / `index_for_x` assume
+# byte index and x rise together, which is false for a right-to-left line — so
+# every caret/click lookup in this crate goes through `VisualMap` on RTL rows.
+gpui-bidi = { path = "../gpui-bidi" }

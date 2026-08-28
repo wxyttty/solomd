@@ -1,5 +1,14 @@
 [workspace]
-members = ["crates/spike", "crates/app", "crates/core"]
+members = [
+    "crates/spike",
+    "crates/app",
+    "crates/core",
+    # zorite 三件套已 vendor（原 git 依赖 @7915aad）：编辑器底座 + markdown
+    # 构造识别 + bidi。GPL-3.0，许可见 crates/zorite/LICENSE-zorite。
+    "crates/zorite/gpui-bidi",
+    "crates/zorite/gpui-markdown",
+    "crates/zorite/gpui-editor",
+]
 resolver = "2"
 
 [workspace.package]
@@ -18,19 +27,25 @@ git2 = "0.19"
 dirs = "5"
 serde_json = "1"
 
-# ── 上游锁步策略（2026-08-25 起）───────────────────────────────────────────
-# 引入 zorite/gpui-editor 后，三方（我们 / gpui-component / zorite）必须统一在
-# 同一个 zed rev 上：git 依赖只有 spec 完全一致才会去重。
-# 采用 zorite 已验证的组合：zed@1d217ee + gpui-component@1505b14（其内部清单
-# 钉的就是 1d217ee）。zorite 升级舞步见其根 Cargo.toml 注释；升级时三处同步。
-# 注意：这使 gpui-component 相对其 main 回退约两个月（2026-06-30）。
+# ── 上游锁步策略（2026-08-29 更新：vendor 解锁）───────────────────────────
+# 三方（我们 / gpui-component / zorite）必须统一在同一个 zed rev 上：git 依赖
+# 只有 spec 完全一致才会去重。旧策略整条链被 zorite 仓库的 pin 卡死
+# （其 main tip 2026-08-29 仍钉 zed@1d217ee + gpc@1505b14，升级舞步它自己
+# 一直没跳）。
+#
+# 2026-08-29 起把 zorite 的 3 个 crate vendor 进本工作区（crates/zorite/），
+# gpui-editor 改 path 依赖——**pin 的决定权收回本清单**。升级舞步变为：
+#   1. 取 gpui-component 新 tip，从其 Cargo.lock 读实际编译的 zed rev；
+#   2. 改下面两行 rev；
+#   3. 修 3 个 vendored crate + 本仓库 app 的 API churn（无上游许可问题）。
+# 实测参考（2026-08-29）：gpc tip 0e2fb7a ≈ zed@f66ed39；gpc 1505b14→0e2fb7a
+# 226 commits，ui/ ±6 万行（Input 大重构），zorite 三 crate 零 gpc 依赖。
+# wry 必须用 longbridge 的 lb-wry fork，版本与 gpui-wry 内部声明一致
+# （0.53.3）。
 gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit", "runtime_shaders"] }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "1505b1487131adbb443f6c69e87847db35bfa2d1" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "1505b1487131adbb443f6c69e87847db35bfa2d1" }
-gpui-base = { git = "https://github.com/longbridge/gpui-component", rev = "1505b1487131adbb443f6c69e87847db35bfa2d1" }
-# 白板承载（P0 检查点④）。wry 必须用 longbridge 的 lb-wry fork，
-# 版本与 gpui-wry 内部声明保持一致以便依赖统一。
 gpui-wry = { git = "https://github.com/longbridge/gpui-component", rev = "1505b1487131adbb443f6c69e87847db35bfa2d1" }
 wry = { version = "0.53.3", package = "lb-wry" }
 raw-window-handle = "0.6"
@@ -39,4 +54,4 @@ image = "0.25"
 mermaid-rs-renderer = { git = "https://github.com/zed-industries/mermaid-rs-renderer", rev = "782b89a7da3f0e91e51f98d00a93acba679be6fb", default-features = false }
 # P1 笔记编辑器底座（GPL-3.0）：zorite 的 WYSIWYG markdown 编辑器。
 # 大文件性能是采用前硬闸门（spike `wys` 面板实测）。
-gpui-editor = { git = "https://github.com/packetThrower/zorite", branch = "main" }
+gpui-editor = { path = "crates/zorite/gpui-editor" }
