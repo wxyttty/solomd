@@ -11,7 +11,7 @@ use gpui::{
     Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::dock::{DockArea, DockItem, TabPanel};
+use gpui_component::dock::{DockArea, DockLayout, DockPlacement, DockSkin};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
@@ -28,8 +28,7 @@ actions!(solomd, [TogglePalette, ClosePalette, ToggleTheme]);
 pub struct Workspace {
     vault: Vault,
     dock_area: Entity<DockArea>,
-    center_tabs: Entity<TabPanel>,
-    /// 有序打开列表（TabPanel 的镜像；顺序即标签顺序）。
+    /// 有序打开列表（dock 中央组内容的镜像；顺序即标签顺序）。
     tabs: Vec<(PathBuf, Entity<NotePanel>)>,
     /// 最后一个标签被关掉后置位；render（有 window）里自动开 welcome 兜底。
     pending_welcome: bool,
@@ -98,29 +97,20 @@ impl Workspace {
             );
         }
 
-        let dock_area = cx.new(|cx| DockArea::new("solomd-dock", Some(0), window, cx));
-        let weak_area = dock_area.downgrade();
-
-        // 中央 TabPanel 自建自管（动态开/关标签）。
-        let center_tabs = cx.new(|cx| TabPanel::new(None, weak_area.clone(), window, cx));
-        let center = DockItem::Tabs {
-            size: None,
-            items: Vec::new(),
-            active_ix: 0,
-            view: center_tabs.clone(),
-        };
+        // DockSkin::dock_area = DockArea + 默认皮肤（无 skin 只绘制空 chrome）。
+        let (dock_area, _skin) = DockSkin::dock_area("solomd-dock", Some(0), window, cx);
 
         let file_tree = cx.new(|cx| FileTreePanel::new(vault.clone(), window, cx));
 
         dock_area.update(cx, |area, cx| {
-            area.set_center(center, window, cx);
-            area.set_left_dock(
-                DockItem::tab(file_tree.clone(), &weak_area, window, cx),
-                Some(px(240.)),
-                true,
+            area.set_center(DockLayout::tabs(), window, cx);
+            area.set_dock(
+                DockPlacement::Left,
+                DockLayout::tabs().panel(file_tree.clone()),
                 window,
                 cx,
             );
+            area.set_dock_size(DockPlacement::Left, px(240.), window, cx);
         });
 
         // 文件树点开笔记 → open_note。
@@ -173,7 +163,6 @@ impl Workspace {
         let mut this = Self {
             vault,
             dock_area,
-            center_tabs,
             tabs: Vec::new(),
             pending_welcome: false,
             palette_open: false,
@@ -245,7 +234,7 @@ impl Workspace {
         self.pending_welcome = false;
         // 已打开 → 激活该标签。
         if let Some(ix) = self.tabs.iter().position(|(p, _)| *p == path) {
-            self.activate(ix, cx);
+            self.activate(ix, window, cx);
             self.note_activated(path, cx);
             return;
         }
@@ -286,8 +275,9 @@ impl Workspace {
         });
 
         self.tabs.push((path, panel.clone()));
-        self.center_tabs.update(cx, |tabs, cx| {
-            tabs.add_panel(Arc::new(panel) as Arc<dyn gpui_component::dock::PanelView>, window, cx);
+        self.dock_area.update(cx, |area, cx| {
+            // add_panel 落到中央首个 tab 组并自动激活（activate: true）。
+            area.add_panel(panel.clone(), DockPlacement::Center, None, window, cx);
         });
     }
 
@@ -324,13 +314,17 @@ impl Workspace {
         }
     }
 
-    /// 激活第 ix 个标签：走 DockItem::active_index 的公开侧通道
-    /// （1505b14 的 TabPanel::set_active_ix 是私有）。
-    fn activate(&self, ix: usize, cx: &mut Context<Self>) {
+    /// 激活第 ix 个标签：remove + re-add（add_panel 落位即激活）。
+    /// on_removed 回调会在中途同步 tabs 列表，随后在这里重新压回。
+    fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = self.tabs.get(ix).map(|(_, p)| p.clone()) else {
+            return;
+        };
         self.dock_area.update(cx, |area, cx| {
-            let item = area.center().clone();
-            let _ = item.active_index(ix, cx);
+            area.remove_panel(panel.clone(), window, cx);
+            area.add_panel(panel, DockPlacement::Center, None, window, cx);
         });
+        self.pending_welcome = false;
     }
 
     /// 对比 mtime 基线：外部修改的已打开干净标签自动重载；返回是否有变化（刷新文件树）。

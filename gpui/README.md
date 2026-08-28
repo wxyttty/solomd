@@ -5,13 +5,24 @@ Tauri → GPUI 迁移的 Phase 0 spike 与后续桌面端主工程。计划与�
 
 ## 依赖策略
 
-引入 zorite/gpui-editor 后，三方锁步（zed@`1d217ee` + gpui-component@`1505b14` + zorite@main）：
-git 依赖只有 spec 完全一致才会去重，三个上游必须落在同一个 zed rev 上。
-zorite 的根 Cargo.toml 注释记录了升级舞步；升级时三处同步。
-代价：gpui-component 相对其 main 回退约两个月（2026-06-30）。
+zed@`f66ed39`（2026-08-29 gpui-component tip lockfile 实测 rev）+ gpui-component@`0e2fb7a`
++ zorite@`7915aad`，**后两者已 vendor 进本仓库**（`crates/gpui-component/` 五 crate、
+`crates/zorite/` 三 crate，均为 path 依赖 + workspace 继承）。
 
-本机只有 CLT 无 Xcode，离线 metal 编译不可用 → `runtime_shaders` feature 把 shader
-编译挪到运行时（首次启动略慢）。
+- 为什么 vendor：git 依赖只有 spec 完全一致才会去重；zorite 仓库把整条链钉死在
+  旧 rev（其 main tip 至 2026-08-29 仍钉 zed@1d217ee），gpc tip 又改成浮 pin
+  （不写 zed rev），两者都无法与本工作区的 pin 去重。vendor 后 pin 决定权
+  收回本仓库，升级不再等上游。
+- 升级舞步（`gpui/Cargo.toml` 注释同步维护）：
+  1. 取 gpui-component 新 tip，从其 Cargo.lock 读实际编译的 zed rev；
+  2. 改根清单 `gpui`/`gpui_platform`/`gpui_macros`/`sum-tree` 的 rev；
+  3. 更新 vendored gpc/zorite 源（照上游 diff）并修 API churn。
+  实测（2026-08-29）：1505b14→0e2fb7a 共 226 commits，我们全量修复成本 =
+  zorite 3 处 `paint_image` 新参数 + app/spike 十余处 dock/Input 重构
+  （Panel trait 拆为 BasePanel+Panel、DockItem/TabPanel→DockLayout builder、
+  InputState 多行改 TextareaState、DockSkin::dock_area）。
+- 本机只有 CLT 无 Xcode，离线 metal 编译不可用 → `runtime_shaders` feature 把
+  shader 编译挪到运行时（首次启动略慢）。
 
 历史遗留：`Cargo.lock.pre-zorite.bak` 是切换前的锁文件备份（zed@693140a 组合）。
 

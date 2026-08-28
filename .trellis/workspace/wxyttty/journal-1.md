@@ -134,3 +134,56 @@
 - 人工目检：白板窗口、大纲跳转、recipes 编辑保存、工具卡片展开
 - dev-mcp 侧适配 v3 API（读 solomd-gpui config 目录的 port/token）
 - P4：打包签名、公证、性能基线（冷启动/内存/大文件）与 Tauri 版对照
+
+---
+
+## Session 4: 框架解锁——vendor gpc/zorite + 锁步升级 zed f66ed39
+
+**Date**: 2026-08-29
+**Task**: 提交推送 P3 全量 + 解决"框架被上游 pin 卡两个月"
+**Branch**: `main`
+
+### Summary
+
+**Part 1 提交推送**：P2 尾批 + P3 全量分 3 个提交（trellis docs / core runtime+pandoc /
+app 功能对等）推上 origin/main（f00b291 → 1dcdb17）。
+
+**Part 2 依赖调查与解锁**（用户问：编辑器依赖外部项目把框架锁在两个月前，能否解决）：
+
+1. **根因定位**：升级舞步的驱动者是 gpui-component（取 gpc tip → 其 lockfile 读
+   zed rev）。实测 zorite main tip（2dab499）至今仍钉 zed@1d217ee + gpc@1505b14
+   ——链条是 zorite 自己卡住的；gpc main（0e2fb7a）却已浮 pin 跟 zed main。
+2. **[patch] 不可行**：URL 级 patch 不能指向同源（cargo 直接拒绝），zorite/gpc
+   的内部 pin 无法外部重定向 → 必须 vendor。
+3. **方案：两段 vendor**。zorite 三 crate（gpui-editor 纯 gpui 零 gpc 依赖，
+   闭包仅 gpui-markdown/gpui-bidi）+ gpc 五 crate（base/ui/assets/macros/webview，
+   tip 已浮 pin，不 vendor 无法去重）。全部 path 依赖 + workspace 继承，
+   pin 收敛到根清单一处。
+4. **升级实施**：zed 1d217ee→f66ed39（gpc tip lockfile 实测），总修复量出乎意料地小：
+   - zorite：3 处 `paint_image` 补 image_bounds 参数（可见区=交集，旧行为=同值）
+   - app/spike：Panel trait 拆 BasePanel/Panel 两 impl、DockItem/TabPanel→
+     DockLayout builder + DockSkin::dock_area + add_panel（自动激活）+
+     remove/add 再激活、InputState 多行拆成 TextareaState/Textarea
+   - 发现 zed 已开始发 crates.io（sum-tree=zed-sum-tree 0.2.0 registry）
+5. 验证：workspace 编译全绿、冒烟 OK、bridge OK、core 测试 132/133。
+
+### Git Commits
+
+- 1a51088 docs(trellis) / 718894d fix(gpui-core) / 1dcdb17 feat(gpui-app) / d48fffe build(gpui) vendor zorite
+- 本会话待提交：gpc vendor + zed 升级 + API churn 修复
+
+### Testing
+
+- [OK] cargo check --workspace 全绿（app/core/spike + 8 个 vendored crate）
+- [OK] 依赖图验证：zed 单一 source（f66ed39）、longbridge git 源归零
+- [OK] 冒烟 8s + dev_bridge ping/open_note；core 测试 132/133（1 个为迁移前 fixture 遗留）
+
+### Status
+
+[OK] **Completed**（框架解锁达成；后续升级 = 改一处 rev + 修 vendored churn）
+
+### Next Steps
+
+- 人工目检新 dock 的 tab 交互（关闭/拖拽/缩放由 gpc 新皮肤接管）与 WYSIWYG 渲染
+- 关注 zorite 上游：其自身升级舞步完成后可 vendor 同步拿新修复
+- 5MB 大文件闸门在新 zed rev 上复测（P4 基线）

@@ -8,8 +8,34 @@ members = [
     "crates/zorite/gpui-bidi",
     "crates/zorite/gpui-markdown",
     "crates/zorite/gpui-editor",
+    # gpui-component 本体同步 vendor（tip 0e2fb7a）：其 manifest 已改浮 pin
+    # （不写 zed rev），不 vendor 无法与本工作区的 rev pin 去重。
+    "crates/gpui-component/base",
+    "crates/gpui-component/ui",
+    "crates/gpui-component/assets",
+    "crates/gpui-component/macros",
+    "crates/gpui-component/webview",
 ]
 resolver = "2"
+
+
+# vendored gpui-component 清单继承 lints（照抄其 root，勿删）
+[workspace.lints.clippy]
+almost_complete_range = "allow"
+arc_with_non_send_sync = "allow"
+borrowed_box = "allow"
+dbg_macro = "deny"
+let_underscore_future = "allow"
+manual_is_multiple_of = "allow"
+map_entry = "allow"
+module_inception = "allow"
+non_canonical_partial_ord_impl = "allow"
+reversed_empty_ranges = "allow"
+single_range_in_vec_init = "allow"
+style = { level = "allow", priority = -1 }
+todo = "deny"
+type_complexity = "allow"
+useless_conversion = "allow"
 
 [workspace.package]
 edition = "2024"
@@ -42,11 +68,32 @@ serde_json = "1"
 # 226 commits，ui/ ±6 万行（Input 大重构），zorite 三 crate 零 gpc 依赖。
 # wry 必须用 longbridge 的 lb-wry fork，版本与 gpui-wry 内部声明一致
 # （0.53.3）。
-gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit", "runtime_shaders"] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "1505b1487131adbb443f6c69e87847db35bfa2d1" }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "1505b1487131adbb443f6c69e87847db35bfa2d1" }
-gpui-wry = { git = "https://github.com/longbridge/gpui-component", rev = "1505b1487131adbb443f6c69e87847db35bfa2d1" }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8", features = ["font-kit", "runtime_shaders"] }
+# gpc 三件套 + base 一并 vendor（@0e2fb7a，2026-08-29），path 依赖：
+gpui-component = { path = "crates/gpui-component/ui" }
+gpui-component-assets = { path = "crates/gpui-component/assets" }
+gpui-component-macros = { path = "crates/gpui-component/macros" }
+gpui-base = { path = "crates/gpui-component/base" }
+gpui-wry = { path = "crates/gpui-component/webview" }
+# vendored gpc/zorite 清单经由 workspace 继承用到的其余键（规格照抄 gpc root）：
+gpui_macros = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8" }
+sum-tree = { version = "0.2.0", package = "zed-sum-tree" } # zed 已上 crates.io
+ropey = { version = "=2.0.0-beta.1", features = ["metric_chars", "metric_lines_lf", "metric_utf16"] }
+lsp-types = { version = "0.97.0", features = ["proposed"] }
+notify = "7.0.0"
+rust-i18n = "4.2.0"
+schemars = "1"
+serde_repr = "0.1"
+smallvec = "1"
+smol = "2"
+syntect = { version = "5.3.0", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
+instant = { version = "0.1", features = ["wasm-bindgen"] }
+tracing = "0.1.41"
+log = "0.4"
+windows = { version = "0.58.0", features = ["Wdk", "Wdk_System", "Wdk_System_SystemServices"] }
+# assets 的构建脚本/运行时取图（gpc root 用 zed 的 reqwest fork，规格照抄）
+reqwest = { git = "https://github.com/zed-industries/reqwest.git", rev = "c15662463bda39148ba154100dd44d3fba5873a4", default-features = false, features = ["charset", "http2", "macos-system-configuration", "multipart", "rustls-tls-native-roots", "socks", "stream"], package = "zed-reqwest", version = "0.12.15-zed" }
 wry = { version = "0.53.3", package = "lb-wry" }
 raw-window-handle = "0.6"
 image = "0.25"

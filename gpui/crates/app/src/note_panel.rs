@@ -9,7 +9,7 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
     Styled as _, Window,
 };
-use gpui_component::dock::{Panel, PanelEvent};
+use gpui_component::dock::{BasePanel, Panel, PanelEvent};
 use gpui_component::ActiveTheme as _;
 use gpui::EntityInputHandler as _;
 use gpui_editor::EditorEvent;
@@ -238,18 +238,9 @@ impl NotePanel {
     }
 }
 
-impl Panel for NotePanel {
+impl BasePanel for NotePanel {
     fn panel_name(&self) -> &'static str {
         "note"
-    }
-
-    fn title(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        if self.dirty {
-            format!("• {}", self.title)
-        } else {
-            self.title.clone()
-        }
-        .into_any_element()
     }
 
     fn set_active(&mut self, active: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -266,6 +257,17 @@ impl Panel for NotePanel {
             // Context<NotePanel> derefs 到 App；回调里用它更新 Workspace。
             f(cx);
         }
+    }
+}
+
+impl Panel for NotePanel {
+    fn title(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        if self.dirty {
+            format!("• {}", self.title)
+        } else {
+            self.title.clone()
+        }
+        .into_any_element()
     }
 }
 

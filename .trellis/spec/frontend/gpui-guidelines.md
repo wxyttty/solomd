@@ -4,37 +4,50 @@
 
 ---
 
-## 1. 依赖锁步（最高约束）
+## 1. 依赖锁步（最高约束，2026-08-29 起 vendor 模式）
 
-三方 git 依赖必须落在同一 zed rev（git 依赖仅 spec 完全一致才去重）：
+zed + gpui-component + zorite（gpui-editor）必须落在同一个 zed rev。2026-08-29 起
+**gpc 与 zorite 已 vendor 进本仓库**（`crates/gpui-component/`、`crates/zorite/`，
+path 依赖），pin 只存在于 `gpui/Cargo.toml` 一处：
 
 ```
-zed@1d217ee ← gpui-component@1505b14 ← zorite@main（gpui-editor）
+zed@f66ed399 ← vendored gpc@0e2fb7a ← vendored zorite@7915aad
 ```
 
-- 升级 = 三处同步改 rev，跟 zorite 根 Cargo.toml 的注释舞步走
+- 升级舞步见 `gpui/README.md` 依赖策略节（gpc tip lockfile 定 zed rev → 改根清单 → 修 churn）
 - 本机无 Xcode：`gpui_platform` 必须带 `runtime_shaders` feature
 - 工具链 1.97.1 稳定版（`rust-toolchain.toml`），禁 nightly
 
-## 2. API 版本纪律（1505b14 时代）
+## 2. API 版本纪律（f66ed39 / 0e2fb7a 时代）
 
-写代码前**必须对照本地 checkout 的真实签名**，不凭记忆/文档：
+写代码前**必须对照本地 vendored 源码的真实签名**，不凭记忆/文档：
 
 ```bash
-D=~/.cargo/git/checkouts/gpui-component-95ce574d8a0da8b8/1505b14
-rg -n "pub fn xxx" $D/crates/ui/src/...
+D=gpui/crates/gpui-component   # vendored 源码即真相
+rg -n "pub fn xxx" $D/base/src/... $D/ui/src/...
 ```
 
 已踩过的坑（勿重复）：
-- `TabPanel::set_active_ix` 私有 → 激活标签走 `DockItem::active_index`
-  （需 `dock_area.update` 内调用）；`panels` 字段 pub(crate) → Workspace 自维护有序列表
+- **Panel trait 拆成两层**：`BasePanel`（gpui_base，panel_name/set_active/on_removed）
+  + `Panel`（ui，title/toolbar_buttons 等表现层）。实现要拆成两个 impl 块；
+  把 BasePanel 方法写进 `impl Panel` 会 E0407
+- **DockItem/TabPanel 已删**：改用 `DockSkin::dock_area(id, ver, window, cx)` 建区
+  （无 skin 不画 chrome）、`DockLayout::tabs().panel(entity)` 组布局、
+  `area.set_center/set_dock/set_dock_size`、`area.add_panel(panel, placement, …)`
+  （自动激活）。已开面板的再激活 = `remove_panel` + `add_panel`
+  （remove 会触发 on_removed 回调，注意宿主侧列表同步 + pending 标记复位）
+- **InputState 单行 / TextareaState 多行是两个类型**
+  （`InputBaseState<InputMode>` vs `<TextareaMode>`）：多行用
+  `TextareaState::new(...).auto_grow(4,16)` + `Textarea::new(&state)`，
+  不再有 `InputState::multi_line(true)`
+- `Window::paint_image` 6 参：`(bounds, image_bounds, corners, img, frame, gray)`，
+  可见区 = bounds∩image_bounds；旧行为等价于前两者相同
 - `InputState::set_value("", window, cx)` 要 window；`cursor()` 不要
 - `Context::spawn(async move |this, cx|)` 里 `this.upgrade()` 返回 **Option**
-- `WeakEntity::upgrade()` 在 Context 上返回 Option、别处可能 Result——以编译器为准
 - `AsyncWindowContext` **没有** `notify()`——用 `update_in(cx, |panel, window, cx| … window.refresh())`
-  （闭包第二参数是 `&mut Window`；外层方法的 window 参数不能 move 进 async 块）
 - gpui-component 无 `prelude`：`FluentBuilder` 从 `gpui::prelude` 导入；
-  `ScrollableElement` 从 `gpui_component::scroll` 导入
+  `ScrollableElement` 从 `gpui_component::scroll` 导入；`on_click`/`overflow_y_scroll`
+  需要 `StatefulInteractiveElement`（元素先 `.id()`）
 - GPUI 绘制顺序 = child 顺序：**浮层必须是最后一个 child**，否则被后画的不透明区域盖住
   （⌘P 面板踩过）
 - `Root::new(...).bg(具体色)` 会以 refinement 覆盖主题每帧刷新的背景 → 切主题残影。

@@ -23,9 +23,9 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
     ActiveTheme as _, Root, button::Button,
-    dock::{self, ClosePanel, DockArea, DockItem, PanelEvent, ToggleZoom},
+    dock::{self, BasePanel, ClosePanel, DockArea, DockLayout, DockPlacement, DockSkin, PanelEvent, ToggleZoom},
     h_flex, v_flex,
-    input::{Input, InputState},
+    input::{Input, InputState, Textarea, TextareaState},
     text::markdown,
 };
 use gpui_component_assets::Assets;
@@ -290,7 +290,7 @@ fn generate_large_markdown(target_bytes: usize) -> String {
 }
 
 struct EditorPanel {
-    state: Entity<InputState>,
+    state: Entity<TextareaState>,
     stats: DocStats,
 }
 
@@ -313,11 +313,7 @@ impl EditorPanel {
         let lines = text.lines().count();
 
         let t1 = std::time::Instant::now();
-        let state = cx.new(|cx| {
-            InputState::new(window, cx)
-                .default_value(text)
-                .multi_line(true)
-        });
+        let state = cx.new(|cx| TextareaState::new(window, cx).default_value(text));
         let load_ms = t1.elapsed().as_millis();
 
         let stats = DocStats {
@@ -363,7 +359,7 @@ impl Render for EditorPanel {
                     .flex_1()
                     .min_h_0()
                     .p_2()
-                    .child(Input::new(&self.state).h(relative(1.))),
+                    .child(Textarea::new(&self.state).h(relative(1.))),
             )
     }
 }
@@ -625,17 +621,21 @@ impl Render for WebviewPanel {
 // ---------------------------------------------------------------------------
 
 fn build_dock(window: &mut Window, cx: &mut Context<Workspace>) -> Entity<DockArea> {
-    let dock_area = cx.new(|cx| DockArea::new("spike-dock", Some(0), window, cx));
-    let weak = dock_area.downgrade();
+    let (dock_area, _skin) = DockSkin::dock_area("spike-dock", Some(0), window, cx);
+    let _weak = dock_area.downgrade();
 
-    let left =
-        DockItem::tab(cx.new(|cx| FileTreePanel::new(window, cx)), &weak, window, cx);
-    let center =
-        DockItem::tab(cx.new(|cx| NoteViewPanel::new(window, cx)), &weak, window, cx);
+    let file_tree = cx.new(|cx| FileTreePanel::new(window, cx));
+    let note_view = cx.new(|cx| NoteViewPanel::new(window, cx));
 
     dock_area.update(cx, |area, cx| {
-        area.set_center(center, window, cx);
-        area.set_left_dock(left, Some(px(260.)), true, window, cx);
+        area.set_center(DockLayout::tabs().panel(note_view), window, cx);
+        area.set_dock(
+            DockPlacement::Left,
+            DockLayout::tabs().panel(file_tree),
+            window,
+            cx,
+        );
+        area.set_dock_size(DockPlacement::Left, px(260.), window, cx);
     });
 
     dock_area
@@ -674,7 +674,7 @@ impl Focusable for NoteViewPanel {
 
 impl EventEmitter<PanelEvent> for NoteViewPanel {}
 
-impl dock::Panel for NoteViewPanel {
+impl dock::BasePanel for NoteViewPanel {
     fn panel_name(&self) -> &'static str {
         "note-view"
     }
@@ -813,7 +813,7 @@ impl Focusable for FileTreePanel {
 
 impl EventEmitter<PanelEvent> for FileTreePanel {}
 
-impl dock::Panel for FileTreePanel {
+impl dock::BasePanel for FileTreePanel {
     fn panel_name(&self) -> &'static str {
         "file-tree"
     }

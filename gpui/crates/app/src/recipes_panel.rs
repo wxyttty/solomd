@@ -11,7 +11,7 @@ use gpui::{
     SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::{Input, InputState};
+use gpui_component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
 use solomd_core::deps::{ChannelSink, EventSink};
 use solomd_core::recipes::{Recipe, TriggerKind};
@@ -47,12 +47,44 @@ struct EditForm {
     schedule: Entity<InputState>,
     match_glob: Entity<InputState>,
     tag: Entity<InputState>,
-    prompt: Entity<InputState>,
+    prompt: Entity<TextareaState>,
     provider: Entity<InputState>,
     model: Entity<InputState>,
     base_url: Entity<InputState>,
     tools: Entity<InputState>,
     write_cap: Entity<InputState>,
+}
+
+fn make_input(
+    window: &mut Window,
+    placeholder: &str,
+    value: &str,
+    cx: &mut Context<RecipesPanel>,
+) -> Entity<InputState> {
+    cx.new(|cx| {
+        let mut s = InputState::new(window, cx).placeholder(placeholder);
+        if !value.is_empty() {
+            s = s.default_value(value);
+        }
+        s
+    })
+}
+
+fn make_textarea(
+    window: &mut Window,
+    placeholder: &str,
+    value: &str,
+    cx: &mut Context<RecipesPanel>,
+) -> Entity<TextareaState> {
+    cx.new(|cx| {
+        let mut s = TextareaState::new(window, cx)
+            .auto_grow(4, 16)
+            .placeholder(placeholder);
+        if !value.is_empty() {
+            s = s.default_value(value);
+        }
+        s
+    })
 }
 
 impl RecipesPanel {
@@ -137,48 +169,36 @@ impl RecipesPanel {
     // ------------------------------------------------------------------
 
     fn start_edit(&mut self, index: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
-        let mut input = |placeholder: &str, value: &str, cx: &mut Context<Self>, multi: bool| {
-            cx.new(|cx| {
-                let mut s = InputState::new(window, cx).placeholder(placeholder);
-                if !value.is_empty() {
-                    s = s.default_value(value);
-                }
-                if multi {
-                    s = s.multi_line(true);
-                }
-                s
-            })
-        };
         let form = match index.map(|i| &self.recipes[i]) {
             Some(r) => EditForm {
                 index: Some(index.unwrap()),
                 trigger: r.trigger.clone(),
                 allow_write: r.allow_write,
-                name: input("名称", &r.name, cx, false),
-                schedule: input("cron 表达式", r.schedule.as_deref().unwrap_or(""), cx, false),
-                match_glob: input("匹配 glob", r.match_glob.as_deref().unwrap_or(""), cx, false),
-                tag: input("标签", r.tag.as_deref().unwrap_or(""), cx, false),
-                prompt: input("提示词", &r.prompt, cx, true),
-                provider: input("provider（空 = 默认）", &r.provider, cx, false),
-                model: input("model（空 = 默认）", &r.model, cx, false),
-                base_url: input("base_url（空 = 默认）", r.base_url.as_deref().unwrap_or(""), cx, false),
-                tools: input("tools，逗号分隔（空 = 只读工具）", &r.tools.join(", "), cx, false),
-                write_cap: input("写上限", &r.write_cap.to_string(), cx, false),
+                name: make_input(window, "名称", &r.name, cx),
+                schedule: make_input(window, "cron 表达式", r.schedule.as_deref().unwrap_or(""), cx),
+                match_glob: make_input(window, "匹配 glob", r.match_glob.as_deref().unwrap_or(""), cx),
+                tag: make_input(window, "标签", r.tag.as_deref().unwrap_or(""), cx),
+                prompt: make_textarea(window, "提示词", &r.prompt, cx),
+                provider: make_input(window, "provider（空 = 默认）", &r.provider, cx),
+                model: make_input(window, "model（空 = 默认）", &r.model, cx),
+                base_url: make_input(window, "base_url（空 = 默认）", r.base_url.as_deref().unwrap_or(""), cx),
+                tools: make_input(window, "tools，逗号分隔（空 = 只读工具）", &r.tools.join(", "), cx),
+                write_cap: make_input(window, "写上限", &r.write_cap.to_string(), cx),
             },
             None => EditForm {
                 index: None,
                 trigger: TriggerKind::Manual,
                 allow_write: false,
-                name: input("名称", "", cx, false),
-                schedule: input("cron 表达式", "", cx, false),
-                match_glob: input("匹配 glob", "", cx, false),
-                tag: input("标签", "", cx, false),
-                prompt: input("提示词", "", cx, true),
-                provider: input("provider（空 = 默认）", "", cx, false),
-                model: input("model（空 = 默认）", "", cx, false),
-                base_url: input("base_url（空 = 默认）", "", cx, false),
-                tools: input("tools，逗号分隔（空 = 只读工具）", "", cx, false),
-                write_cap: input("写上限", "5", cx, false),
+                name: make_input(window, "名称", "", cx),
+                schedule: make_input(window, "cron 表达式", "", cx),
+                match_glob: make_input(window, "匹配 glob", "", cx),
+                tag: make_input(window, "标签", "", cx),
+                prompt: make_textarea(window, "提示词", "", cx),
+                provider: make_input(window, "provider（空 = 默认）", "", cx),
+                model: make_input(window, "model（空 = 默认）", "", cx),
+                base_url: make_input(window, "base_url（空 = 默认）", "", cx),
+                tools: make_input(window, "tools，逗号分隔（空 = 只读工具）", "", cx),
+                write_cap: make_input(window, "写上限", "5", cx),
             },
         };
         self.edit = Some(form);
@@ -200,6 +220,7 @@ impl RecipesPanel {
             return;
         }
         let val = |e: &Entity<InputState>| e.read(cx).value().trim().to_string();
+        let val_ta = |e: &Entity<TextareaState>| e.read(cx).value().trim().to_string();
         let non_empty = |e: &Entity<InputState>| {
             let v = val(e);
             (!v.is_empty()).then_some(v)
@@ -227,7 +248,7 @@ impl RecipesPanel {
             },
             match_glob: non_empty(&form.match_glob),
             tag: non_empty(&form.tag),
-            prompt: val(&form.prompt),
+            prompt: val_ta(&form.prompt),
             allow_write: form.allow_write,
             write_cap: val(&form.write_cap).parse::<u32>().unwrap_or(5),
             provider: val(&form.provider),
@@ -328,7 +349,7 @@ impl RecipesPanel {
                     .text_color(cx.theme().muted_foreground)
                     .child("提示词"),
             )
-            .child(Input::new(&form.prompt).h(px(120.)))
+            .child(Textarea::new(&form.prompt))
             .child(
                 h_flex()
                     .gap_2()

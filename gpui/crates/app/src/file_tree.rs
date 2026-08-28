@@ -9,7 +9,7 @@ use gpui::{
     Styled as _, Window,
 };
 use gpui_component::ActiveTheme as _;
-use gpui_component::dock::{Panel, PanelEvent};
+use gpui_component::dock::{BasePanel, Panel, PanelEvent};
 
 use crate::vault::{Entry, Vault};
 
@@ -103,11 +103,13 @@ impl FileTreePanel {
     }
 }
 
-impl Panel for FileTreePanel {
+impl BasePanel for FileTreePanel {
     fn panel_name(&self) -> &'static str {
         "file-tree"
     }
+}
 
+impl Panel for FileTreePanel {
     fn title(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         "笔记库".into_any_element()
     }

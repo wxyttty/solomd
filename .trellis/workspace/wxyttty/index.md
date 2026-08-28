@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
+- **Total Sessions**: 4
 - **Last Active**: 2026-08-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~140 | Active |
+| `journal-1.md` | ~200 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -31,7 +31,8 @@
 |---|------|-------|---------|--------|
 | 1 | 2026-08-28 | Tauri→GPUI 迁移全程落地（P0→P2-M2 + solomd-core） | - | `main` |
 | 2 | 2026-08-29 | P3 功能对等补全（历史/导出/AI 设置）+ tokio runtime 修复 | - | `main` |
-| 3 | 2026-08-29 | P3 功能对等清零（反链/大纲/标签、recipes 编辑、Agent 工具卡、白板、菜单/单实例、dev_bridge v3） | - | `main` |
+| 3 | 2026-08-29 | P3 功能对等清零（反链/大纲/标签、recipes 编辑、Agent 工具卡、白板、菜单/单实例、dev_bridge v3） | 1dcdb17 | `main` |
+| 4 | 2026-08-29 | 框架解锁：vendor gpc/zorite + 锁步升级 zed f66ed39 | d48fffe | `main` |
 <!-- @@@/auto:session-history -->
 
 ---
