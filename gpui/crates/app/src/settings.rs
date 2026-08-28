@@ -9,6 +9,34 @@ pub struct Settings {
     /// "light" | "dark"（serde 默认表达，避免引入 ThemeMode 类型依赖）。
     #[serde(default)]
     pub dark: bool,
+    /// AI provider id（ai_proxy::resolve_provider 的别名也接受）。
+    #[serde(default)]
+    pub ai_provider: String,
+    /// 模型名（provider 默认模型之外的覆盖）。
+    #[serde(default)]
+    pub ai_model: String,
+    /// 自定义 OpenAI 兼容 / Ollama 地址（空 = 用 provider 默认）。
+    #[serde(default)]
+    pub ai_base_url: String,
+}
+
+/// AI 设置缺省值（Settings derive Default 走不到 String 字段的业务默认）。
+impl Settings {
+    pub fn ai_provider_or_default(&self) -> String {
+        if self.ai_provider.is_empty() {
+            "deepseek".into()
+        } else {
+            self.ai_provider.clone()
+        }
+    }
+
+    pub fn ai_model_or_default(&self) -> String {
+        if self.ai_model.is_empty() {
+            "deepseek-chat".into()
+        } else {
+            self.ai_model.clone()
+        }
+    }
 }
 
 impl Settings {

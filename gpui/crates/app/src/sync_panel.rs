@@ -1,9 +1,7 @@
 //! sync_panel.rs — GitHub/Gitea 同步右栏页：token + 状态 + 推/拉。
 
-use std::path::PathBuf;
-
 use gpui::{
-    div, px, AppContext as _, Context, Entity, FocusHandle, Focusable, FontWeight, IntoElement,
+    div, AppContext as _, Context, Entity, FocusHandle, Focusable, FontWeight, IntoElement,
     ParentElement as _, Render, SharedString, Styled as _, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -73,11 +71,13 @@ impl SyncPanel {
         cx.spawn_in(window, async move |this, cx| {
             let r = github_sync::github_link_workspace(folder, remote.trim().to_string(), None, None)
                 .await;
-            let _ = this.update_in(cx, |panel, window, cx| match r {
-                Ok(_) => panel.status = "已关联远程仓库".into(),
-                Err(e) => panel.status = format!("关联失败：{e}").into(),
+            let _ = this.update_in(cx, |panel, window, _cx| {
+                match r {
+                    Ok(_) => panel.status = "已关联远程仓库".into(),
+                    Err(e) => panel.status = format!("关联失败：{e}").into(),
+                }
+                window.refresh();
             });
-            window.refresh();
         })
         .detach();
     }
@@ -87,20 +87,22 @@ impl SyncPanel {
         self.status = "查询状态…".into();
         cx.spawn_in(window, async move |this, cx| {
             let r = github_sync::github_sync_status(folder).await;
-            let _ = this.update_in(cx, |panel, window, cx| match r {
-                Ok(st) if st.linked => {
-                    panel.status = SharedString::from(format!(
-                        "已链接 {} · 领先{} 落后{}{}",
-                        st.remote_url,
-                        st.ahead,
-                        st.behind,
-                        if st.dirty { " · 有未提交" } else { "" }
-                    ));
+            let _ = this.update_in(cx, |panel, window, _cx| {
+                match r {
+                    Ok(st) if st.linked => {
+                        panel.status = SharedString::from(format!(
+                            "已链接 {} · 领先{} 落后{}{}",
+                            st.remote_url,
+                            st.ahead,
+                            st.behind,
+                            if st.dirty { " · 有未提交" } else { "" }
+                        ));
+                    }
+                    Ok(_) => panel.status = "未链接远程".into(),
+                    Err(e) => panel.status = format!("状态失败：{e}").into(),
                 }
-                Ok(_) => panel.status = "未链接远程".into(),
-                Err(e) => panel.status = format!("状态失败：{e}").into(),
+                window.refresh();
             });
-            window.refresh();
         })
         .detach();
     }
@@ -110,11 +112,13 @@ impl SyncPanel {
         self.status = "推送中…".into();
         cx.spawn_in(window, async move |this, cx| {
             let r = github_sync::github_push(folder, None).await;
-            let _ = this.update_in(cx, |panel, window, cx| match r {
-                Ok(()) => panel.status = "推送完成".into(),
-                Err(e) => panel.status = format!("推送失败：{e}").into(),
+            let _ = this.update_in(cx, |panel, window, _cx| {
+                match r {
+                    Ok(()) => panel.status = "推送完成".into(),
+                    Err(e) => panel.status = format!("推送失败：{e}").into(),
+                }
+                window.refresh();
             });
-            window.refresh();
         })
         .detach();
     }
@@ -124,21 +128,19 @@ impl SyncPanel {
         self.status = "拉取中…".into();
         cx.spawn_in(window, async move |this, cx| {
             let r = github_sync::github_pull(folder).await;
-            let _ = this.update_in(cx, |panel, window, cx| match r {
-                Ok(res) => {
-                    panel.status = match res.kind.as_str() {
-                        "conflicts" => format!(
-                            "⚠ 冲突：{}",
-                            res.conflicts.join(", ")
-                        )
-                        .into(),
-                        "up_to_date" => "已是最新".into(),
-                        _ => "拉取完成（快进）".into(),
-                    };
+            let _ = this.update_in(cx, |panel, window, _cx| {
+                match r {
+                    Ok(res) => {
+                        panel.status = match res.kind.as_str() {
+                            "conflicts" => format!("⚠ 冲突：{}", res.conflicts.join(", ")).into(),
+                            "up_to_date" => "已是最新".into(),
+                            _ => "拉取完成（快进）".into(),
+                        };
+                    }
+                    Err(e) => panel.status = format!("拉取失败：{e}").into(),
                 }
-                Err(e) => panel.status = format!("拉取失败：{e}").into(),
+                window.refresh();
             });
-            window.refresh();
         })
         .detach();
     }

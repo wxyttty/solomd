@@ -28,6 +28,9 @@ pub struct NotePanel {
     vault: Vault,
     _changed_sub: gpui::Subscription,
     on_removed: Option<Box<dyn Fn(&mut gpui::App)>>,
+    /// 标签被激活时通知 Workspace（活跃笔记跟踪）。
+    on_activated: Option<Box<dyn Fn(&mut gpui::App)>>,
+    proof_issues: usize,
 }
 
 impl NotePanel {
@@ -120,6 +123,8 @@ impl NotePanel {
             vault,
             _changed_sub,
             on_removed: None,
+            on_activated: None,
+            proof_issues: 0,
         }
     }
 
@@ -128,12 +133,96 @@ impl NotePanel {
         self.on_removed = Some(f);
     }
 
+    /// Workspace 用来接收激活事件（跟踪当前笔记，供历史/AI/导出使用）。
+    pub fn on_activated_notify(&mut self, f: Box<dyn Fn(&mut gpui::App)>) {
+        self.on_activated = Some(f);
+    }
+
+    /// 中文校对：cjk_proofread 全量检测 → squiggles + 计数。
+    pub fn proofread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.state.read(cx).text().to_string();
+        let issues = solomd_core::cjk_proofread::proofread(&text);
+        self.proof_issues = issues.len();
+        let diags = issues
+            .into_iter()
+            .map(|i| gpui_editor::Diagnostic {
+                range: i.col_start as usize..i.col_end as usize,
+            })
+            .collect();
+        self.state.update(cx, |ed, cx| ed.set_diagnostics(diags, cx));
+        let _ = window;
+        cx.notify();
+    }
+
     /// 明暗切换时重装 SyntaxStyle（Workspace 广播调用）。
     pub fn apply_theme(&mut self, dark: bool, cx: &mut Context<Self>) {
         let mono = cx.theme().mono_font_family.clone();
         self.state.update(cx, |ed, cx| {
             ed.set_markdown_style(crate::theme::warm(dark, mono), cx);
         });
+        cx.notify();
+    }
+
+    /// 跳到字节偏移（大纲/反链跳转）：移光标 + 聚焦。
+    pub fn jump_to_offset(&mut self, offset: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.state.update(cx, |ed, cx| ed.set_cursor(offset, cx));
+        self.state.update(cx, |ed, cx| ed.focus(window, cx));
+        cx.notify();
+    }
+
+    /// 当前围栏快照（编辑器缓冲优先）。
+    pub fn tldraw_snapshot(&self, cx: &Context<Self>) -> Option<String> {
+        let text = self.state.read(cx).text();
+        crate::whiteboard::find_tldraw_fence(text)
+            .map(|(_, b)| text[b].trim().to_string())
+    }
+
+    /// 确保笔记里有 tldraw 围栏（没有就在文末补一个并保存），返回初始快照。
+    pub fn ensure_tldraw_fence(&mut self, cx: &mut Context<Self>) -> String {
+        let text = self.state.read(cx).text().to_string();
+        if let Some((_, b)) = crate::whiteboard::find_tldraw_fence(&text) {
+            return text[b].trim().to_string();
+        }
+        let id = format!("board-{}", now_compact());
+        let block =
+            format!("\n\n```tldraw id=\"{id}\" height=\"520\"\n{{}}\n```\n");
+        let next = text + &block;
+        self.state.update(cx, |ed, cx| ed.set_text(next.clone(), cx));
+        if let Err(e) = self.vault.write_note(&self.path, &next) {
+            eprintln!("[board] 写入围栏失败 {}: {e}", self.path.display());
+        }
+        self.dirty = false;
+        self.tldraw_snapshot(cx).unwrap_or_else(|| "{}".into())
+    }
+
+    /// 白板快照回写：重写围栏体（info 行逐字节保留）并落盘。
+    pub fn write_tldraw_snapshot(&mut self, body: &str, cx: &mut Context<Self>) {
+        let text = self.state.read(cx).text().to_string();
+        let Some((info, old)) = crate::whiteboard::find_tldraw_fence(&text) else {
+            return;
+        };
+        let info_line = text[info].to_string();
+        let mut next = String::with_capacity(text.len() + body.len());
+        next.push_str(&text[..old.start]);
+        next.push_str(body);
+        if !body.ends_with('\n') {
+            next.push('\n');
+        }
+        next.push_str(&text[old.end..]);
+        // 不变量：重写后围栏 info 行必须逐字节一致。
+        let preserved = crate::whiteboard::find_tldraw_fence(&next)
+            .map(|(info2, _)| next[info2] == info_line)
+            .unwrap_or(false);
+        if !preserved {
+            eprintln!("[board] 围栏 info 行未保留，跳过回写");
+            return;
+        }
+        self.state.update(cx, |ed, cx| ed.set_text(next.clone(), cx));
+        if let Err(e) = self.vault.write_note(&self.path, &next) {
+            eprintln!("[board] 回写失败 {}: {e}", self.path.display());
+            return;
+        }
+        self.dirty = false;
         cx.notify();
     }
 
@@ -166,6 +255,9 @@ impl Panel for NotePanel {
     fn set_active(&mut self, active: bool, window: &mut Window, cx: &mut Context<Self>) {
         if active {
             self.state.update(cx, |ed, cx| ed.focus(window, cx));
+            if let Some(f) = &self.on_activated {
+                f(cx);
+            }
         }
     }
 
@@ -179,13 +271,63 @@ impl Panel for NotePanel {
 
 impl Render for NotePanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        use gpui_component::button::{Button, ButtonVariants as _};
+        use gpui_component::{h_flex, v_flex, Sizable as _};
         div()
             .id("note-panel")
             .size_full()
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::on_paste_image))
             .text_size(px(16.))
-            .child(self.state.clone())
+            .child(
+                v_flex()
+                    .size_full()
+                    .child(
+                        h_flex()
+                            .px_2()
+                            .py_1()
+                            .gap_2()
+                            .border_b_1()
+                            .border_color(cx.theme().border)
+                            .child(
+                                Button::new("proofread")
+                                    .label("中文校对")
+                                    .xsmall()
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.proofread(window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("open-board")
+                                    .label("白板")
+                                    .xsmall()
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        let snapshot = this.ensure_tldraw_fence(cx);
+                                        let weak = cx.entity().downgrade();
+                                        let title = this.title.clone();
+                                        crate::whiteboard::open_board(
+                                            weak,
+                                            title,
+                                            snapshot,
+                                            cx,
+                                        );
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(if self.proof_issues > 0 {
+                                        format!("{} 处建议（波浪线标注，右键查看）", self.proof_issues)
+                                    } else {
+                                        String::new()
+                                    }),
+                            ),
+                    )
+                    .child(self.state.clone()),
+            )
     }
 }
 

@@ -58,7 +58,23 @@ cargo run -p spike -- webview    # 检查点④ tldraw 白板快照回写闭环�
 | 后端迁移批次2 | 🟩 **+4.6K 行全绿（core 共 12,913 行 / 16 模块）**：github_sync（纯去壳）、convert（Pandoc 之外的 docx/xlsx/pdf/html 全格式，补 chardetng/encoding_rs/quick-xml/calamine/zip/csv/htmd/pdf-extract 依赖）、integrations（MCP 路径/Claude Desktop 配置，AppHandle→dirs::home_dir）、watcher（notify 防抖监听，emit→sink）；dev_bridge 暂缓（eval 驱动 Vue UI 无 GPUI 等价物，P3 重设计） |
 | 后端迁移批次3 | 🟩 **+4.4K 行全绿（core 封顶：21 模块 / 17,324 行）**：recipes（零耦合直搬）、cjk_proofread（纯去壳）、recipe_runner（RecipesState→Lazy 全局、fire/run_recipe/cron_loop 全链 sink 化）、workspace_index（IndexCtx{sink,data_dir} 注入，缓存迁 data_dir）；补 chrono/cron/globset/hex 依赖。**后端迁移完成**（砍 capture/rest/dev_bridge 已按决策排除） |
 | AI key 管理 | 🟩 Keys 右栏页：13 家 provider chips（● 已存/○ 未存）+ key 输入保存/清除；钥匙串与 Tauri 版互通（service="solomd"/user="ai-{provider}"，同机零迁移）；AI 助手/Keys 右栏分页切换 |
-| M2 待做 | core 功能逐个接 UI（同步/搜索/recipes 面板）、i18n |
+| 搜索右栏页 | 🟩 语义搜索（rag sqlite）优先、全文兜底（search_in_dir）；结果卡片（文件名+相关度/行号+摘要）；一键重建索引 |
+| 同步右栏页 | 🟩 GitHub token 存钥匙串、remote 关联（github_link_workspace）、状态查询（ahead/behind/dirty）、⬆推送/⬇拉取（冲突列表展示） |
+| Recipes 右栏页 | 🟩 列表（name/触发/摘要）+ ▶ 立即运行（recipes_run_now 全链 sink 事件泵）；空态引导写 YAML |
+| 中文校对 | 🟩 NotePanel 工具行「中文校对」按钮：cjk_proofread 全量检测 → 编辑器波浪线诊断 + 计数提示 |
+| tokio runtime 修复 | 🟩 **发现并修复迁移遗留的正确性缺口**：`tauri::async_runtime` → `tokio::task::spawn_blocking` 直译有隐含前提（Tauri 自带全局 runtime）；GPUI executor 线程上直调会 panic（sync 面板按钮/AI reqwest 流式均为潜伏崩溃）。新增 `core/rt.rs` 进程级 runtime（`rt::spawn_blocking`/`rt::spawn`，Handle 可任意线程调用），core 全部 ~40 处替换；宿主桥接模式 = `rt::spawn(fut).await`（JoinHandle 可在 GPUI executor 上 await）。core 测试套件修复编译阻塞（tempfile dev-dep、edition-2024 unsafe set_var）后 131/133 通过（2 个失败为迁移前遗留 fixture 缺失，与本修复无关） |
+| 历史右栏页 | 🟩 当前笔记 per-file 提交列表（sha/相对时间/作者）+ 展开内联 diff（+/−着色）+ 恢复此版本（回写磁盘，干净标签 2s 轮询自动重载）+ 初始化 Git 仓库 + 提交当前文件；走 `git_history::*_inner` + background_executor |
+| Pandoc 导出 | 🟩 工具栏「导出」浮层菜单（pandoc_detect 首开探测 + 版本/缺失提示）：DOCX/HTML/EPUB/ODT/RTF/LaTeX → `<vault>/exports/<stem>.<ext>`（core/pandoc.rs 自 src-tauri 去壳移植）；导出含未保存编辑（读编辑器缓冲） |
+| AI 面板 v2 | 🟩 provider/model/base_url 设置区（10 家 provider chips + 输入行，持久化 settings.json）+ ai_verify_key 测试连接（rt 桥接）+ 多轮对话（history 累积）+「附带当前笔记」上下文开关 + 每条回复复制/插入笔记；key 仍在 Keys 页管理 |
+| 活跃笔记跟踪 | 🟩 NotePanel::set_active 激活回调 → Workspace::note_activated（active_note/active_panel）→ 推送历史/AI/信息面板 |
+| 信息右栏页（大纲/反链/标签） | 🟩 三合一内部 tab：大纲 = 活跃缓冲标题解析（跳过围栏）+ 点击跳光标；反链 = workspace_index（lazy init + watcher 增量 + index-updated 事件泵），来源文件+行号+上下文，点击跳行；标签 = 全库 tag 计数，展开看文件列表 |
+| Agent 工具调用卡片 | 🟩 ai-panel 泵消费 ai-tool-call/ai-tool-result 事件：折叠卡（🔧/…/⚠ 状态），展开看参数与结果；工具续写文本自动开新块（saw_tools 区分 done 定稿策略）。core 侧 tools=None 默认发只读工具集（list_notes/read_note/search/get_backlinks/list_tags/get_outline/autogit_log/autogit_diff） |
+| Recipes 可视化编辑 | 🟩 表单编辑：名称/触发 chips（手动/保存/提交/定时/打标签，按触发显隐字段）/提示词/provider/model/base_url/tools/写开关/write_cap；save_recipe 生成 canonical YAML（编辑回写源文件，改名保留原 slug），支持新建/删除 |
+| 白板窗口 | 🟩 spike 检查点④产品化进 app：NotePanel「白板」按钮（无围栏自动文末建围栏）→ gpui-wry 独立窗口（Root + 标题栏）→ tldraw 防抖快照持续回写围栏体（内容去重 + info 行逐字节不变量校验，不过关不落盘）→ 落盘即存（脏态不受影响）。围栏解析升级：反引号长度自适应 |
+| 原生菜单 | 🟩 macOS 菜单栏：SoloMD(退出)/文件(新建 ⌘N/保存 ⌘S/关闭标签 ⌘W)/编辑(撤销/重做/剪切/拷贝/粘贴/全选，直派 gpui_editor 动作)/查看(⌘P 面板/⌘⇧T 主题)；ToggleTheme 提为全局 action |
+| 单实例 | 🟩 固定端口占位（127.0.0.1:45917），第二实例 bind 失败即退出 |
+| dev_bridge v3（GPUI 重设计） | 🟩 debug-only 原生命令 API（替代 Vue 时代的 JS eval 通道）：GET /ping、GET /state、POST /open_note、POST /run_recipe；Bearer token，`dev-bridge.port`/`dev-bridge.token` 写 `~/Library/Application Support/solomd-gpui/`；std 线程 TCP（不经 rt），UI 动作经 channel 由 Workspace 泵执行。冒烟：ping/state/open_note 全链路 + 鉴权拒绝 ✓ |
+| P3 待做 | 反链/大纲/标签面板 ✅、recipes 可视化编辑 ✅、Agent 工具卡片 ✅、白板 ✅、原生菜单/单实例 ✅、dev_bridge ✅ —— 剩余：打包签名（P4）、性能基线对照 |
 
 ## P1 进度
 

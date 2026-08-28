@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use gpui::{
     actions, div, px, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, Styled as _,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
     Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -23,7 +23,7 @@ use crate::note_panel::NotePanel;
 use crate::settings::Settings;
 use crate::vault::Vault;
 
-actions!(solomd, [TogglePalette, ClosePalette]);
+actions!(solomd, [TogglePalette, ClosePalette, ToggleTheme]);
 
 pub struct Workspace {
     vault: Vault,
@@ -46,7 +46,18 @@ pub struct Workspace {
     keys_panel: Option<Entity<crate::keys_panel::KeysPanel>>,
     search_panel: Option<Entity<crate::search_panel::SearchPanel>>,
     sync_panel: Option<Entity<crate::sync_panel::SyncPanel>>,
+    recipes_panel: Option<Entity<crate::recipes_panel::RecipesPanel>>,
+    history_panel: Option<Entity<crate::history_panel::HistoryPanel>>,
+    info_panel: Option<Entity<crate::info_panel::InfoPanel>>,
     right_tab: RightTab,
+    /// 当前活跃笔记（历史/AI/导出共用；由 NotePanel 激活回调驱动）。
+    active_note: Option<PathBuf>,
+    active_panel: Option<gpui::WeakEntity<NotePanel>>,
+    /// 导出浮层状态。
+    export_open: bool,
+    export_running: bool,
+    export_status: Option<SharedString>,
+    pandoc_status: Option<SharedString>,
     images: Rc<RefCell<ImageStore>>,
     mermaid: Rc<RefCell<MermaidStore>>,
 }
@@ -58,7 +69,20 @@ enum RightTab {
     Keys,
     Search,
     Sync,
+    Recipes,
+    History,
+    Info,
 }
+
+/// 导出菜单项（label, pandoc 输出扩展名）。
+const EXPORT_FORMATS: &[(&str, &str)] = &[
+    ("Word (.docx)", "docx"),
+    ("HTML (.html)", "html"),
+    ("EPUB (.epub)", "epub"),
+    ("ODT (.odt)", "odt"),
+    ("RTF (.rtf)", "rtf"),
+    ("LaTeX (.tex)", "tex"),
+];
 
 impl Workspace {
     pub fn new(vault: Vault, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -105,6 +129,9 @@ impl Workspace {
         })
         .detach();
 
+        // 信息面板（大纲/反链/标签）点条目 → 打开并跳行。
+        // （info_panel 懒创建，创建后在这里挂订阅。）
+
         // 外部变更轮询（多设备同步场景）：干净标签自动重载，脏标签不动（编辑器版本优先）。
         cx.spawn(async move |this, cx| {
             loop {
@@ -118,6 +145,25 @@ impl Workspace {
                         ws.file_tree.update(cx, |_, cx| cx.notify());
                     });
                 }
+            }
+        })
+        .detach();
+
+        // debug 调试桥：/state /open_note /run_recipe 的 UI 侧执行泵。
+        #[cfg(debug_assertions)]
+        cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(120))
+                .await;
+            let Some(entity) = this.upgrade() else { break };
+            while let Some(req) = crate::dev_bridge::try_recv() {
+                let crate::dev_bridge::DevRequest { action, reply } = req;
+                let v = entity
+                    .update_in(cx, |ws, window, cx| ws.handle_dev(action, window, cx))
+                    .unwrap_or_else(|_| {
+                        serde_json::json!({"ok": false, "error": "workspace update 失败"})
+                    });
+                let _ = reply.send(v);
             }
         })
         .detach();
@@ -141,7 +187,16 @@ impl Workspace {
             keys_panel: None,
             search_panel: None,
             sync_panel: None,
+            recipes_panel: None,
+            history_panel: None,
+            info_panel: None,
             right_tab: RightTab::None,
+            active_note: None,
+            active_panel: None,
+            export_open: false,
+            export_running: false,
+            export_status: None,
+            pandoc_status: None,
             mt_baseline,
             file_tree: file_tree.clone(),
             images: Rc::new(RefCell::new(ImageStore::new(
@@ -191,6 +246,7 @@ impl Workspace {
         // 已打开 → 激活该标签。
         if let Some(ix) = self.tabs.iter().position(|(p, _)| *p == path) {
             self.activate(ix, cx);
+            self.note_activated(path, cx);
             return;
         }
 
@@ -214,6 +270,17 @@ impl Workspace {
                         }
                         cx.notify();
                     });
+                }
+            }));
+        });
+
+        // 标签激活（打开/点击）→ 跟踪当前笔记。
+        let weak_ws = cx.entity().downgrade();
+        let active_path = path.clone();
+        panel.update(cx, |np, _| {
+            np.on_activated_notify(Box::new(move |app| {
+                if let Some(ws) = weak_ws.upgrade() {
+                    let _ = ws.update(app, |ws, cx| ws.note_activated(active_path.clone(), cx));
                 }
             }));
         });
@@ -338,6 +405,192 @@ impl Workspace {
             Err(e) => eprintln!("[new] {e}"),
         }
     }
+
+    /// 笔记激活（打开/点击标签）：更新跟踪状态并推送各右栏页。
+    fn note_activated(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.active_note = Some(path.clone());
+        self.active_panel = self
+            .tabs
+            .iter()
+            .find(|(p, _)| *p == path)
+            .map(|(_, panel)| panel.downgrade());
+        if let Some(hp) = &self.history_panel {
+            hp.update(cx, |h, cx| h.set_active(Some(path.clone()), cx));
+        }
+        if let Some(ip) = &self.info_panel {
+            let weak = self.active_panel.clone();
+            ip.update(cx, |i, cx| i.set_active(Some(path.clone()), weak, cx));
+        }
+        if let Some(ap) = &self.ai_panel {
+            ap.update(cx, |a, _| a.set_active_note(Some(path.clone())));
+            ap.update(cx, |a, _| a.set_insert_target(self.active_panel.clone()));
+        }
+    }
+
+    /// 打开笔记并跳到第 line 行（1-based，0 = 只打开）。
+    pub fn open_note_at(
+        &mut self,
+        path: PathBuf,
+        line: u32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_note(path.clone(), window, cx);
+        if line == 0 {
+            return;
+        }
+        if let Some((_, panel)) = self.tabs.iter().find(|(p, _)| *p == path) {
+            let text = self.vault.read_note(&path).unwrap_or_default();
+            let offset: usize = text.lines().take(line as usize).map(|l| l.len() + 1).sum();
+            let panel = panel.clone();
+            panel.update(cx, |np, cx| np.jump_to_offset(offset, window, cx));
+        }
+    }
+
+    /// debug 调试桥的动作执行（debug-only；见 dev_bridge.rs）。
+    #[cfg(debug_assertions)]
+    fn handle_dev(
+        &mut self,
+        action: crate::dev_bridge::DevAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> serde_json::Value {
+        use crate::dev_bridge::DevAction as DA;
+        match action {
+            DA::State => serde_json::json!({
+                "ok": true,
+                "vault": self.vault.root.display().to_string(),
+                "active_note":
+                    self.active_note.as_ref().map(|p| p.display().to_string()),
+                "tabs": self
+                    .tabs
+                    .iter()
+                    .map(|(p, _)| p.display().to_string())
+                    .collect::<Vec<_>>(),
+            }),
+            DA::OpenNote(path) => {
+                let p = PathBuf::from(&path);
+                let resolved = if p.is_absolute() { p } else { self.vault.resolve(&p) };
+                if !resolved.exists() {
+                    return serde_json::json!({
+                        "ok": false,
+                        "error": format!("文件不存在: {}", resolved.display())
+                    });
+                }
+                self.open_note(resolved, window, cx);
+                serde_json::json!({"ok": true})
+            }
+            DA::RunRecipe(slug) => {
+                let ws = self.vault.root.to_string_lossy().to_string();
+                let sink: std::sync::Arc<dyn solomd_core::deps::EventSink> =
+                    std::sync::Arc::new(solomd_core::deps::NullSink);
+                let slug2 = slug.clone();
+                cx.spawn(async move |_, cx| {
+                    let _ = cx
+                        .background_executor()
+                        .spawn(async move {
+                            let _ =
+                                solomd_core::recipe_runner::recipes_run_now(sink, ws, slug2)
+                                    .await;
+                        })
+                        .await;
+                })
+                .detach();
+                serde_json::json!({"ok": true, "started": slug})
+            }
+        }
+    }
+
+    /// 工具栏「导出」：开浮层 + 首次探测 pandoc。
+    fn toggle_export(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.export_open = !self.export_open;
+        if self.export_open && self.pandoc_status.is_none() {
+            cx.spawn_in(window, async move |this, cx| {
+                let info = cx
+                    .background_executor()
+                    .spawn(async move { solomd_core::pandoc::pandoc_detect() })
+                    .await;
+                let _ = this.update_in(cx, |ws, window, _cx| {
+                    ws.pandoc_status = Some(match info {
+                        Ok(Some(i)) => {
+                            SharedString::from(format!("pandoc {} · {}", i.version, i.path))
+                        }
+                        Ok(None) => "未检测到 pandoc（brew install pandoc）".into(),
+                        Err(e) => SharedString::from(format!("pandoc 检测失败：{e}")),
+                    });
+                    window.refresh();
+                });
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    /// 导出当前笔记（含未保存编辑）为指定格式，输出到 <vault>/exports/。
+    fn export_as(&mut self, ext: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.export_running {
+            return;
+        }
+        let Some(path) = self.active_note.clone() else {
+            self.export_status = Some("没有打开的笔记".into());
+            cx.notify();
+            return;
+        };
+        let Some(panel) = self.active_panel.clone() else {
+            self.export_status = Some("没有打开的笔记".into());
+            cx.notify();
+            return;
+        };
+        // 未保存内容一并导出（读编辑器缓冲，不是磁盘）。
+        let text = match panel.update(cx, |np, cx| np.state.read(cx).text().to_string()) {
+            Ok(t) => t,
+            Err(_) => {
+                self.export_status = Some("笔记面板已关闭".into());
+                cx.notify();
+                return;
+            }
+        };
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "note".into());
+        let out_dir = self.vault.root.join("exports");
+        let out_path = out_dir.join(format!("{stem}.{ext}"));
+        let out_display = out_path.to_string_lossy().to_string();
+        let out_path_str = out_display.clone();
+
+        self.export_running = true;
+        self.export_status = Some(SharedString::from(format!("导出 {ext} 中…")));
+        self.export_open = false;
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let r = cx
+                .background_executor()
+                .spawn(async move {
+                    let _ = std::fs::create_dir_all(&out_dir);
+                    solomd_core::pandoc::pandoc_export_inner(solomd_core::pandoc::ExportArgs {
+                        input_markdown: text,
+                        format: ext.clone(),
+                        output_path: out_path_str,
+                        bibliography: None,
+                        csl: None,
+                        template: None,
+                        extra_args: Vec::new(),
+                    })
+                })
+                .await;
+            let _ = this.update_in(cx, |ws, window, _cx| {
+                ws.export_running = false;
+                ws.export_status = Some(match r {
+                    Ok(()) => SharedString::from(format!("已导出 {out_display}")),
+                    Err(e) => SharedString::from(format!("导出失败：{e}")),
+                });
+                window.refresh();
+            });
+        })
+        .detach();
+    }
 }
 
 impl Render for Workspace {
@@ -361,6 +614,9 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &ClosePalette, _, cx| {
                 this.close_palette(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleTheme, window, cx| {
+                this.toggle_theme(window, cx);
             }))
             .child(
                 h_flex()
@@ -405,6 +661,14 @@ impl Render for Workspace {
                                             cx,
                                         )
                                     }));
+                                    if let Some(ap) = &this.ai_panel {
+                                        let note = this.active_note.clone();
+                                        let target = this.active_panel.clone();
+                                        ap.update(cx, |a, _| {
+                                            a.set_active_note(note);
+                                            a.set_insert_target(target);
+                                        });
+                                    }
                                 }
                                 cx.notify();
                             })),
@@ -424,6 +688,31 @@ impl Render for Workspace {
                                     this.search_panel = Some(cx.new(|cx| {
                                         crate::search_panel::SearchPanel::new(
                                             this.vault.root.clone(),
+                                            window,
+                                            cx,
+                                        )
+                                    }));
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("recipes-panel")
+                            .label("Recipes")
+                            .xsmall()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.right_tab = if this.right_tab == RightTab::Recipes {
+                                    RightTab::None
+                                } else {
+                                    RightTab::Recipes
+                                };
+                                if this.recipes_panel.is_none()
+                                    && this.right_tab == RightTab::Recipes
+                                {
+                                    this.recipes_panel = Some(cx.new(|cx| {
+                                        crate::recipes_panel::RecipesPanel::new(
+                                            this.vault.clone(),
                                             window,
                                             cx,
                                         )
@@ -475,6 +764,80 @@ impl Render for Workspace {
                             })),
                     )
                     .child(
+                        Button::new("info-panel")
+                            .label(if self.right_tab == RightTab::Info { "信息 ▾" } else { "信息" })
+                            .xsmall()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.right_tab = if this.right_tab == RightTab::Info {
+                                    RightTab::None
+                                } else {
+                                    RightTab::Info
+                                };
+                                if this.info_panel.is_none() && this.right_tab == RightTab::Info {
+                                    let panel = cx.new(|cx| {
+                                        crate::info_panel::InfoPanel::new(
+                                            this.vault.clone(),
+                                            window,
+                                            cx,
+                                        )
+                                    });
+                                    let note = this.active_note.clone();
+                                    let weak = this.active_panel.clone();
+                                    panel.update(cx, |i, cx| i.set_active(note, weak, cx));
+                                    this.info_panel = Some(panel.clone());
+                                    // 条目点击 → 打开笔记并跳行。
+                                    cx.subscribe_in(
+                                        &panel,
+                                        window,
+                                        |this, _, ev: &crate::info_panel::InfoEvent, window, cx| {
+                                            match ev {
+                                                crate::info_panel::InfoEvent::OpenNote { path, line } => {
+                                                    this.open_note_at(
+                                                        path.clone(),
+                                                        *line,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                }
+                                            }
+                                        },
+                                    )
+                                    .detach();
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("history-panel")
+                            .label(if self.right_tab == RightTab::History { "历史 ▾" } else { "历史" })
+                            .xsmall()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.right_tab = if this.right_tab == RightTab::History {
+                                    RightTab::None
+                                } else {
+                                    RightTab::History
+                                };
+                                if this.history_panel.is_none()
+                                    && this.right_tab == RightTab::History
+                                {
+                                    this.history_panel = Some(cx.new(|cx| {
+                                        crate::history_panel::HistoryPanel::new(
+                                            this.vault.clone(),
+                                            window,
+                                            cx,
+                                        )
+                                    }));
+                                    let note = this.active_note.clone();
+                                    if let Some(hp) = &this.history_panel {
+                                        hp.update(cx, |h, cx| h.set_active(note, cx));
+                                    }
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(
                         Button::new("toggle-theme")
                             .label(if self.dark { "☀ 浅色" } else { "🌙 深色" })
                             .xsmall()
@@ -482,6 +845,26 @@ impl Render for Workspace {
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.toggle_theme(window, cx);
                             })),
+                    )
+                    .child(
+                        Button::new("export")
+                            .label(if self.export_open { "导出 ▾" } else { "导出" })
+                            .xsmall()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_export(window, cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .truncate()
+                                    .child(self.export_status.clone().unwrap_or_default()),
+                            ),
                     ),
             )
             .child(
@@ -511,6 +894,21 @@ impl Render for Workspace {
                                 .unwrap_or_else(|| div().into_any_element()),
                             RightTab::Sync => self
                                 .sync_panel
+                                .as_ref()
+                                .map(|p| p.clone().into_any_element())
+                                .unwrap_or_else(|| div().into_any_element()),
+                            RightTab::Recipes => self
+                                .recipes_panel
+                                .as_ref()
+                                .map(|p| p.clone().into_any_element())
+                                .unwrap_or_else(|| div().into_any_element()),
+                            RightTab::History => self
+                                .history_panel
+                                .as_ref()
+                                .map(|p| p.clone().into_any_element())
+                                .unwrap_or_else(|| div().into_any_element()),
+                            RightTab::Info => self
+                                .info_panel
                                 .as_ref()
                                 .map(|p| p.clone().into_any_element())
                                 .unwrap_or_else(|| div().into_any_element()),
@@ -545,8 +943,103 @@ impl Render for Workspace {
             // 浮层必须是最后一个 child：GPUI 后画的盖先画的，
             // 否则卡片被不透明的 dock 区域盖住（只有无背景的顶栏透出遮罩）。
             .child(self.render_palette_overlay(window, cx))
+            .child(self.render_export_overlay(window, cx))
     }
 
+}
+
+impl Workspace {
+    /// 导出浮层：半透明遮罩 + 居中卡片（pandoc 状态 + 格式列表）。
+    fn render_export_overlay(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.export_open {
+            return div().into_any_element();
+        }
+        let theme = cx.theme().clone();
+
+        let mut list = v_flex().gap_0p5();
+        for (label, ext) in EXPORT_FORMATS {
+            let ext = ext.to_string();
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("export-{ext}")))
+                    .px_3()
+                    .py_1p5()
+                    .rounded_md()
+                    .text_sm()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme.accent.opacity(0.12)))
+                    .on_click({
+                        let ext = ext.clone();
+                        cx.listener(move |this, _, window, cx| {
+                            this.export_as(ext.clone(), window, cx);
+                        })
+                    })
+                    .child(*label),
+            );
+        }
+
+        div()
+            .absolute()
+            .inset_0()
+            .bg(gpui::black().opacity(0.25))
+            .on_mouse_down(gpui::MouseButton::Left, {
+                let this = cx.weak_entity();
+                move |_, _, cx| {
+                    let _ = this.update(cx, |ws, cx| {
+                        ws.export_open = false;
+                        cx.notify();
+                    });
+                }
+            })
+            .child(
+                div()
+                    .absolute()
+                    .left(px(160.))
+                    .w(px(320.))
+                    .top(px(72.))
+                    .flex()
+                    .flex_col()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.background)
+                    .shadow_lg()
+                    .overflow_hidden()
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .child(
+                        div()
+                            .p_2()
+                            .border_b_1()
+                            .border_color(theme.border)
+                            .child(
+                                v_flex()
+                                    .gap_0p5()
+                                    .child(
+                                        div()
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                            .text_sm()
+                                            .child("导出当前笔记（Pandoc）"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme.muted_foreground)
+                                            .child(
+                                                self.export_status.clone().unwrap_or_else(|| {
+                                                    self.pandoc_status
+                                                        .clone()
+                                                        .unwrap_or_else(|| "检测 pandoc…".into())
+                                                }),
+                                            ),
+                                    ),
+                            ),
+                    )
+                    .child(div().p_1().child(list)),
+            )
+            .into_any_element()
+    }
 }
 
 impl Workspace {

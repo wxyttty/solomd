@@ -61,7 +61,7 @@ impl SearchPanel {
                         })
                         .collect(),
                     Err(e) => {
-                        let _ = this.update_in(cx, |panel, window, cx| {
+                        let _ = this.update_in(cx, |panel, window, _cx| {
                             panel.status = SharedString::from(format!("错误：{e}"));
                             window.refresh();
                         });
@@ -70,7 +70,7 @@ impl SearchPanel {
                 },
             };
             let n = hits.len();
-            let _ = this.update_in(cx, |panel, window, cx| {
+            let _ = this.update_in(cx, |panel, window, _cx| {
                 panel.status = SharedString::from(format!("{n} 条结果"));
                 panel.hits = hits;
                 window.refresh();
@@ -109,6 +109,13 @@ impl Render for SearchPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut results: Vec<gpui::AnyElement> = Vec::new();
         for (ix, hit) in self.hits.iter().enumerate() {
+            let name = SharedString::from(hit.name.clone());
+            let meta = SharedString::from(if hit.score > 0.0 {
+                format!("相关度 {:.2}", hit.score)
+            } else {
+                format!("行 {}", hit.chunk_idx + 1)
+            });
+            let snippet = SharedString::from(hit.snippet.chars().take(140).collect::<String>());
             results.push(
                 div()
                     .id(SharedString::from(format!("hit-{ix}")))
@@ -120,22 +127,21 @@ impl Render for SearchPanel {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .child(format!(
-                                "{} · {}",
-                                hit.name,
-                                if hit.score > 0.0 {
-                                    format!("相关度 {:.2}", hit.score)
-                                } else {
-                                    format!("行 {}", hit.chunk_idx + 1)
-                                }
-                            )),
+                            .child(name),
                     )
                     .child(
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(hit.snippet.chars().take(140).collect::<String>()),
-                    ),
+                            .child(snippet),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(meta),
+                    )
+                    .into_any_element(),
             );
         }
 
