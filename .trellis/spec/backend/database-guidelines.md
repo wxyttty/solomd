@@ -1,51 +1,6 @@
-# Database Guidelines
+# Database Guidelines（rag 索引）
 
-> Database patterns and conventions for this project.
-
----
-
-## Overview
-
-<!--
-Document your project's database conventions here.
-
-Questions to answer:
-- What ORM/query library do you use?
-- How are migrations managed?
-- What are the naming conventions for tables/columns?
-- How do you handle transactions?
--->
-
-(To be filled by the team)
-
----
-
-## Query Patterns
-
-<!-- How should queries be written? Batch operations? -->
-
-(To be filled by the team)
-
----
-
-## Migrations
-
-<!-- How to create and run migrations -->
-
-(To be filled by the team)
-
----
-
-## Naming Conventions
-
-<!-- Table names, column names, index names -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Database-related mistakes your team has made -->
-
-(To be filled by the team)
+- rusqlite bundled（免系统 sqlite 依赖），版本对齐原 lockfile（0.32, features bundled+blob）
+- 库文件位置：`<workspace>/.solomd/` 下（随 vault 走）；全局缓存用注入的 `data_dir`
+- 连接即用即开（本地单文件，不池化）；嵌入计算在 `spawn_blocking`
+- schema 变更走 index_version 字段判断重建（沿用 rag.rs 现状）

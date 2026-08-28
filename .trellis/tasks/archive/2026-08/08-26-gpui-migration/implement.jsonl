@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/solomd-core-guidelines.md", "reason": "core 接缝与迁移模式（EventSink/CorePaths/事件解耦）"}
+{"file": ".trellis/spec/frontend/gpui-guidelines.md", "reason": "依赖锁步/API 版本纪律/事件泵/主题规范"}
+{"file": ".trellis/spec/frontend/editor-guidelines.md", "reason": "zorite gpui-editor 集成约定"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "右栏页/Dock 面板标准写法"}
+{"file": "docs/gpui-migration-plan.md", "reason": "迁移计划全文（阶段/风险/证据链）"}

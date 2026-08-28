@@ -1,51 +1,6 @@
-# Logging Guidelines
+# Logging Guidelines（solomd-core）
 
-> How logging is done in this project.
-
----
-
-## Overview
-
-<!--
-Document your project's logging conventions here.
-
-Questions to answer:
-- What logging library do you use?
-- What are the log levels and when to use each?
-- What should be logged?
-- What should NOT be logged (PII, secrets)?
--->
-
-(To be filled by the team)
-
----
-
-## Log Levels
-
-<!-- When to use each level: debug, info, warn, error -->
-
-(To be filled by the team)
-
----
-
-## Structured Logging
-
-<!-- Log format, required fields -->
-
-(To be filled by the team)
-
----
-
-## What to Log
-
-<!-- Important events to log -->
-
-(To be filled by the team)
-
----
-
-## What NOT to Log
-
-<!-- Sensitive data, PII, secrets -->
-
-(To be filled by the team)
+- `eprintln!` 为主（原壳迁移产物），`tracing` 已引入可逐步统一
+- 前缀约定：core 内模块名打头（`[ipc]` `[fence]` `[mermaid]`）；UI 侧泵类
+  `[sync]` `[poll]`——stdout 可 grep 是硬要求
+- 只记关键路径与失败；循环内高频事件（每 chunk）不打

@@ -1,51 +1,8 @@
-# Error Handling
+# Error Handling（solomd-core）
 
-> How errors are handled in this project.
-
----
-
-## Overview
-
-<!--
-Document your project's error handling conventions here.
-
-Questions to answer:
-- What error types do you define?
-- How are errors propagated?
-- How are errors logged?
-- How are errors returned to clients?
--->
-
-(To be filled by the team)
-
----
-
-## Error Types
-
-<!-- Custom error classes/types -->
-
-(To be filled by the team)
-
----
-
-## Error Handling Patterns
-
-<!-- Try-catch patterns, error propagation -->
-
-(To be filled by the team)
-
----
-
-## API Error Responses
-
-<!-- Standard error response format -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Error handling mistakes your team has made -->
-
-(To be filled by the team)
+- 对外 API（UI 直接调用的 pub fn）：`Result<T, String>`，错误消息中文化可直显
+- 内层工具函数：`anyhow::Result` / `Option`，入口处 `.map_err(|e| e.to_string())`
+- 检测类函数不可失败（如 cjk proofread）：返回 `Vec` 空 vec，不包 Result
+- IO/解码失败不 panic：`let _ =` 或 `.ok()` 吞掉并打日志；写盘失败必须 eprintln 留痕
+- 解码类加资源上限（image 512MB limits 防解压炸弹）
+- spawn_blocking 的 join 错误统一 `.map_err(|e| format!("join: {e}"))?`

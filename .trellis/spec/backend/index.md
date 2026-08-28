@@ -1,12 +1,15 @@
-# Backend Development Guidelines
+# Backend Development Guidelines（solomd-core）
 
-> Best practices for backend development in this project.
+> 后端 = `gpui/crates/core`（solomd-core crate），UI 无关的纯 Rust 业务库。
+> 自 Tauri 壳迁移而来，tauri 代码依赖为零。
 
 ---
 
 ## Overview
 
-This directory contains guidelines for backend development. Fill in each file with your project's specific conventions.
+solomd-core 承载全部业务逻辑：AI 代理（14 家供应商流式）、agent 运行/工具、
+Git 历史、GitHub/Gitea 同步、语义索引（rag）、recipes、中文校对、加密、成本计量。
+UI 层（GPUI / 未来 CLI / 测试）通过两个注入 trait 驱动它。
 
 ---
 
@@ -14,25 +17,13 @@ This directory contains guidelines for backend development. Fill in each file wi
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | To fill |
-| [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
+| [solomd-core Guidelines](./solomd-core-guidelines.md) | 注入接缝、模块迁移模式、事件协议 | **Filled** |
+| [Directory Structure](./directory-structure.md) | 模块组织（沿用原文件名一一对应） | Filled |
+| [Error Handling](./error-handling.md) | `Result<_, String>` 约定（沿用原壳） | Filled |
+| [Database Guidelines](./database-guidelines.md) | rusqlite（rag 索引）本地库约定 | Filled |
+| [Quality Guidelines](./quality-guidelines.md) | 禁止模式与升级流程 | Filled |
+| [Logging Guidelines](./logging-guidelines.md) | eprintln/tracing 约定 | Filled |
 
 ---
 
-## How to Fill These Guidelines
-
-For each guideline file:
-
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
-
----
-
-**Language**: All documentation should be written in **English**.
+**Language**: 中文（自用 fork 决策，2026-08-26；模板默认英文已覆盖）。

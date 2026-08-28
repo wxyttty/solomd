@@ -1,12 +1,8 @@
-# Frontend Development Guidelines
+# Frontend Development Guidelines（GPUI 桌面应用）
 
-> Best practices for frontend development in this project.
-
----
-
-## Overview
-
-This directory contains guidelines for frontend development. Fill in each file with your project's specific conventions.
+> 前端 = `gpui/crates/app`（solomd 二进制）+ `crates/spike` 实验室。
+> UI 框架：GPUI（zed）+ gpui-component@1505b14 + zorite gpui-editor。
+> 全部中文硬编码（自用决策，无 i18n 层）。
 
 ---
 
@@ -14,26 +10,13 @@ This directory contains guidelines for frontend development. Fill in each file w
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | To fill |
-| [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | To fill |
-| [State Management](./state-management.md) | Local state, global state, server state | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Type Safety](./type-safety.md) | Type patterns, validation | To fill |
+| [gpui-guidelines.md](./gpui-guidelines.md) | 依赖锁步、实体/面板模式、事件泵、主题、已知边界 | **Filled** |
+| [editor-guidelines.md](./editor-guidelines.md) | zorite gpui-editor 集成约定（providers/events/diagnostics） | **Filled** |
+| [directory-structure.md](./directory-structure.md) | crate 结构与模块职责 | Filled |
+| [component-guidelines.md](./component-guidelines.md) | 右栏页/Dock 面板模式 | Filled |
+| [quality-guidelines.md](./quality-guidelines.md) | 禁止模式与冒烟流程 | Filled |
+
+其余模板文件（hook-guidelines / state-management / type-safety）为 Vue 时代遗留桩，
+**已过时未删除**（避免误删授权），以本目录 GPUI 文件为准，勿参考旧桩。
 
 ---
-
-## How to Fill These Guidelines
-
-For each guideline file:
-
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
-
----
-
-**Language**: All documentation should be written in **English**.
