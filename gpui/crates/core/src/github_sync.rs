@@ -455,7 +455,7 @@ pub async fn github_link_workspace(
     }
     let encrypted = encrypted.unwrap_or(false);
     let provider = provider.unwrap_or_else(default_provider);
-    tokio::task::spawn_blocking(move || -> Result<SyncConfig, String> {
+    crate::rt::spawn_blocking(move || -> Result<SyncConfig, String> {
         let path = PathBuf::from(&folder);
         // The git repo lives in the shadow when E2EE is on, otherwise in
         // the workspace itself. The init also creates the shadow dir on
@@ -504,7 +504,7 @@ pub async fn github_set_config(
     auto_push: bool,
     auto_pull_minutes: u32,
 ) -> Result<SyncConfig, String> {
-    tokio::task::spawn_blocking(move || -> Result<SyncConfig, String> {
+    crate::rt::spawn_blocking(move || -> Result<SyncConfig, String> {
         let path = PathBuf::from(&folder);
         let mut cfg = load_config(&path)?
             .ok_or("workspace not linked")?;
@@ -544,7 +544,7 @@ pub async fn github_enable_encryption(
     folder: String,
     passphrase: String,
 ) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || -> Result<(), String> {
+    crate::rt::spawn_blocking(move || -> Result<(), String> {
         let path = PathBuf::from(&folder);
         let cfg = load_config(&path)?
             .ok_or("workspace is not linked to a remote")?;
@@ -640,7 +640,7 @@ pub async fn github_enable_encryption(
 }
 
 pub async fn github_unlink_workspace(folder: String) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || -> Result<(), String> {
+    crate::rt::spawn_blocking(move || -> Result<(), String> {
         let path = PathBuf::from(&folder);
         let repo_dir = git_dir(&path)?;
         if let Ok(repo) = Repository::open(&repo_dir) {
@@ -678,7 +678,7 @@ pub struct SyncStatus {
 }
 
 pub async fn github_sync_status(folder: String) -> Result<SyncStatus, String> {
-    tokio::task::spawn_blocking(move || -> Result<SyncStatus, String> {
+    crate::rt::spawn_blocking(move || -> Result<SyncStatus, String> {
         let path = PathBuf::from(&folder);
         let cfg = load_config(&path)?.unwrap_or_default();
         let mut status = SyncStatus {
@@ -1113,7 +1113,7 @@ pub async fn github_push(
         "gitea" => gitea_read_token()?.ok_or("no Gitea token set")?,
         _ => read_token()?.ok_or("no GitHub token set")?,
     };
-    tokio::task::spawn_blocking(move || github_push_inner(folder, token, commit_message))
+    crate::rt::spawn_blocking(move || github_push_inner(folder, token, commit_message))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -1363,7 +1363,7 @@ pub async fn github_pull(folder: String) -> Result<PullResult, String> {
         "gitea" => gitea_read_token()?.ok_or("no Gitea token set")?,
         _ => read_token()?.ok_or("no GitHub token set")?,
     };
-    tokio::task::spawn_blocking(move || github_pull_inner(folder, token))
+    crate::rt::spawn_blocking(move || github_pull_inner(folder, token))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -1387,7 +1387,7 @@ pub async fn github_resolve_conflict(
     file: String,
     choice: String, // "local" | "remote" | "both"
 ) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || -> Result<(), String> {
+    crate::rt::spawn_blocking(move || -> Result<(), String> {
         let path = PathBuf::from(&folder);
         let repo = Repository::open(&path).map_err(|e| e.to_string())?;
         let mut index = repo.index().map_err(|e| e.to_string())?;

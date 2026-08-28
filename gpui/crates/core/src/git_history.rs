@@ -352,7 +352,7 @@ pub fn git_workspace_status_inner(folder: String) -> Result<WorkspaceStatus, Str
 }
 
 pub async fn git_workspace_status(folder: String) -> Result<WorkspaceStatus, String> {
-    tokio::task::spawn_blocking(move || git_workspace_status_inner(folder))
+    crate::rt::spawn_blocking(move || git_workspace_status_inner(folder))
         .await
         .map_err(|e| format!("join: {e}"))?
 }
@@ -395,7 +395,7 @@ pub async fn git_init_workspace(
     initial_message: Option<String>,
     exclude_assets: Option<bool>,
 ) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || {
+    crate::rt::spawn_blocking(move || {
         git_init_workspace_inner(folder, initial_message, exclude_assets)
     })
     .await
@@ -429,7 +429,7 @@ pub async fn git_auto_commit(
     message: Option<String>,
 ) -> Result<Option<String>, String> {
     let folder_for_event = folder.clone();
-    let result = tokio::task::spawn_blocking(move || {
+    let result = crate::rt::spawn_blocking(move || {
         git_auto_commit_inner(folder, file_path, message)
     })
     .await
@@ -502,7 +502,7 @@ pub async fn git_file_history(
     file_path: String,
     limit: u32,
 ) -> Result<Vec<CommitMeta>, String> {
-    tokio::task::spawn_blocking(move || {
+    crate::rt::spawn_blocking(move || {
         git_file_history_inner(folder, file_path, limit)
     })
     .await
@@ -649,7 +649,7 @@ pub async fn git_file_diff(
     file_path: String,
     sha: String,
 ) -> Result<DiffResult, String> {
-    tokio::task::spawn_blocking(move || {
+    crate::rt::spawn_blocking(move || {
         git_file_diff_inner(folder, file_path, sha)
     })
     .await
@@ -685,7 +685,7 @@ pub async fn git_file_at_version(
     file_path: String,
     sha: String,
 ) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || {
+    crate::rt::spawn_blocking(move || {
         git_file_at_version_inner(folder, file_path, sha)
     })
     .await
@@ -707,7 +707,7 @@ pub async fn git_rollback_file(
     file_path: String,
     sha: String,
 ) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || {
+    crate::rt::spawn_blocking(move || {
         git_rollback_file_inner(folder, file_path, sha)
     })
     .await

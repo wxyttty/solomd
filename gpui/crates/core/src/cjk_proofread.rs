@@ -81,7 +81,7 @@ pub struct Issue {
 /// an empty vec; pure-ASCII text likewise (zero CJK = nothing to
 /// proofread).
 pub async fn cjk_proofread(text: String) -> Vec<Issue> {
-    tokio::task::spawn_blocking(move || proofread(&text))
+    crate::rt::spawn_blocking(move || proofread(&text))
         .await
         .unwrap_or_default()
 }

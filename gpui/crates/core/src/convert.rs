@@ -29,7 +29,7 @@ use encoding_rs::UTF_8;
 
 /// Main entry point. Returns Markdown string or error.
 pub async fn convert_file_to_markdown(path: String) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || convert_file_to_markdown_inner(path))
+    crate::rt::spawn_blocking(move || convert_file_to_markdown_inner(path))
         .await
         .map_err(|e| format!("join: {e}"))?
 }

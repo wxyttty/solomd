@@ -134,7 +134,7 @@ static PENDING: Lazy<Mutex<HashMap<PathBuf, SystemTime>>> =
 // ---------------------------------------------------------------------------
 
 pub async fn workspace_index_init(ctx: IndexCtx, folder: String) -> Result<usize, String> {
-    tokio::task::spawn_blocking(move || workspace_index_init_inner(ctx, folder))
+    crate::rt::spawn_blocking(move || workspace_index_init_inner(ctx, folder))
         .await
         .map_err(|e| format!("join: {e}"))?
 }
@@ -363,7 +363,7 @@ pub fn workspace_index_resolve(name: String) -> Result<Option<String>, String> {
 }
 
 pub async fn workspace_index_rescan(ctx: IndexCtx) -> Result<usize, String> {
-    tokio::task::spawn_blocking(move || workspace_index_rescan_inner(ctx))
+    crate::rt::spawn_blocking(move || workspace_index_rescan_inner(ctx))
         .await
         .map_err(|e| format!("join: {e}"))?
 }

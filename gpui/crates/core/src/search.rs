@@ -34,7 +34,7 @@ pub async fn search_in_dir(
     query: String,
     max_results: usize,
 ) -> Result<Vec<SearchHit>, String> {
-    tokio::task::spawn_blocking(move || search_in_dir_inner(root, query, max_results))
+    crate::rt::spawn_blocking(move || search_in_dir_inner(root, query, max_results))
         .await
         .map_err(|e| format!("join: {e}"))?
 }

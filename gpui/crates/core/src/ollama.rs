@@ -428,7 +428,7 @@ mod tests {
     async fn serve_fixture(body: &'static str, status_line: &'static str) -> SocketAddr {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
+        crate::rt::spawn(async move {
             // Serve up to 4 requests so the same fixture can answer
             // /api/tags + /api/version probes inside one detect() call.
             for _ in 0..4 {
@@ -453,7 +453,7 @@ mod tests {
     async fn serve_blackhole() -> SocketAddr {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
+        crate::rt::spawn(async move {
             loop {
                 let Ok((mut socket, _)) = listener.accept().await else {
                     return;
@@ -478,13 +478,14 @@ mod tests {
         fn set(url: String) -> Self {
             static LOCK: Lazy<std::sync::Mutex<()>> = Lazy::new(|| std::sync::Mutex::new(()));
             let lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-            std::env::set_var("SOLOMD_OLLAMA_BASE_URL", url);
+            // SAFETY: 测试线程串行（EnvGuard 互斥锁），无并发读其他 env 的 UB 面。
+            unsafe { std::env::set_var("SOLOMD_OLLAMA_BASE_URL", url) };
             EnvGuard { _lock: lock }
         }
     }
     impl Drop for EnvGuard {
         fn drop(&mut self) {
-            std::env::remove_var("SOLOMD_OLLAMA_BASE_URL");
+            unsafe { std::env::remove_var("SOLOMD_OLLAMA_BASE_URL") };
         }
     }
 

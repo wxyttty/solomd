@@ -789,19 +789,19 @@ fn ensure_gitignore(folder: &Path) {
 // ---------------------------------------------------------------------------
 
 pub async fn rag_set_enabled(folder: String, enabled: bool) -> Result<RagStatus, String> {
-    tokio::task::spawn_blocking(move || rag_set_enabled_inner(folder, enabled))
+    crate::rt::spawn_blocking(move || rag_set_enabled_inner(folder, enabled))
         .await
         .map_err(|e| format!("join: {e}"))?
 }
 
 pub async fn rag_index_status(folder: String) -> Result<RagStatus, String> {
-    tokio::task::spawn_blocking(move || rag_index_status_inner(folder))
+    crate::rt::spawn_blocking(move || rag_index_status_inner(folder))
         .await
         .map_err(|e| format!("join: {e}"))?
 }
 
 pub async fn rag_reindex(folder: String) -> Result<RagStatus, String> {
-    tokio::task::spawn_blocking(move || rag_reindex_inner(folder))
+    crate::rt::spawn_blocking(move || rag_reindex_inner(folder))
         .await
         .map_err(|e| format!("join: {e}"))?
 }
@@ -818,13 +818,13 @@ pub async fn rag_search(args: SearchArgs) -> Result<Vec<RagHit>, String> {
     let lim = args.limit.unwrap_or(20);
     let folder = args.folder;
     let query = args.query;
-    tokio::task::spawn_blocking(move || rag_search_inner(folder, query, lim))
+    crate::rt::spawn_blocking(move || rag_search_inner(folder, query, lim))
         .await
         .map_err(|e| format!("join: {e}"))?
 }
 
 pub async fn rag_reindex_file(folder: String, file_path: String) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || rag_reindex_file_inner(folder, file_path))
+    crate::rt::spawn_blocking(move || rag_reindex_file_inner(folder, file_path))
         .await
         .map_err(|e| format!("join: {e}"))?
 }

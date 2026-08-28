@@ -142,7 +142,7 @@ pub fn cli_status_inner() -> Result<CliStatus, String> {
 }
 
 pub async fn cli_status() -> Result<CliStatus, String> {
-    tokio::task::spawn_blocking(cli_status_inner)
+    crate::rt::spawn_blocking(cli_status_inner)
         .await
         .map_err(|e| format!("join: {e}"))?
 }

@@ -1108,7 +1108,7 @@ pub async fn dispatch_tool(workspace: &Path, tool: &str, args: Value) -> Result<
     let tool = tool.to_string();
     // Each tool is sync filesystem work — bounce through spawn_blocking so
     // we don't park the streaming Tokio runtime on a slow disk read.
-    tokio::task::spawn_blocking(move || dispatch_tool_inner(&workspace, &tool, args))
+    crate::rt::spawn_blocking(move || dispatch_tool_inner(&workspace, &tool, args))
         .await
         .map_err(|e| format!("dispatch join: {e}"))?
 }
@@ -1146,7 +1146,7 @@ pub fn dispatch_tool_inner(workspace: &Path, tool: &str, args: Value) -> Result<
 /// Returns each run's meta.json (sorted by started_at desc). Used by the
 /// AI Settings "recent runs" section.
 pub async fn agent_list_runs(workspace: String) -> Result<Vec<Value>, String> {
-    tokio::task::spawn_blocking(move || agent_list_runs_inner(workspace))
+    crate::rt::spawn_blocking(move || agent_list_runs_inner(workspace))
         .await
         .map_err(|e| format!("join: {e}"))?
 }

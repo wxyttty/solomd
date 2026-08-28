@@ -4,10 +4,12 @@
 //! - 原 `#[tauri::command] fn xxx(app: AppHandle, ...)` → `pub fn xxx(sink, paths, ...)`
 //!   或拆成 `_inner` 纯函数 + 薄入口；
 //! - `app.emit("solomd://topic", payload)` → `sink.emit("topic", json)`；
-//! - `tauri::async_runtime::spawn_blocking` → `tokio::task::spawn_blocking`；
+//! - `tauri::async_runtime::spawn_blocking` → `rt::spawn_blocking`（进程级
+//!   runtime；宿主是 GPUI executor，无 tokio 上下文，直用 `tokio::spawn` 会 panic）；
 //! - 模块名与原文件一一对应，方便对照上游 diff。
 
 pub mod deps;
+pub mod rt;
 
 // 迁移批次 1（AI + agent 栈）：
 // 已接入: ai_keystore, agent_run, crypto, cost_meter, git_history, ollama, pricing, search, trace
@@ -27,6 +29,7 @@ pub mod crypto;
 pub mod git_history;
 pub mod ollama;
 pub mod cjk_proofread;
+pub mod pandoc;
 pub mod pricing;
 pub mod rag;
 pub mod recipes;

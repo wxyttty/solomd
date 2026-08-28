@@ -420,7 +420,7 @@ pub fn crypto_clear_passphrase(folder: String) -> Result<(), String> {
 /// Returns the absolute path to the shadow dir so the caller can `git push`
 /// from there.
 pub async fn crypto_encrypt_for_push(folder: String) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || crypto_encrypt_for_push_inner(folder))
+    crate::rt::spawn_blocking(move || crypto_encrypt_for_push_inner(folder))
         .await
         .map_err(|e| format!("join: {e}"))?
 }
@@ -507,7 +507,7 @@ fn copy_if_changed(src: &Path, dst: &Path) -> Result<(), String> {
 /// decrypts every `*.<ext>.enc`, and writes the resulting plaintext back
 /// into the workspace at the same relative path.
 pub async fn crypto_decrypt_after_pull(folder: String) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || crypto_decrypt_after_pull_inner(folder))
+    crate::rt::spawn_blocking(move || crypto_decrypt_after_pull_inner(folder))
         .await
         .map_err(|e| format!("join: {e}"))?
 }

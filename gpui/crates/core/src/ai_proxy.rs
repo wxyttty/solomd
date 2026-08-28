@@ -750,7 +750,7 @@ pub async fn ai_chat(sink: std::sync::Arc<dyn EventSink>, paths: &crate::deps::C
 
     let id_for_task = request_id.clone();
     let sink_for_task = sink.clone();
-    tokio::spawn(async move {
+    crate::rt::spawn(async move {
         // Each provider runner now returns `(full_text, tokens_in_total,
         // tokens_out_total)` so the panel can persist real numbers into
         // meta.json + the run_ended trace step. The cost is computed
@@ -870,7 +870,7 @@ pub async fn ai_rewrite(sink: std::sync::Arc<dyn EventSink>, paths: &crate::deps
     };
 
     let id_for_task = request_id.clone();
-    tokio::spawn(async move {
+    crate::rt::spawn(async move {
         let result = match format.as_str() {
             "openai" => run_openai(&sink, &id_for_task, &request, &api_key, cancel.clone()).await,
             "anthropic" => {

@@ -305,7 +305,7 @@ pub async fn recipes_run_diff(workspace: String, run_id: String) -> Result<Strin
         .as_ref()
         .ok_or_else(|| "run is not a recipe run".to_string())?;
     let branch = recipe.branch.clone();
-    tokio::task::spawn_blocking(move || diff_branch_against_main(&ws, &branch))
+    crate::rt::spawn_blocking(move || diff_branch_against_main(&ws, &branch))
         .await
         .map_err(|e| format!("join: {e}"))?
 }
@@ -364,7 +364,7 @@ pub async fn recipes_accept_run(
         .as_ref()
         .map(|r| r.branch.clone())
         .ok_or_else(|| "run is not a recipe run".to_string())?;
-    tokio::task::spawn_blocking({
+    crate::rt::spawn_blocking({
         let ws = ws.clone();
         move || merge_branch_into_main(&ws, &branch)
     })
@@ -388,7 +388,7 @@ pub async fn recipes_reject_run(
         .as_ref()
         .map(|r| r.branch.clone())
         .ok_or_else(|| "run is not a recipe run".to_string())?;
-    tokio::task::spawn_blocking({
+    crate::rt::spawn_blocking({
         let ws = ws.clone();
         move || delete_branch(&ws, &branch)
     })
@@ -589,7 +589,7 @@ async fn fire(
     let ws = workspace.to_path_buf();
     let recipe = recipe.clone();
     // Detach so the trigger source returns immediately.
-    tokio::spawn(async move {
+    crate::rt::spawn(async move {
         let _ = run_recipe(&sink, &ws, &recipe, ctx).await;
     });
 }
@@ -1500,7 +1500,7 @@ fn commit_on_branch(
 // ---------------------------------------------------------------------------
 
 pub fn spawn_cron_loop(sink: std::sync::Arc<dyn EventSink>) {
-    tokio::spawn(async move {
+    crate::rt::spawn(async move {
         loop {
             // Find the soonest schedule across all active recipes.
             let (workspace_opt, recipes) = {
@@ -1552,7 +1552,7 @@ pub fn spawn_cron_loop(sink: std::sync::Arc<dyn EventSink>) {
                         workspace: ws.clone(),
                         ..Default::default()
                     };
-                    tokio::spawn(async move {
+                    crate::rt::spawn(async move {
                         let _ = run_recipe(&sink, &ws, &recipe_cl, ctx).await;
                     });
                 }
