@@ -41,8 +41,9 @@ cargo run -p spike -- webview    # 检查点④ tldraw 白板快照回写闭环�
 > 注：原 `live` 面板（自研 caret-reveal v2，tree-sitter-md 驱动，含单元测试）已从构建移除——
 > 其职责由 gpui-editor 原生接管；代码保留在 git 历史。tree-sitter 依赖同步移除。
 
-修改白板前端后需重新打包：`cd board-webview && npm run build`
-（tldraw 版本锁定 4.5.12，与 app/pnpm-lock.yaml 锚点一致，勿随意升级）。
+P4 起白板为原生 gpui-whiteboard（`crates/zorite/gpui-whiteboard`），app 不再使用
+board-webview；该目录仅供 spike 检查点④（`cargo run -p spike -- webview`）复用，
+tldraw 版本锁定 4.5.12（勿随意升级）。
 
 ## P0 检查点状态
 
@@ -81,7 +82,7 @@ cargo run -p spike -- webview    # 检查点④ tldraw 白板快照回写闭环�
 | 信息右栏页（大纲/反链/标签） | 🟩 三合一内部 tab：大纲 = 活跃缓冲标题解析（跳过围栏）+ 点击跳光标；反链 = workspace_index（lazy init + watcher 增量 + index-updated 事件泵），来源文件+行号+上下文，点击跳行；标签 = 全库 tag 计数，展开看文件列表 |
 | Agent 工具调用卡片 | 🟩 ai-panel 泵消费 ai-tool-call/ai-tool-result 事件：折叠卡（🔧/…/⚠ 状态），展开看参数与结果；工具续写文本自动开新块（saw_tools 区分 done 定稿策略）。core 侧 tools=None 默认发只读工具集（list_notes/read_note/search/get_backlinks/list_tags/get_outline/autogit_log/autogit_diff） |
 | Recipes 可视化编辑 | 🟩 表单编辑：名称/触发 chips（手动/保存/提交/定时/打标签，按触发显隐字段）/提示词/provider/model/base_url/tools/写开关/write_cap；save_recipe 生成 canonical YAML（编辑回写源文件，改名保留原 slug），支持新建/删除 |
-| 白板窗口 | 🟩 spike 检查点④产品化进 app：NotePanel「白板」按钮（无围栏自动文末建围栏）→ gpui-wry 独立窗口（Root + 标题栏）→ tldraw 防抖快照持续回写围栏体（内容去重 + info 行逐字节不变量校验，不过关不落盘）→ 落盘即存（脏态不受影响）。围栏解析升级：反引号长度自适应 |
+| 白板窗口（历史，P4 已原生替代） | 🟩 spike 检查点④产品化进 app：NotePanel「白板」按钮（无围栏自动文末建围栏）→ gpui-wry 独立窗口（Root + 标题栏）→ tldraw 防抖快照持续回写围栏体（内容去重 + info 行逐字节不变量校验，不过关不落盘）→ 落盘即存（脏态不受影响）。围栏解析升级：反引号长度自适应 |
 | 原生菜单 | 🟩 macOS 菜单栏：SoloMD(退出)/文件(新建 ⌘N/保存 ⌘S/关闭标签 ⌘W)/编辑(撤销/重做/剪切/拷贝/粘贴/全选，直派 gpui_editor 动作)/查看(⌘P 面板/⌘⇧T 主题)；ToggleTheme 提为全局 action |
 | 单实例 | 🟩 固定端口占位（127.0.0.1:45917），第二实例 bind 失败即退出 |
 | dev_bridge v3（GPUI 重设计） | 🟩 debug-only 原生命令 API（替代 Vue 时代的 JS eval 通道）：GET /ping、GET /state、POST /open_note、POST /run_recipe；Bearer token，`dev-bridge.port`/`dev-bridge.token` 写 `~/Library/Application Support/solomd-gpui/`；std 线程 TCP（不经 rt），UI 动作经 channel 由 Workspace 泵执行。冒烟：ping/state/open_note 全链路 + 鉴权拒绝 ✓ |

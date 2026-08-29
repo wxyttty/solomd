@@ -380,6 +380,8 @@ impl Workspace {
             cx,
         );
         self.apply_editor_theme(cx);
+        // 白板窗口不在 GPUI 全局里逐帧读主题（闭包无 cx），切主题时刷新其快照。
+        crate::whiteboard::sync_style(cx);
         self.settings.dark = self.dark;
         self.settings.save(&self.vault.root);
         cx.notify();

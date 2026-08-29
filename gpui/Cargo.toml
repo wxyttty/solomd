@@ -6,6 +6,7 @@ members = [
     # zorite 三件套已 vendor（原 git 依赖 @7915aad）：编辑器底座 + markdown
     # 构造识别 + bidi。GPL-3.0，许可见 crates/zorite/LICENSE-zorite。
     "crates/zorite/gpui-bidi",
+    "crates/zorite/gpui-whiteboard",
     "crates/zorite/gpui-markdown",
     "crates/zorite/gpui-editor",
     # gpui-component 本体同步 vendor（tip 0e2fb7a）：其 manifest 已改浮 pin
@@ -102,3 +103,5 @@ mermaid-rs-renderer = { git = "https://github.com/zed-industries/mermaid-rs-rend
 # P1 笔记编辑器底座（GPL-3.0）：zorite 的 WYSIWYG markdown 编辑器。
 # 大文件性能是采用前硬闸门（spike `wys` 面板实测）。
 gpui-editor = { path = "crates/zorite/gpui-editor" }
+# P4 白板原生化（GPL-3.0）：gpui-whiteboard 无限画布，替代 tldraw webview。
+gpui-whiteboard = { path = "crates/zorite/gpui-whiteboard" }

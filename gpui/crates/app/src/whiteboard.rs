@@ -1,21 +1,26 @@
-//! whiteboard.rs — tldraw 白板独立窗口（gpui-wry 承载）。
+//! whiteboard.rs — 原生白板独立窗口（gpui-whiteboard 承载，替代原 tldraw webview）。
 //!
-//! 自 spike 检查点④移植并产品化：
 //! - 打开入口是 NotePanel 的「白板」按钮（无围栏时自动在文末补一个）；
+//! - 围栏 info 行 `​```whiteboard id="…" height="…"`，体 = Scene JSON（空 `{}` = 空板）；
 //! - 初始快照取自活跃笔记的编辑器缓冲；
-//! - 画板防抖回报快照 → 重写围栏体（info 行逐字节保留）→ 直接落盘；
-//!   回写走 NotePanel（编辑器文本 + vault.write_note），标签不进脏态。
+//! - 画板 ChangeFn 每手势回传全场景 JSON（crate 内已按手势批量）→ 重写围栏体
+//!   （info 行逐字节保留）→ 直接落盘；回写走 NotePanel（编辑器文本 +
+//!   vault.write_note），标签不进脏态。
 //!
-//! IPC 协议见 gpui/board-webview/src/main.ts 头注释。
+//! 主题：WhiteboardStyleFn 闭包签名拿不到 cx（paint 频率调用），与 zorite 同款
+//! 模式改为读静态快照——`sync_style` 在开窗与 Workspace 主题切换时把 cx.theme()
+//! 映射进 `STYLE`。
 
 use std::ops::Range;
-use std::sync::OnceLock;
+use std::rc::Rc;
+use std::sync::{OnceLock, RwLock};
 
 use gpui::{
-    div, AppContext as _, Context, Entity, Focusable, IntoElement,
-    ParentElement as _, Render, SharedString, Styled as _, TitlebarOptions, Window, WindowOptions,
+    AppContext as _, Context, Entity, Focusable, IntoElement, Render, SharedString,
+    TitlebarOptions, Window, WindowOptions,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Root};
+use gpui_component::{ActiveTheme as _, Root};
+use gpui_whiteboard::{Scene, WhiteboardStyle, WhiteboardStyleFn, WhiteboardView};
 
 use crate::note_panel::NotePanel;
 
@@ -26,6 +31,7 @@ pub fn open_board(
     initial_snapshot: String,
     cx: &mut gpui::App,
 ) {
+    sync_style(cx);
     let title: SharedString = format!("白板 — {note_title}").into();
     let _ = cx.open_window(
         WindowOptions {
@@ -36,22 +42,20 @@ pub fn open_board(
             ..Default::default()
         },
         move |window, cx| {
-            let view = cx.new(|cx| BoardPanel::new(note.clone(), initial_snapshot.clone(), window, cx));
+            let view =
+                cx.new(|cx| BoardPanel::new(note.clone(), initial_snapshot.clone(), window, cx));
             // 不烘焙 bg：Root::render 每帧按 cx.theme() 刷背景。
             cx.new(|cx| Root::new(view, window, cx))
         },
     );
 }
 
-/// tldraw 围栏定位：返回 (info 行范围, body 范围)。
-/// 反引号长度自适应（围栏头 ````` 与闭合 ````` 长度 >= 头部才闭合），
-/// 容忍 tldraw-markdown 产出的长快照体里出现普通 ``` 行。
-pub(crate) fn find_tldraw_fence(md: &str) -> Option<(Range<usize>, Range<usize>)> {
-    let info_start = md.find("```tldraw")?;
-    let ticks = md[info_start..]
-        .chars()
-        .take_while(|c| *c == '`')
-        .count();
+/// 白板围栏定位：返回 (info 行范围, body 范围)。
+/// 反引号长度自适应（围栏头与闭合长度 >= 头部才闭合），
+/// 容忍 Scene JSON 产出里出现普通 ``` 行。
+pub(crate) fn find_board_fence(md: &str) -> Option<(Range<usize>, Range<usize>)> {
+    let info_start = md.find("```whiteboard")?;
+    let ticks = md[info_start..].chars().take_while(|c| *c == '`').count();
     let line_end = md[info_start..].find('\n')? + info_start;
     let body_start = line_end + 1;
 
@@ -73,224 +77,128 @@ pub(crate) fn find_tldraw_fence(md: &str) -> Option<(Range<usize>, Range<usize>)
 }
 
 // ---------------------------------------------------------------------------
-// 以下为 macOS / Windows 实际承载；其他平台给空实现（与 spike 同策略）。
+// 主题快照：闭包拿不到 cx，读这里；写点 = open_board + Workspace 主题切换。
 // ---------------------------------------------------------------------------
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const HTML_SHELL: &str = r##"<!doctype html>
-<html><head><meta charset="utf-8"><title>board</title>
-<style>html,body{margin:0;height:100%;font-family:-apple-system,sans-serif}
-#wrap{display:flex;flex-direction:column;height:100%}
-#board{flex:1;min-height:0}
-#status{padding:4px 10px;font-size:12px;color:#666;border-top:1px solid #eee}</style>
-<style>__BOARD_CSS__</style>
-</head><body>
-<div id="wrap"><div id="board"></div><div id="status">加载中…</div></div>
-<script>__BOARD_JS__</script>
-</body></html>"##;
+static STYLE: OnceLock<RwLock<Option<WhiteboardStyle>>> = OnceLock::new();
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-static BOARD_PAGE: OnceLock<String> = OnceLock::new();
+/// 把当前 cx.theme() 映射成画板样式快照。
+pub fn sync_style(cx: &gpui::App) {
+    let t = cx.theme();
+    let style = WhiteboardStyle {
+        bg: t.background,
+        grid: t.border,
+        text: t.muted_foreground,
+        ink: t.foreground,
+        panel: t.popover,
+        // 弹出面（取色器/菜单）要压得住花画布：略提透明度上限保持玻璃感。
+        panel_strong: gpui::Hsla {
+            a: 0.92,
+            ..t.popover
+        },
+        accent: t.accent,
+        selection: t.primary,
+        // 取色器快捷色：中性（墨色→浅灰）+ 主题色 + 一组固定色相铺开。
+        swatches: vec![
+            t.foreground,
+            gpui::hsla(0.0, 0.0, 0.45, 1.0),
+            gpui::hsla(0.0, 0.0, 0.92, 1.0),
+            t.primary,
+            t.danger,
+            t.success,
+            gpui::hsla(0.075, 1.0, 0.625, 1.0), // 品牌橙 #ff9f40
+            gpui::hsla(0.14, 0.80, 0.52, 1.0),  // 琥珀
+            gpui::hsla(0.33, 0.55, 0.45, 1.0),  // 绿
+            gpui::hsla(0.52, 0.65, 0.50, 1.0),  // 青
+            gpui::hsla(0.60, 0.70, 0.55, 1.0),  // 蓝
+            gpui::hsla(0.75, 0.55, 0.58, 1.0),  // 紫
+        ],
+    };
+    let lock = STYLE.get_or_init(|| RwLock::new(None));
+    if let Ok(mut slot) = lock.write() {
+        *slot = Some(style);
+    }
+}
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn board_page() -> &'static str {
-    BOARD_PAGE.get_or_init(|| {
-        let css = include_str!("../../../board-webview/board-bundle.css");
-        let js = include_str!("../../../board-webview/board-bundle.js");
-        HTML_SHELL
-            .replace("__BOARD_CSS__", css)
-            .replace("__BOARD_JS__", js)
+/// 主题闭包：读快照；未同步过时给中性兜底（理论不可达——开窗前必 sync）。
+fn board_style() -> WhiteboardStyleFn {
+    Rc::new(|| {
+        STYLE
+            .get()
+            .and_then(|l| l.read().ok().and_then(|s| s.clone()))
+            .unwrap_or_else(|| WhiteboardStyle {
+                bg: gpui::hsla(0.0, 0.0, 0.98, 1.0),
+                grid: gpui::hsla(0.0, 0.0, 0.85, 1.0),
+                text: gpui::hsla(0.0, 0.0, 0.45, 1.0),
+                ink: gpui::hsla(0.0, 0.0, 0.1, 1.0),
+                panel: gpui::hsla(0.0, 0.0, 1.0, 0.9),
+                panel_strong: gpui::hsla(0.0, 0.0, 1.0, 0.97),
+                accent: gpui::hsla(0.075, 1.0, 0.625, 1.0),
+                selection: gpui::hsla(0.58, 0.9, 0.55, 1.0),
+                swatches: vec![],
+            })
     })
 }
 
-/// board→host 消息（从 wry ipc 线程投递到 GPUI 异步泵）。
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-#[derive(Debug)]
-enum BoardMsg {
-    Boot,
-    Loaded { bytes: usize },
-    Snapshot { body: String },
-    BootError { error: String },
-}
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn parse_board_msg(raw: &str) -> Option<BoardMsg> {
-    let v: serde_json::Value = serde_json::from_str(raw).ok()?;
-    match v.get("type")?.as_str()? {
-        "solomd-boot" => Some(BoardMsg::Boot),
-        "solomd-loaded" => Some(BoardMsg::Loaded {
-            bytes: v.get("bytes")?.as_u64()? as usize,
-        }),
-        "solomd-snapshot" => Some(BoardMsg::Snapshot {
-            body: v.get("body")?.as_str()?.to_string(),
-        }),
-        "solomd-boot-error" => Some(BoardMsg::BootError {
-            error: v.get("error")?.as_str()?.to_string(),
-        }),
-        _ => None,
-    }
-}
+// ---------------------------------------------------------------------------
+// BoardPanel：独立窗口根实体，承载 WhiteboardView 并做围栏回写。
+// ---------------------------------------------------------------------------
 
 pub struct BoardPanel {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    webview: Entity<gpui_wry::WebView>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    rx: std::sync::mpsc::Receiver<BoardMsg>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    board: Entity<WhiteboardView>,
     note: gpui::WeakEntity<NotePanel>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    initial_snapshot: String,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     last_written: Option<String>,
-    status: SharedString,
 }
 
 impl BoardPanel {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub fn new(
         note: gpui::WeakEntity<NotePanel>,
         initial_snapshot: String,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        use raw_window_handle::HasWindowHandle;
-        use std::sync::mpsc;
-
-        let (tx, rx) = mpsc::channel::<BoardMsg>();
-
-        let handle = window.window_handle().expect("No window handle");
-        let webview = wry::WebViewBuilder::new()
-            .with_html(board_page())
-            .with_ipc_handler(move |req: wry::http::Request<String>| {
-                if let Some(msg) = parse_board_msg(&req.body()) {
-                    let _ = tx.send(msg);
+        let board = cx.new(|cx| {
+            WhiteboardView::new(Scene::from_json(&initial_snapshot), board_style(), cx)
+        });
+        // 回写链：ChangeFn（手势提交）→ BoardPanel 去重 → NotePanel 围栏手术落盘。
+        // 捕 WeakEntity 防环；调用点在 WhiteboardView 事件处理内，只碰别的实体。
+        let weak = cx.entity().downgrade();
+        board.update(cx, |view, _| {
+            view.set_on_change(Rc::new(move |json: String, _window, cx: &mut gpui::App| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.update(cx, |p, cx| p.write_back(json, cx));
                 }
-            })
-            .build_as_child(&handle)
-            .expect("Failed to build wry webview");
-
-        let webview = cx.new(|cx| gpui_wry::WebView::new(webview, window, cx));
-
-        let this = Self {
-            webview,
-            rx,
+            }));
+        });
+        Self {
+            board,
             note,
             last_written: None,
-            status: format!("初始快照 {} bytes", initial_snapshot.len()).into(),
-            initial_snapshot,
-        };
-        this.start_pump(cx);
-        this
+        }
     }
 
-    /// 异步泵：boot → 下发快照 → 持续消费防抖快照回写笔记（不退出）。
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    fn start_pump(&self, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| loop {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(120))
-                .await;
-            let Some(entity) = this.upgrade() else { break };
-            entity.update(cx, |panel, cx| {
-                while let Ok(msg) = panel.rx.try_recv() {
-                    match msg {
-                        BoardMsg::Boot => {
-                            let snapshot = panel.initial_snapshot.clone();
-                            let script =
-                                format!("window.solomdBoard.loadSnapshot({snapshot})");
-                            panel.webview.update(cx, |v, _| {
-                                let _ = v.raw().evaluate_script(&script);
-                            });
-                            panel.status =
-                                format!("已下发围栏快照（{} bytes）", snapshot.len()).into();
-                        }
-                        BoardMsg::Loaded { bytes } => {
-                            panel.status =
-                                format!("画板已载入宿主快照（{bytes} bytes）").into();
-                        }
-                        BoardMsg::Snapshot { body } => {
-                            // 防抖快照持续回报：内容没变不回写。
-                            if panel.last_written.as_deref() == Some(body.as_str()) {
-                                continue;
-                            }
-                            let wrote = panel.note.upgrade().map(|np| {
-                                np.update(cx, |n, cx| {
-                                    n.write_tldraw_snapshot(&body, cx);
-                                })
-                            });
-                            match wrote {
-                                Some(()) => {
-                                    let n = body.len();
-                                    panel.last_written = Some(body);
-                                    panel.status = format!("已回写围栏（{n} bytes）").into();
-                                }
-                                None => {
-                                    panel.status = "笔记已关闭，回写停止".into();
-                                }
-                            }
-                        }
-                        BoardMsg::BootError { error } => {
-                            panel.status = format!("❌ 挂载失败: {error}").into();
-                        }
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+    /// 每手势一次：内容没变不回写。
+    fn write_back(&mut self, body: String, cx: &mut Context<Self>) {
+        if self.last_written.as_deref() == Some(body.as_str()) {
+            return;
+        }
+        let wrote = self.note.upgrade().map(|np| {
+            np.update(cx, |n, cx| n.write_board_snapshot(&body, cx));
+        });
+        if wrote.is_some() {
+            self.last_written = Some(body);
+        }
     }
 }
 
 impl Render for BoardPanel {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .size_full()
-            .child(
-                h_flex()
-                    .px_2()
-                    .py_1()
-                    .gap_2()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .truncate()
-                            .child(self.status.clone()),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(self.webview.clone()),
-            )
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().child("白板仅支持 macOS / Windows")
+        self.board.clone()
     }
 }
 
 impl Focusable for BoardPanel {
     fn focus_handle(&self, cx: &gpui::App) -> gpui::FocusHandle {
         cx.focus_handle()
-    }
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-impl BoardPanel {
-    pub fn new(
-        _note: gpui::WeakEntity<NotePanel>,
-        _initial_snapshot: String,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Self {
-        Self {
-            status: "白板仅支持 macOS / Windows".into(),
-        }
     }
 }

@@ -171,34 +171,34 @@ impl NotePanel {
     }
 
     /// 当前围栏快照（编辑器缓冲优先）。
-    pub fn tldraw_snapshot(&self, cx: &Context<Self>) -> Option<String> {
+    pub fn board_snapshot(&self, cx: &Context<Self>) -> Option<String> {
         let text = self.state.read(cx).text();
-        crate::whiteboard::find_tldraw_fence(text)
+        crate::whiteboard::find_board_fence(text)
             .map(|(_, b)| text[b].trim().to_string())
     }
 
-    /// 确保笔记里有 tldraw 围栏（没有就在文末补一个并保存），返回初始快照。
-    pub fn ensure_tldraw_fence(&mut self, cx: &mut Context<Self>) -> String {
+    /// 确保笔记里有白板围栏（没有就在文末补一个并保存），返回初始快照。
+    pub fn ensure_board_fence(&mut self, cx: &mut Context<Self>) -> String {
         let text = self.state.read(cx).text().to_string();
-        if let Some((_, b)) = crate::whiteboard::find_tldraw_fence(&text) {
+        if let Some((_, b)) = crate::whiteboard::find_board_fence(&text) {
             return text[b].trim().to_string();
         }
         let id = format!("board-{}", now_compact());
         let block =
-            format!("\n\n```tldraw id=\"{id}\" height=\"520\"\n{{}}\n```\n");
+            format!("\n\n```whiteboard id=\"{id}\" height=\"520\"\n{{}}\n```\n");
         let next = text + &block;
         self.state.update(cx, |ed, cx| ed.set_text(next.clone(), cx));
         if let Err(e) = self.vault.write_note(&self.path, &next) {
             eprintln!("[board] 写入围栏失败 {}: {e}", self.path.display());
         }
         self.dirty = false;
-        self.tldraw_snapshot(cx).unwrap_or_else(|| "{}".into())
+        self.board_snapshot(cx).unwrap_or_else(|| "{}".into())
     }
 
     /// 白板快照回写：重写围栏体（info 行逐字节保留）并落盘。
-    pub fn write_tldraw_snapshot(&mut self, body: &str, cx: &mut Context<Self>) {
+    pub fn write_board_snapshot(&mut self, body: &str, cx: &mut Context<Self>) {
         let text = self.state.read(cx).text().to_string();
-        let Some((info, old)) = crate::whiteboard::find_tldraw_fence(&text) else {
+        let Some((info, old)) = crate::whiteboard::find_board_fence(&text) else {
             return;
         };
         let info_line = text[info].to_string();
@@ -210,7 +210,7 @@ impl NotePanel {
         }
         next.push_str(&text[old.end..]);
         // 不变量：重写后围栏 info 行必须逐字节一致。
-        let preserved = crate::whiteboard::find_tldraw_fence(&next)
+        let preserved = crate::whiteboard::find_board_fence(&next)
             .map(|(info2, _)| next[info2] == info_line)
             .unwrap_or(false);
         if !preserved {
@@ -306,7 +306,7 @@ impl Render for NotePanel {
                                     .xsmall()
                                     .ghost()
                                     .on_click(cx.listener(|this, _, _, cx| {
-                                        let snapshot = this.ensure_tldraw_fence(cx);
+                                        let snapshot = this.ensure_board_fence(cx);
                                         let weak = cx.entity().downgrade();
                                         let title = this.title.clone();
                                         crate::whiteboard::open_board(
