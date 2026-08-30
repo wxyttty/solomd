@@ -7,6 +7,7 @@ members = [
     # 构造识别 + bidi。GPL-3.0，许可见 crates/zorite/LICENSE-zorite。
     "crates/zorite/gpui-bidi",
     "crates/zorite/gpui-whiteboard",
+    "crates/zorite/ratex-gpui",
     "crates/zorite/gpui-markdown",
     "crates/zorite/gpui-editor",
     # gpui-component 本体同步 vendor（tip 0e2fb7a）：其 manifest 已改浮 pin
@@ -105,3 +106,5 @@ mermaid-rs-renderer = { git = "https://github.com/zed-industries/mermaid-rs-rend
 gpui-editor = { path = "crates/zorite/gpui-editor" }
 # P4 白板原生化（GPL-3.0）：gpui-whiteboard 无限画布，替代 tldraw webview。
 gpui-whiteboard = { path = "crates/zorite/gpui-whiteboard" }
+# P4 数学渲染（GPL-3.0）：RaTeX 引擎 + GPUI 层，接 gpui-editor 的 block math provider。
+ratex-gpui = { path = "crates/zorite/ratex-gpui" }

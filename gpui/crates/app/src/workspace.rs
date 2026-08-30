@@ -59,6 +59,7 @@ pub struct Workspace {
     pandoc_status: Option<SharedString>,
     images: Rc<RefCell<ImageStore>>,
     mermaid: Rc<RefCell<MermaidStore>>,
+    math: Rc<RefCell<crate::math::MathStore>>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -192,6 +193,7 @@ impl Workspace {
                 std::env::current_dir().unwrap_or_default(),
             ))),
             mermaid: Rc::new(RefCell::new(MermaidStore::default())),
+            math: Rc::new(RefCell::new(crate::math::MathStore::default())),
         };
         // ⌘P 面板：Enter 打开首个匹配。
         cx.subscribe_in(&this.palette_query, window, |this, _, ev: &InputEvent, window, cx| match ev {
@@ -242,7 +244,13 @@ impl Workspace {
         let vault = self.vault.clone();
         let images = self.images.clone();
         let mermaid = self.mermaid.clone();
-        let panel = cx.new(|cx| NotePanel::new(path.clone(), vault, images, mermaid, window, cx));
+        let math = self.math.clone();
+        let typewriter = self.settings.typewriter;
+        let panel = cx.new(|cx| {
+            NotePanel::new(
+                path.clone(), vault, images, mermaid, math, typewriter, window, cx,
+            )
+        });
 
         // Tab 关闭（UI ✕ / ⌘W）→ 同步本地列表。
         let weak_ws = cx.entity().downgrade();

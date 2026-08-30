@@ -18,6 +18,7 @@ gpui-component.workspace = true
 gpui-component-assets.workspace = true
 gpui-editor.workspace = true
 gpui-whiteboard.workspace = true
+ratex-gpui.workspace = true
 gpui-wry.workspace = true
 wry.workspace = true
 raw-window-handle.workspace = true

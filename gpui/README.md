@@ -112,6 +112,16 @@ Rust 侧 ipc 回调只投 channel，GPUI 实体内的异步泵消费消息并驱
 待办（P1）：移植 `fenceLengthForSnapshot` 反引号长度自适应与容错属性解析；
 快照防抖写回策略；关闭窗口时销毁 webview 释放内存的验证。
 
+## P4 进度
+
+| 项 | 状态 |
+|---|---|
+| 白板原生化 | 🟩 vendor zorite@2dab499 gpui-whiteboard（零 churn）；tldraw webview 从 app 白板路径移除，围栏 `​```tldraw` → `​```whiteboard`（Scene JSON）；ChangeFn 每手势回写落盘 |
+| 数学渲染 | 🟩 vendor zorite ratex-gpui（RaTeX 引擎，纯 Rust、KaTeX 字体内嵌）；`gpui_editor::math_sources` + `inline_math_sources` 开窗热身，off-thread `render_latex` → MathStore 缓存（MermaidStore 同款管线），editor `set_block_math_provider` + `set_block_math_em`（行内 `$…$` 复用块级光栅缩放显示） |
+| 笔记滚动容器 | 🟩 NotePanel 编辑器包 `track_scroll` + `overflow_y_scroll`（此前编辑器无滚动宿主）；`set_scroll_compensator` 滚动锚定——异步块在视口上方渲染完成改变高度时吸收偏移，阅读位置不动 |
+| 打字机模式 | 🟩 工具行「打字机」开关（Settings.typewriter 持久化）；SelectionChanged → caret_screen_bounds/window_top/content_height 换算光标内容 y → 滚动容器居中（视口高按窗口高扣 72px chrome 估算；vendored gpui-editor 加 `window_top`/`content_height` 两个访问器） |
+| 待人工 | 数学：排版保真度对照（生僻宏/化学式 mhchem 类预期缺）、中文 IME 下公式附近编辑；打字机：滚动跟随手感、拖拽选区时的居中策略（现版会随选区移动）；滚动容器：长文滚动手感 + 滚动条 UI（现为裸滚动，无 thumb） |
+
 ## 性能基线记录
 
 | 场景 | 数据 | 备注 |

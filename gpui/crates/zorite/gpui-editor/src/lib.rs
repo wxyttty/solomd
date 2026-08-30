@@ -1301,6 +1301,19 @@ impl EditorState {
         Some(bounds.top() + self.line_tops.get(row).copied()?)
     }
 
+    /// The editor element's window-space top from the last paint. Host-side
+    /// typewriter/scroll math converts caret screen positions into content
+    /// coordinates with it. `None` before first paint.
+    pub fn window_top(&self) -> Option<Pixels> {
+        self.last_bounds.map(|b| b.top())
+    }
+
+    /// The editor element's painted height — auto-grow means this is the full
+    /// content height. `None` before first paint.
+    pub fn content_height(&self) -> Option<Pixels> {
+        self.last_bounds.map(|b| b.size.height)
+    }
+
     pub fn set_block_math_provider(
         &mut self,
         provider: impl Fn(&str) -> Option<(Arc<RenderImage>, f32, f32)> + 'static,

@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::{
-    actions, div, px, AppContext as _, Context, EventEmitter, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    Styled as _, Window,
+    actions, div, px, point, AppContext as _, Context, EventEmitter, Focusable,
+    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, ScrollHandle,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::dock::{BasePanel, Panel, PanelEvent};
 use gpui_component::ActiveTheme as _;
@@ -15,6 +15,7 @@ use gpui::EntityInputHandler as _;
 use gpui_editor::EditorEvent;
 
 use crate::images::ImageStore;
+use crate::math::MathStore;
 use crate::mermaid::MermaidStore;
 use crate::vault::Vault;
 
@@ -31,6 +32,10 @@ pub struct NotePanel {
     /// 标签被激活时通知 Workspace（活跃笔记跟踪）。
     on_activated: Option<Box<dyn Fn(&mut gpui::App)>>,
     proof_issues: usize,
+    /// 打字机模式：光标行垂直居中（Settings.typewriter 持久化）。
+    typewriter: bool,
+    /// 笔记滚动容器（编辑器 auto-grow，滚动在宿主侧；打字机/补偿器共用）。
+    scroll: ScrollHandle,
 }
 
 impl NotePanel {
@@ -40,10 +45,13 @@ impl NotePanel {
         vault: Vault,
         images: Rc<RefCell<ImageStore>>,
         mermaid: Rc<RefCell<MermaidStore>>,
+        math: Rc<RefCell<MathStore>>,
+        typewriter: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let content = vault.read_note(&path).unwrap_or_default();
+        let scroll = ScrollHandle::new();
         let title = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -64,6 +72,23 @@ impl NotePanel {
                 let store = mermaid.clone();
                 ed.set_block_mermaid_provider(move |source| {
                     store.borrow().get(&SharedString::from(source))
+                });
+            }
+            {
+                let store = math.clone();
+                ed.set_block_math_provider(move |source| {
+                    store.borrow().get(&SharedString::from(source))
+                });
+                // 行内 `$…$` 复用块级光栅（按此 em 排版、缩放到文字尺寸）。
+                ed.set_block_math_em(crate::math::FONT_SIZE);
+            }
+            // 滚动锚定：异步块（math/mermaid/图片）在视口上方完成渲染改变高度时，
+            // 编辑器把高度差交给宿主，滚动容器吸收之，阅读位置不动。
+            {
+                let scroll = scroll.clone();
+                ed.set_scroll_compensator(move |delta, _, _| {
+                    let off = scroll.offset();
+                    scroll.set_offset(point(off.x, off.y - delta));
                 });
             }
             ed
@@ -98,22 +123,58 @@ impl NotePanel {
             .detach();
         }
 
-        let _changed_sub = cx.subscribe(&state, |this, _, ev: &EditorEvent, cx| match ev {
-            EditorEvent::Changed => {
-                if !this.dirty {
-                    this.dirty = true;
-                    cx.notify();
+        // 驱动数学离线程渲染（块级 + 行内；同 key 只排一次）。
+        {
+            let text = content.clone();
+            let math = math.clone();
+            let color = cx.theme().foreground;
+            cx.spawn_in(window, async move |this, cx| {
+                let sources = gpui_editor::math_sources(&text)
+                    .into_iter()
+                    .chain(gpui_editor::inline_math_sources(&text));
+                for source in sources {
+                    if !math.borrow_mut().begin(&source) {
+                        continue;
+                    }
+                    let store = math.clone();
+                    let src = source.to_string();
+                    let result = cx
+                        .background_executor()
+                        .spawn(async move { crate::math::render_to_image(&src, color) })
+                        .await;
+                    store.borrow_mut().finish(source, result);
+                    let _ = this.update(cx, |_, cx| {
+                        cx.notify();
+                        cx.refresh_windows();
+                    });
                 }
-            }
-            EditorEvent::PreviewImage(src) => {
-                let p = this.vault.resolve(std::path::Path::new(src.as_ref()));
-                let _ = std::process::Command::new("open").arg(p).spawn();
-            }
-            EditorEvent::OpenLink(url) => {
-                let _ = std::process::Command::new("open").arg(url.as_ref()).spawn();
-            }
-            _ => {}
-        });
+            })
+            .detach();
+        }
+
+        let _changed_sub = cx.subscribe_in(
+            &state,
+            window,
+            |this, _, ev: &EditorEvent, window, cx| match ev {
+                EditorEvent::Changed => {
+                    if !this.dirty {
+                        this.dirty = true;
+                        cx.notify();
+                    }
+                }
+                EditorEvent::PreviewImage(src) => {
+                    let p = this.vault.resolve(std::path::Path::new(src.as_ref()));
+                    let _ = std::process::Command::new("open").arg(p).spawn();
+                }
+                EditorEvent::OpenLink(url) => {
+                    let _ = std::process::Command::new("open").arg(url.as_ref()).spawn();
+                }
+                EditorEvent::SelectionChanged => {
+                    this.typewriter_scroll(window, cx);
+                }
+                _ => {}
+            },
+        );
 
         Self {
             path,
@@ -125,6 +186,8 @@ impl NotePanel {
             on_removed: None,
             on_activated: None,
             proof_issues: 0,
+            typewriter,
+            scroll,
         }
     }
 
@@ -136,6 +199,31 @@ impl NotePanel {
     /// Workspace 用来接收激活事件（跟踪当前笔记，供历史/AI/导出使用）。
     pub fn on_activated_notify(&mut self, f: Box<dyn Fn(&mut gpui::App)>) {
         self.on_activated = Some(f);
+    }
+
+    /// 打字机模式：光标行垂直居中。SelectionChanged 驱动；视口高按窗口高
+    /// 扣固定 chrome 估算（±20px 偏差对居中体感无影响）。编辑器末次布局
+    /// 缓存提供 caret/内容几何，首次绘制前自动跳过。
+    fn typewriter_scroll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.typewriter {
+            return;
+        }
+        const CHROME: f32 = 72.0;
+        let viewport_h = window.viewport_size().height - px(CHROME);
+        let target = self.state.update(cx, |ed, _| -> Option<Pixels> {
+            let caret = ed.caret_screen_bounds()?;
+            let top = ed.window_top()?;
+            let content_h = ed.content_height()?;
+            let content_y = caret.top() - top;
+            let max = (content_h - viewport_h).max(px(0.0));
+            Some((content_y - viewport_h / 2.0).clamp(px(0.0), max))
+        });
+        if let Some(target) = target {
+            let off = self.scroll.offset();
+            if (target - off.y).abs() > px(1.0) {
+                self.scroll.set_offset(point(off.x, target));
+            }
+        }
     }
 
     /// 中文校对：cjk_proofread 全量检测 → squiggles + 计数。
@@ -318,6 +406,23 @@ impl Render for NotePanel {
                                     })),
                             )
                             .child(
+                                Button::new("typewriter")
+                                    .label(if self.typewriter { "打字机 ✓" } else { "打字机" })
+                                    .xsmall()
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.typewriter = !this.typewriter;
+                                        let mut s =
+                                            crate::settings::Settings::load(&this.vault.root);
+                                        s.typewriter = this.typewriter;
+                                        s.save(&this.vault.root);
+                                        if this.typewriter {
+                                            this.typewriter_scroll(window, cx);
+                                        }
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
@@ -328,7 +433,15 @@ impl Render for NotePanel {
                                     }),
                             ),
                     )
-                    .child(self.state.clone()),
+                    .child(
+                        div()
+                            .id("note-scroll")
+                            .flex_1()
+                            .min_h_0()
+                            .track_scroll(&self.scroll)
+                            .overflow_y_scroll()
+                            .child(self.state.clone()),
+                    ),
             )
     }
 }

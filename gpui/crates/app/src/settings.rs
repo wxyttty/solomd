@@ -18,6 +18,9 @@ pub struct Settings {
     /// 自定义 OpenAI 兼容 / Ollama 地址（空 = 用 provider 默认）。
     #[serde(default)]
     pub ai_base_url: String,
+    /// 打字机模式（光标行垂直居中）。
+    #[serde(default)]
+    pub typewriter: bool,
 }
 
 /// AI 设置缺省值（Settings derive Default 走不到 String 字段的业务默认）。

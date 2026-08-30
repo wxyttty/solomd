@@ -15,6 +15,7 @@ mod settings;
 mod single_instance;
 mod sync_panel;
 mod images;
+mod math;
 mod mermaid;
 mod note_panel;
 mod theme;
