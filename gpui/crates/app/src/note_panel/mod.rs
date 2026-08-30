@@ -1,11 +1,13 @@
 //! note_panel.rs — 一篇笔记 = 一个 Dock 面板（gpui-editor + 保存/脏态）。
 
+mod math_edit;
+
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::{
-    actions, div, px, point, AppContext as _, Context, EventEmitter, Focusable,
+    actions, div, px, point, AppContext as _, ClipboardItem, Context, EventEmitter, Focusable,
     InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, ScrollHandle,
     SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
@@ -36,6 +38,10 @@ pub struct NotePanel {
     typewriter: bool,
     /// 笔记滚动容器（编辑器 auto-grow，滚动在宿主侧；打字机/补偿器共用）。
     scroll: ScrollHandle,
+    /// 公式渲染缓存（Workspace 持有，开窗热身/提交后重渲共用）。
+    math: Rc<RefCell<MathStore>>,
+    /// 打开中的结构化公式编辑会话（math_edit.rs）。
+    math_edit: Option<math_edit::MathEditSession>,
 }
 
 impl NotePanel {
@@ -128,6 +134,7 @@ impl NotePanel {
             let text = content.clone();
             let math = math.clone();
             let color = cx.theme().foreground;
+            math.borrow_mut().set_color(color);
             cx.spawn_in(window, async move |this, cx| {
                 let sources = gpui_editor::math_sources(&text)
                     .into_iter()
@@ -169,6 +176,18 @@ impl NotePanel {
                 EditorEvent::OpenLink(url) => {
                     let _ = std::process::Command::new("open").arg(url.as_ref()).spawn();
                 }
+                EditorEvent::EditMath {
+                    range,
+                    source,
+                    at_end,
+                    inline,
+                } => {
+                    this.open_math_edit(range.clone(), source.clone(), *at_end, *inline, window, cx);
+                }
+                EditorEvent::MathMenu { source, .. } => {
+                    // v1：右键公式直接复制 LaTeX（完整菜单——对齐/导出——后置）。
+                    cx.write_to_clipboard(ClipboardItem::new_string(source.to_string()));
+                }
                 EditorEvent::SelectionChanged => {
                     this.typewriter_scroll(window, cx);
                 }
@@ -188,6 +207,8 @@ impl NotePanel {
             proof_issues: 0,
             typewriter,
             scroll,
+            math,
+            math_edit: None,
         }
     }
 

@@ -120,7 +120,8 @@ Rust 侧 ipc 回调只投 channel，GPUI 实体内的异步泵消费消息并驱
 | 数学渲染 | 🟩 vendor zorite ratex-gpui（RaTeX 引擎，纯 Rust、KaTeX 字体内嵌）；`gpui_editor::math_sources` + `inline_math_sources` 开窗热身，off-thread `render_latex` → MathStore 缓存（MermaidStore 同款管线），editor `set_block_math_provider` + `set_block_math_em`（行内 `$…$` 复用块级光栅缩放显示） |
 | 笔记滚动容器 | 🟩 NotePanel 编辑器包 `track_scroll` + `overflow_y_scroll`（此前编辑器无滚动宿主）；`set_scroll_compensator` 滚动锚定——异步块在视口上方渲染完成改变高度时吸收偏移，阅读位置不动 |
 | 打字机模式 | 🟩 工具行「打字机」开关（Settings.typewriter 持久化）；SelectionChanged → caret_screen_bounds/window_top/content_height 换算光标内容 y → 滚动容器居中（视口高按窗口高扣 72px chrome 估算；vendored gpui-editor 加 `window_top`/`content_height` 两个访问器） |
-| 待人工 | 数学：排版保真度对照（生僻宏/化学式 mhchem 类预期缺）、中文 IME 下公式附近编辑；打字机：滚动跟随手感、拖拽选区时的居中策略（现版会随选区移动）；滚动容器：长文滚动手感 + 滚动条 UI（现为裸滚动，无 thumb） |
+| 结构化公式编辑 | 🟩 note_panel 拆目录 + math_edit.rs 会话模块（zorite app/math.rs 移植）：光标进入公式（EditMath）→ MathEditor 塞进编辑器 editing 槽位（块级全宽空隙/行内原位覆盖）→ blur/方向键越界提交 → `replace_range` 回写（可撤销）+ 落盘 + 单条公式热身重渲；右键公式复制 LaTeX（v1，对齐/导出菜单后置）；简化项：RTL 出向、公式上方无内容守卫未移植 |
+| 待人工 | 数学：排版保真度对照（生僻宏/化学式 mhchem 类预期缺）、中文 IME 下公式附近编辑、**MathEditor 结构化编辑全流程**（进入/编辑/回写/撤销/重渲）；打字机：滚动跟随手感、拖拽选区时的居中策略（现版会随选区移动）；滚动容器：长文滚动手感 + 滚动条 UI（现为裸滚动，无 thumb） |
 
 ## 性能基线记录
 

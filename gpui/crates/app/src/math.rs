@@ -24,6 +24,8 @@ type Image = (Arc<RenderImage>, f32, f32);
 #[derive(Default)]
 pub struct MathStore {
     slots: HashMap<SharedString, Slot>,
+    /// 缓存光栅的着色主题色；换主题即清空、下次热身按新色重渲。
+    color: Option<Hsla>,
 }
 
 enum Slot {
@@ -33,6 +35,17 @@ enum Slot {
 }
 
 impl MathStore {
+    /// 设置着色色。主题切换时丢弃缓存，公式随后按新色重渲
+    /// （重开笔记或提交后热身触发）。
+    pub fn set_color(&mut self, color: Hsla) -> bool {
+        if self.color != Some(color) {
+            self.color = Some(color);
+            self.slots.clear();
+            true
+        } else {
+            false
+        }
+    }
     /// `source` 的排版结果（位图 + 逻辑宽高），未就绪返回 None。
     pub fn get(&self, source: &SharedString) -> Option<Image> {
         match self.slots.get(source) {
