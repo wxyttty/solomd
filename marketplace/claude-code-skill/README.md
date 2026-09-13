@@ -14,7 +14,7 @@ from our root README.
 | Path | Purpose |
 |---|---|
 | [`solomd/SKILL.md`](solomd/SKILL.md) | The skill itself. Frontmatter + instructions Claude Code reads when the skill is loaded. |
-| [`solomd/install.sh`](solomd/install.sh) | One-liner that downloads `solomd-mcp` and wires it into `~/.claude/mcp.json`. |
+| [`solomd/install.sh`](solomd/install.sh) | One-liner that downloads `solomd-mcp` and registers it as a user-scope MCP server (`~/.claude.json`). |
 | [`solomd/recipes/`](solomd/recipes/) | The same 11 YAML recipes as the Skill Pack — included here so the skill is self-contained. |
 
 ## Installing the skill in Claude Code

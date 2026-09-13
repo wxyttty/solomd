@@ -4,8 +4,55 @@ interface Props { lang: Lang }
 const { lang } = Astro.props;
 const tr = getT(lang);
 
-const VERSION = '4.11.17';
+const VERSION = '4.12.1';
 const REPO = 'zhitongblog/solomd';
+// The Store ships both x64 and arm64 and picks for the machine, and it keeps
+// the app updated — worth offering next to the MSI rather than only below it.
+const MS_STORE = 'https://apps.microsoft.com/detail/9nxghk2ll1q4';
+
+// What the Store is actually serving, read at build time. It is deliberately
+// not assumed equal to VERSION: the Store trails the GitHub release for as
+// long as a submission sits in certification, and pointing people at a "v4.12"
+// badge over a 4.11 package would be worse than showing nothing.
+//
+// The pin is the fallback, not the source of truth — a deploy must not fail
+// or block because Microsoft's catalogue is slow, so an unreachable endpoint
+// just leaves the last known-good value in place.
+const MS_STORE_VERSION_PIN = '4.12.0';
+
+async function readStoreVersion(): Promise<string> {
+  const url =
+    'https://displaycatalog.mp.microsoft.com/v7.0/products/9NXGHK2LL1Q4' +
+    '?market=US&languages=en-us&fieldsTemplate=Details';
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data: any = await res.json();
+    const names: string[] = [];
+    for (const sku of data?.Product?.DisplaySkuAvailabilities ?? []) {
+      for (const pkg of sku?.Sku?.Properties?.Packages ?? []) {
+        if (pkg?.PackageFullName) names.push(pkg.PackageFullName);
+      }
+    }
+    // zhitong.SoloMD_4.12.0.0_x64__3vmxy07xh2v3m -> 4.12.0
+    const versions = names
+      .map((n) => n.match(/_(\d+)\.(\d+)\.(\d+)\.\d+_/))
+      .filter((m): m is RegExpMatchArray => Boolean(m))
+      .map((m) => [Number(m[1]), Number(m[2]), Number(m[3])] as const);
+    if (!versions.length) throw new Error('no packages in catalogue response');
+    // Highest wins: an old package can linger until it is removed.
+    versions.sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2]);
+    return versions[0].join('.');
+  } catch (err) {
+    console.warn(
+      `[download] could not read the Microsoft Store version (${err instanceof Error ? err.message : err}); ` +
+      `falling back to the pin ${MS_STORE_VERSION_PIN}`
+    );
+    return MS_STORE_VERSION_PIN;
+  }
+}
+
+const msStoreVersion = await readStoreVersion();
 const releaseUrl = (version: string) => `https://github.com/${REPO}/releases/download/v${version}`;
 
 const platforms = [
@@ -18,14 +65,23 @@ const platforms = [
   {
     icon: '🪟',
     key: 'windows' as const,
+    // Was held at 4.11.19 while the 4.11.20 x64 MSI tripped
+    // `Trojan:Script/Sabsik.EN.A!ml`, a Defender machine-learning false
+    // positive: Windows deleted the download mid-flight and Chrome reported
+    // "virus detected". Restored to VERSION for 4.11.21 — the release
+    // workflow's Defender gate scanned this exact MSI (engine 4.18.26070.9,
+    // signatures 1.457.411.0) and reported it clean, which is the condition
+    // this pin was waiting on. Pin it again if the verdict comes back.
     version: VERSION,
     primaryFile: `SoloMD_${VERSION}_x64_en-US.msi`,
+    storeUrl: MS_STORE,
   },
   {
     icon: '🪟',
     key: 'windowsArm' as const,
     version: VERSION,
     primaryFile: `SoloMD_${VERSION}_arm64_en-US.msi`,
+    storeUrl: MS_STORE,
   },
   {
     icon: '🐧',
@@ -86,6 +142,11 @@ const platforms = [
                 — {meta.tertiary}
               </a>
             )}
+            {'storeUrl' in p && p.storeUrl && 'store' in meta && (
+              <a href={p.storeUrl} class="dl-card__store" target="_blank" rel="noopener">
+                {meta.store} <span class="dl-card__store-ver">v{msStoreVersion}</span> →
+              </a>
+            )}
           </article>
         );
       })}
@@ -94,6 +155,11 @@ const platforms = [
       <div class="note"><strong>macOS</strong>: {tr.download.notes.macos}</div>
       <div class="note"><strong>Windows</strong>: {tr.download.notes.windows}</div>
       <div class="note"><strong>Linux</strong>: {tr.download.notes.linux}</div>
+      <div class="note">
+        <strong>Chrome</strong>: {tr.download.notes.verify}
+        {' '}
+        <a href={`${releaseUrl(VERSION)}/SHA256SUMS.txt`} target="_blank" rel="noopener">SHA256SUMS.txt →</a>
+      </div>
     </div>
     <p class="download__all">
       {tr.download.allReleases}
@@ -121,6 +187,24 @@ const platforms = [
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 20px;
     margin-bottom: 40px;
+  }
+  .dl-card__store {
+    display: block;
+    margin-top: 10px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+  }
+  .dl-card__store-ver {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    color: var(--text-faint);
+  }
+  .dl-card__store:hover {
+    color: var(--text);
+    text-decoration: underline;
   }
   .dl-card {
     background: var(--bg-elev);

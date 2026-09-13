@@ -93,9 +93,18 @@ install_macos() {
   curl -fL --progress-bar -o "$tmp_dmg" "$dmg_url" || error "Download failed"
 
   info "Mounting DMG…"
-  local mount_point
-  mount_point=$(hdiutil attach -nobrowse -quiet "$tmp_dmg" | tail -1 | awk '{$1=$2=""; sub(/^ +/,""); print}')
-  [ -z "$mount_point" ] && error "Failed to mount DMG"
+  # No -quiet here: it silences the very stdout we parse the mount point
+  # out of, so this branch failed for every macOS user (#265).
+  local mount_output mount_point
+  mount_output=$(hdiutil attach -nobrowse -readonly "$tmp_dmg") \
+    || error "Failed to mount DMG"
+  # Tab-separated columns: <dev node>\t<content hint>\t<mount point>.
+  # Only the volume line carries a mount point and it is not reliably the
+  # last line, so select on /Volumes/ rather than tail -1. Splitting on
+  # tabs keeps volume names that contain spaces intact.
+  mount_point=$(printf '%s\n' "$mount_output" \
+    | awk -F'\t' '$NF ~ /^\/Volumes\// { print $NF; exit }')
+  [ -z "$mount_point" ] && error "Failed to mount DMG (no mount point in hdiutil output)"
 
   info "Copying SoloMD.app to /Applications…"
   rm -rf /Applications/SoloMD.app

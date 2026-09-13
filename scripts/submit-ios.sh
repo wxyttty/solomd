@@ -6,10 +6,10 @@
 #
 # Defaults to app/src-tauri/gen/apple/build/arm64/SoloMD.ipa when no arg.
 #
-# Required env (from .env.local):
-#   APPLE_ID         your Apple ID email
-#   APPLE_PASSWORD   app-specific password (not your Apple ID password)
-#   APPLE_TEAM_ID    Apple Developer team ID, e.g. 6NQM3XP5RF
+# Credentials (from .env.local) — an App Store Connect API key is preferred
+# and used automatically when present; see scripts/lib/asc-auth.sh:
+#   ASC_KEY_ID + ASC_ISSUER_ID (+ ASC_KEY_PATH)     preferred
+#   APPLE_ID + APPLE_PASSWORD + APPLE_TEAM_ID       fallback
 
 set -euo pipefail
 
@@ -22,9 +22,9 @@ if [ -f .env.local ]; then
   set +a
 fi
 
-: "${APPLE_ID:?Set APPLE_ID}"
-: "${APPLE_PASSWORD:?Set APPLE_PASSWORD}"
-: "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID}"
+# shellcheck source=lib/asc-auth.sh
+source "$(dirname "$0")/lib/asc-auth.sh"
+asc_resolve_auth
 
 IPA="${1:-app/src-tauri/gen/apple/build/arm64/SoloMD.ipa}"
 [ -f "$IPA" ] || { echo "ERROR: $IPA not found. Run ./scripts/build-ios.sh first." >&2; exit 1; }
@@ -33,18 +33,14 @@ echo "==> Validating $IPA against App Store Connect"
 xcrun altool --validate-app \
   -f "$IPA" \
   -t ios \
-  -u "$APPLE_ID" \
-  -p "$APPLE_PASSWORD" \
-  --asc-provider "$APPLE_TEAM_ID"
+  "${ASC_ALTOOL_AUTH[@]}"
 
 echo ""
 echo "==> Uploading $IPA"
 xcrun altool --upload-app \
   -f "$IPA" \
   -t ios \
-  -u "$APPLE_ID" \
-  -p "$APPLE_PASSWORD" \
-  --asc-provider "$APPLE_TEAM_ID"
+  "${ASC_ALTOOL_AUTH[@]}"
 
 echo ""
 echo "==> Upload complete. Build will appear in App Store Connect after ~5-15 min."

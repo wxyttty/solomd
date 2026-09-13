@@ -6,10 +6,10 @@
 #
 # Defaults to the newest .pkg in dist-mas/ when no arg is given.
 #
-# Required env (from .env.local):
-#   APPLE_ID         your Apple ID email
-#   APPLE_PASSWORD   app-specific password (not your Apple ID password)
-#   APPLE_TEAM_ID    Apple Developer team ID, e.g. 6NQM3XP5RF
+# Credentials (from .env.local) — an App Store Connect API key is preferred
+# and used automatically when present; see scripts/lib/asc-auth.sh:
+#   ASC_KEY_ID + ASC_ISSUER_ID (+ ASC_KEY_PATH)     preferred
+#   APPLE_ID + APPLE_PASSWORD + APPLE_TEAM_ID       fallback
 #
 # altool is technically deprecated in favor of `notarytool` + ASC API key,
 # but for MAS uploads it remains supported and matches the credentials
@@ -27,9 +27,9 @@ if [ -f .env.local ]; then
   set +a
 fi
 
-: "${APPLE_ID:?Set APPLE_ID}"
-: "${APPLE_PASSWORD:?Set APPLE_PASSWORD}"
-: "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID}"
+# shellcheck source=lib/asc-auth.sh
+source "$(dirname "$0")/lib/asc-auth.sh"
+asc_resolve_auth
 
 PKG="${1:-}"
 if [ -z "$PKG" ]; then
@@ -44,18 +44,14 @@ echo "==> Validating $PKG against App Store Connect"
 xcrun altool --validate-app \
   -f "$PKG" \
   -t osx \
-  -u "$APPLE_ID" \
-  -p "$APPLE_PASSWORD" \
-  --asc-provider "$APPLE_TEAM_ID"
+  "${ASC_ALTOOL_AUTH[@]}"
 
 echo ""
 echo "==> Uploading $PKG"
 xcrun altool --upload-app \
   -f "$PKG" \
   -t osx \
-  -u "$APPLE_ID" \
-  -p "$APPLE_PASSWORD" \
-  --asc-provider "$APPLE_TEAM_ID"
+  "${ASC_ALTOOL_AUTH[@]}"
 
 echo ""
 echo "==> Upload complete. Build will appear in App Store Connect after ~5-15 min."

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { isMacOS } from '../lib/platform';
+import { shortcutLabel } from '../lib/keybindings';
 import { useTabsStore } from '../stores/tabs';
 import { useSettingsStore } from '../stores/settings';
 import { useWritingSessionStore } from '../stores/writingSession';
@@ -21,6 +23,13 @@ const writingSession = useWritingSessionStore();
 const inbox = useInbox();
 const pomodoro = usePomodoroStore();
 const { t } = useI18n();
+// #180 — the chord in this sentence comes from the user's bindings, not from
+// a literal baked into the translation.
+const macChord = isMacOS();
+const kbSettings = useSettingsStore();
+function withChord(key: string, actionId: string): string {
+  return t(key, { key: shortcutLabel(actionId, kbSettings.keybindings, macChord) || '—' });
+}
 
 const stats = computed(() => {
   const c = tabs.activeTab?.content ?? '';
@@ -68,16 +77,16 @@ function onPillClick() {
 
 <template>
   <div class="statusbar">
-    <span class="seg">Ln {{ props.line }}, Col {{ props.col }}</span>
-    <span class="sep">·</span>
-    <span class="seg">{{ lineCount }} lines</span>
-    <span class="sep">·</span>
+    <span class="seg seg--wide">Ln {{ props.line }}, Col {{ props.col }}</span>
+    <span class="sep sep--wide">·</span>
+    <span class="seg seg--wide">{{ lineCount }} lines</span>
+    <span class="sep sep--wide">·</span>
     <span class="seg">{{ wordCount }} words</span>
     <span v-if="cjkCount > 0" class="seg seg--cjk" :title="`${cjkCount} CJK characters`">
       ({{ cjkCount }} 字)
     </span>
-    <span class="sep">·</span>
-    <span class="seg">{{ charCount }} chars</span>
+    <span class="sep sep--wide">·</span>
+    <span class="seg seg--wide">{{ charCount }} chars</span>
     <span v-if="selStats" class="seg seg--selection" :title="t('statusBar.selectionTooltip')">
       ·
       {{ t('statusBar.selection', { words: String(selStats.total), chars: String(selStats.chars) }) }}
@@ -102,14 +111,14 @@ function onPillClick() {
     <button
       v-if="inbox.activeIsInbox.value"
       class="seg seg--inbox"
-      :title="settings.inboxWorkflowEnabled ? t('inbox.pillTooltipOrganize') : t('inbox.pillTooltip')"
+      :title="settings.inboxWorkflowEnabled ? withChord('inbox.pillTooltipOrganize', 'inbox.toggle') : withChord('inbox.pillTooltip', 'inbox.toggle')"
       @click="onPillClick"
     >
       {{ t('inbox.pill') }}
     </button>
-    <span class="seg">{{ enc }}</span>
-    <span class="sep">·</span>
-    <span class="seg seg--lang">{{ lang }}</span>
+    <span class="seg seg--wide">{{ enc }}</span>
+    <span class="sep sep--wide">·</span>
+    <span class="seg seg--lang seg--wide">{{ lang }}</span>
   </div>
 </template>
 

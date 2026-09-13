@@ -14,7 +14,19 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useTabsStore } from '../stores/tabs';
 import { useI18n } from '../i18n';
 import { isMobile } from '../lib/platform';
+import { usePendingDeletes, isDeletePending, UNDO_WINDOW_MS } from '../composables/usePendingDeletes';
 import { isSafPath, fromSafPath, safList, safCreate } from '../lib/saf-fs';
+import MoveToDialog from './MoveToDialog.vue';
+import {
+  dragPath,
+  dragIsDir,
+  dropTarget,
+  endDrag,
+  suppressClick,
+  canDropInto,
+  baseName,
+  sepOf,
+} from '../composables/useTreeDrag';
 
 interface Entry {
   name: string;
@@ -110,6 +122,7 @@ async function copyNodeRelativePath(node: Node) {
 }
 const tabs = useTabsStore();
 const { t } = useI18n();
+const pendingDeletes = usePendingDeletes();
 
 const root = ref<Node | null>(null);
 
@@ -122,14 +135,32 @@ const showInboxOnly = computed(() => inbox.filterMode.value);
  * row instead of rendering it as a fake file. */
 const TRUNCATED_SENTINEL = '__solomd_truncated__';
 
+/** True when the workspace folder itself is gone (moved, deleted, unmounted
+ *  drive). Distinct from "empty": an empty tree under the folder's own name is
+ *  indistinguishable from data loss, which is how it read before. */
+const rootMissing = ref(false);
+
 async function loadDir(path: string): Promise<{ children: Node[]; truncated: boolean }> {
   try {
     // #148 — SAF vault: list children via ContentResolver, not std::fs.
     if (isSafPath(path) && workspace.safTreeUri) {
       const safChildren = await safList(workspace.safTreeUri, fromSafPath(path));
-      return { children: safChildren as Node[], truncated: false };
+      // A delete still inside its undo window is presented as done — the file
+      // is on disk for a few more seconds but the user has been told it is gone.
+      // The hidden-file filter is applied here rather than in the Kotlin
+      // lister, so the setting means the same thing on a SAF vault as on a
+      // plain folder.
+      return {
+        children: (safChildren as Node[]).filter(
+          (c) => !isDeletePending(c.path) && (settings.explorerShowHidden || !c.name.startsWith('.')),
+        ),
+        truncated: false,
+      };
     }
-    const entries = await invoke<Entry[]>('list_dir', { path });
+    const entries = await invoke<Entry[]>('list_dir', {
+      path,
+      showHidden: settings.explorerShowHidden,
+    });
     let truncated = false;
     const filtered: Node[] = [];
     for (const e of entries) {
@@ -137,11 +168,25 @@ async function loadDir(path: string): Promise<{ children: Node[]; truncated: boo
         truncated = true;
         continue;
       }
+      if (isDeletePending(e.path)) continue;
       filtered.push({ ...e });
     }
+    // A successful listing clears the "folder is gone" state, so putting the
+    // folder back (or reconnecting the drive) recovers on the next refresh
+    // rather than needing the workspace re-picked.
+    if (path === workspace.currentFolder) rootMissing.value = false;
     return { children: filtered, truncated };
   } catch (e) {
     console.error('list_dir failed', e);
+    // Only the root's disappearance is worth a special state; a subfolder that
+    // vanished mid-expand just lists as empty.
+    if (path === workspace.currentFolder) {
+      try {
+        rootMissing.value = !(await invoke<boolean>('fs_dir_exists', { path }));
+      } catch {
+        rootMissing.value = false;
+      }
+    }
     return { children: [], truncated: false };
   }
 }
@@ -152,6 +197,7 @@ async function refreshRoot() {
     return;
   }
   const path = workspace.currentFolder;
+  rootMissing.value = false;
   root.value = {
     name: isSafPath(path) ? workspace.safName ?? 'Vault' : path.split(/[\\/]/).pop() ?? path,
     path,
@@ -189,7 +235,108 @@ async function toggle(node: Node) {
   node.expanded = true;
 }
 
-watch(() => workspace.currentFolder, refreshRoot, { immediate: true });
+watch(
+  () => workspace.currentFolder,
+  () => {
+    // Leaving the folder ends the undo offer — the toast is about to be out of
+    // sight, and a timer that fires against another workspace is a trap.
+    void pendingDeletes.flushAll();
+    void refreshRoot();
+  },
+  { immediate: true },
+);
+
+// ---------------------------------------------------------------------------
+// #282 — "文件树可否增加文件格式过滤，例如我只想显示该文件夹下面的 txt 或者是
+// md 文档". The checkbox list offers what the vault actually contains, not a
+// canned list of twenty formats.
+//
+// The filter persists, which makes a hidden filter the obvious failure mode:
+// "my files are gone". So whenever it's set the tree shows a banner naming
+// the active types with a one-click clear, and the header button changes
+// state — see [blank-pane traps]: a persisted flag that hides content must
+// never be invisible.
+// ---------------------------------------------------------------------------
+
+const filterOpen = ref(false);
+const extList = ref<{ ext: string; count: number }[]>([]);
+const extFilter = computed<string[]>(() => settings.explorerExtFilter ?? []);
+
+/** Absolute paths of folders whose subtree holds a match, or null when no
+ *  filter is active. The tree is lazy, so this can't be derived from the
+ *  loaded nodes — it comes from one backend walk per filter change. */
+const filterDirs = ref<Set<string> | null>(null);
+
+const filterLabel = computed(() =>
+  extFilter.value
+    .map((e) => (e === '' ? t('explorer.filterNoExt') || 'no extension' : '.' + e))
+    .join('、'),
+);
+
+async function refreshFilterDirs() {
+  const rootPath = workspace.currentFolder;
+  if (!rootPath || extFilter.value.length === 0 || isSafPath(rootPath)) {
+    filterDirs.value = null;
+    return;
+  }
+  try {
+    const rels = await invoke<string[]>('fs_dirs_with_extensions', {
+      root: rootPath,
+      exts: extFilter.value,
+      showHidden: settings.explorerShowHidden,
+    });
+    filterDirs.value = new Set(
+      rels.map((rel) => rel.split('/').reduce((acc, seg) => joinPath(acc, seg), rootPath)),
+    );
+  } catch (err) {
+    console.warn('[FileTree] dirs-with-extensions failed', err);
+    // Failing open beats hiding folders we could not verify.
+    filterDirs.value = null;
+  }
+}
+
+async function openFilter() {
+  filterOpen.value = !filterOpen.value;
+  if (!filterOpen.value) return;
+  const rootPath = workspace.currentFolder;
+  if (!rootPath || isSafPath(rootPath)) {
+    extList.value = [];
+    return;
+  }
+  try {
+    extList.value = await invoke<{ ext: string; count: number }[]>('fs_list_extensions', {
+      root: rootPath,
+      showHidden: settings.explorerShowHidden,
+    });
+  } catch (err) {
+    toasts.error(String(err));
+    extList.value = [];
+  }
+}
+
+function extLabel(ext: string): string {
+  return ext === '' ? t('explorer.filterNoExt') || 'no extension' : '.' + ext;
+}
+
+// `immediate` matters: on startup the workspace folder is restored before
+// this watcher exists, so without it a filter that survived the last session
+// would sit there with its banner showing while the tree stayed unfiltered
+// until the next manual refresh.
+watch(
+  [extFilter, () => settings.explorerShowHidden, () => workspace.currentFolder],
+  () => {
+    void refreshFilterDirs();
+  },
+  { immediate: true },
+);
+// Flipping "show hidden files" changes what every already-loaded directory
+// should contain, so the whole tree is re-listed — expanded folders included.
+watch(
+  () => settings.explorerShowHidden,
+  () => {
+    void refreshTreePreservingExpansion();
+  },
+);
 
 // ---------------------------------------------------------------------------
 // v3.0: auto-refresh on save / pull / external-change
@@ -232,23 +379,44 @@ async function refreshTreePreservingExpansion() {
     root.value.truncated = truncated;
     root.value.loading = false;
   }
+  // Creating / deleting / moving a file can change which folders hold a match
+  // for the extension filter (#282). This runs after every tree refresh
+  // rather than on a `watch(root)`, because the refresh mutates the root node
+  // in place — the ref identity never changes and a watcher would never fire.
+  if (extFilter.value.length) void refreshFilterDirs();
 }
 
 function onSaved() { scheduleRefresh(); }
 function onRemotePulled() { scheduleRefresh(); }
 
 let unlistenIndex: UnlistenFn | null = null;
+let unlistenCapture: UnlistenFn | null = null;
+/** Closing the window while a delete is pending: run it. The user asked for
+ *  the delete and saw it happen; having the file reappear on next launch would
+ *  be the surprise, not the safety. Best-effort — the IPC may not land. */
+function onBeforeUnload() {
+  void pendingDeletes.flushAll();
+}
+
 onMounted(async () => {
   window.addEventListener('solomd:saved', onSaved as EventListener);
   window.addEventListener('solomd:remote-pulled', onRemotePulled as EventListener);
+  window.addEventListener('beforeunload', onBeforeUnload);
   try {
     unlistenIndex = await listen('solomd://index-updated', () => scheduleRefresh());
+  } catch {}
+  try {
+    // A quick capture writes straight to disk from Rust; without this the new
+    // Inbox note is invisible until something else happens to refresh.
+    unlistenCapture = await listen('solomd://capture-written', () => scheduleRefresh());
   } catch {}
 });
 onBeforeUnmount(() => {
   window.removeEventListener('solomd:saved', onSaved as EventListener);
   window.removeEventListener('solomd:remote-pulled', onRemotePulled as EventListener);
+  window.removeEventListener('beforeunload', onBeforeUnload);
   if (unlistenIndex) unlistenIndex();
+  if (unlistenCapture) unlistenCapture();
   if (refreshDebounce) clearTimeout(refreshDebounce);
 });
 
@@ -334,6 +502,297 @@ function joinPath(parent: string, name: string): string {
   return parent.endsWith(sep) ? parent + name : parent + sep + name;
 }
 
+// ---------------------------------------------------------------------------
+// #290 / #267 — moving files and folders between folders.
+//
+// Two entry points, one implementation: drag a node onto a folder, or pick
+// "Move to…" from the context menu. The picker is not a nicety — the drag is
+// mouse-only (on a touchscreen a press-and-drag over a scrollable list is a
+// scroll) and isn't reachable from the keyboard at all, so without the picker
+// the feature wouldn't exist on mobile.
+// ---------------------------------------------------------------------------
+
+/** A plain filesystem vault, i.e. not a SAF one (#148, Android), where files
+ *  are addressed by content-URI and the std::fs-backed commands don't apply.
+ *  Two features are gated on it: moving (there is no ContentResolver move, so
+ *  a drag would fail at the IPC boundary) and the file-type filter (both of
+ *  its backend walks need real paths). Gating beats offering a dead control. */
+const localVault = computed(
+  () => !!workspace.currentFolder && !isSafPath(workspace.currentFolder),
+);
+const canMove = localVault;
+
+/** Point an open tab at a path that just moved on disk.
+ *
+ *  #91 again: the dirty check has to be snapshotted BEFORE markSaved, which
+ *  sets savedContent = content as part of its bookkeeping — comparing after
+ *  it always says "clean" and a dirty tab loses its unsaved edits to whatever
+ *  is on disk. Clean tabs are reloaded because a move can rewrite the body
+ *  (relative links get re-anchored to the new folder). */
+async function repointTab(
+  tab: { id: string; filePath?: string; content?: string; savedContent?: string },
+  next: string,
+) {
+  const wasClean = tab.savedContent === tab.content;
+  if (!wasClean) {
+    tabs.renamePath(tab.id, next);
+    return;
+  }
+  tabs.markSaved(tab.id, next);
+  try {
+    const fr = await invoke<{ content: string }>('read_file', { path: next });
+    tabs.setContent(tab.id, fr.content);
+    tabs.markSaved(tab.id, next);
+  } catch (err) {
+    console.warn('[FileTree] tab reload after move failed', err);
+  }
+}
+
+/** Every tab under the moved path follows it — a folder move has to repoint
+ *  each open note inside it, not just an exact match. */
+function repointTabs(from: string, to: string, isDir: boolean) {
+  const prefixes = isDir ? [from + '/', from + '\\'] : [];
+  for (const tab of [...tabs.tabs] as { id: string; filePath?: string }[]) {
+    const fp = tab.filePath;
+    if (!fp) continue;
+    let next: string | null = null;
+    if (fp === from) {
+      next = to;
+    } else if (prefixes.some((pre) => fp.startsWith(pre))) {
+      next = to + fp.slice(from.length);
+    }
+    if (next) void repointTab(tab, next);
+  }
+}
+
+function rootRelative(p: string): string {
+  const rootPath = workspace.currentFolder ?? '';
+  const sep = sepOf(rootPath);
+  const norm = rootPath.endsWith(sep) ? rootPath : rootPath + sep;
+  return p.startsWith(norm) ? p.slice(norm.length).split('\\').join('/') : '';
+}
+
+function rootLabel(): string {
+  return t('explorer.vaultRoot') || 'Vault root';
+}
+
+async function moveNode(from: string, destDir: string, isDir: boolean) {
+  if (!canDropInto(from, destDir)) return;
+  const name = baseName(from);
+  const target = joinPath(destDir, name);
+  try {
+    // A pending delete on the destination path would fire later and take the
+    // moved file with it. Same race the new-file path guards against.
+    await pendingDeletes.flushUnder(target);
+    await invoke('fs_move', { from, to: target });
+  } catch (err) {
+    // By far the likeliest failure, and the raw Rust string is half English
+    // and half absolute path — say it in the user's language instead.
+    const exists = String(err).includes('target already exists');
+    toasts.error(
+      exists
+        ? t('explorer.moveExists', { name, dest: rootRelative(destDir) || rootLabel() })
+        : t('explorer.moveFailed', { name, error: String(err) }),
+    );
+    return;
+  }
+  repointTabs(from, target, isDir);
+  scheduleRefresh();
+  toasts.push(
+    t('explorer.moved', { name, dest: rootRelative(destDir) || rootLabel() }),
+    'success',
+    UNDO_WINDOW_MS,
+    () => {
+      void undoMove(target, from, isDir, name);
+    },
+    { actionLabel: t('explorer.undo') },
+  );
+}
+
+/** Undo is the same move run backwards, which also puts the rewritten
+ *  relative links back the way they were. */
+async function undoMove(current: string, original: string, isDir: boolean, name: string) {
+  try {
+    await invoke('fs_move', { from: current, to: original });
+  } catch (err) {
+    toasts.error(
+      t('explorer.moveFailed', { name, error: String(err) }) ||
+        `Could not move ${name}: ${err}`,
+    );
+    return;
+  }
+  repointTabs(current, original, isDir);
+  scheduleRefresh();
+  toasts.info(t('explorer.moveUndone', { name }));
+}
+
+// --- "Move to…" picker -----------------------------------------------------
+
+const moveDialog = ref<{ node: Node; dirs: string[] } | null>(null);
+
+async function startMoveTo(node: Node) {
+  closeCtx();
+  const rootPath = workspace.currentFolder;
+  if (!rootPath || !canMove.value) return;
+  try {
+    const dirs = await invoke<string[]>('fs_list_dirs', {
+      root: rootPath,
+      showHidden: settings.explorerShowHidden,
+    });
+    moveDialog.value = { node, dirs };
+  } catch (err) {
+    toasts.error(String(err));
+  }
+}
+
+async function onMovePicked(relDir: string) {
+  const pending = moveDialog.value;
+  moveDialog.value = null;
+  const rootPath = workspace.currentFolder;
+  if (!pending || !rootPath) return;
+  const dest =
+    relDir === ''
+      ? rootPath
+      : relDir.split('/').reduce((acc, seg) => joinPath(acc, seg), rootPath);
+  await moveNode(pending.node.path, dest, !!pending.node.is_dir);
+}
+
+// --- the drag itself -------------------------------------------------------
+//
+// Pointer events, NOT the HTML5 Drag and Drop API — see the note in
+// useTreeDrag.ts. The short version: `dragDropEnabled: true` (which the app
+// needs for "drop a file from Finder to open it") makes the native handler
+// swallow in-page drags, and `dragstart` still fires, so the breakage is
+// invisible until you actually try to drop something. #86 and #131 both
+// learned this the hard way.
+
+const DRAG_THRESHOLD = 4; // px of movement before a press counts as a drag
+const AUTO_EXPAND_MS = 600;
+const SCROLL_EDGE = 28; // px from the tree's edge that starts auto-scrolling
+
+const treeBody = ref<HTMLElement | null>(null);
+
+let pointerStart: { x: number; y: number; node: Node } | null = null;
+let dragActive = false;
+let expandTimer: ReturnType<typeof setTimeout> | null = null;
+let expandArmedFor = '';
+
+function findNode(path: string, nodes?: Node[]): Node | null {
+  for (const n of nodes ?? root.value?.children ?? []) {
+    if (n.path === path) return n;
+    if (n.children) {
+      const hit = findNode(path, n.children);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+/** Which folder the pointer is currently over, or null. Files are not drop
+ *  targets: filing into a file's parent reads as "dropped into the file" and
+ *  there is no honest way to highlight that. */
+function destinationAt(x: number, y: number): string | null {
+  const el = document.elementFromPoint(x, y) as HTMLElement | null;
+  if (!el) return null;
+  const row = el.closest('.ftree__item') as HTMLElement | null;
+  if (row) return row.dataset.dir === '1' ? (row.dataset.path ?? null) : null;
+  // The workspace row and the empty space under the tree both mean "the
+  // vault root" — otherwise there is no way to drag something back to the top.
+  if (el.closest('.ftree__root') || el.closest('.ftree__list')) {
+    return root.value?.path ?? null;
+  }
+  return null;
+}
+
+/** Spring-loaded folders: resting on a collapsed folder opens it, so a drag
+ *  can reach a nested target without being abandoned halfway. */
+function armAutoExpand(dest: string | null) {
+  if (dest === expandArmedFor) return;
+  expandArmedFor = dest ?? '';
+  if (expandTimer) clearTimeout(expandTimer);
+  expandTimer = null;
+  if (!dest) return;
+  const node = findNode(dest);
+  if (!node || !node.is_dir || node.expanded) return;
+  expandTimer = setTimeout(() => {
+    expandTimer = null;
+    if (dragActive && !node.expanded) void toggle(node);
+  }, AUTO_EXPAND_MS);
+}
+
+function autoScroll(y: number) {
+  const body = treeBody.value;
+  if (!body) return;
+  const r = body.getBoundingClientRect();
+  if (y < r.top + SCROLL_EDGE) body.scrollTop -= 12;
+  else if (y > r.bottom - SCROLL_EDGE) body.scrollTop += 12;
+}
+
+/** Mouse only. On a touchscreen a press-and-drag over a scrollable list is
+ *  a scroll, so touch users get "Move to…" instead of a drag they'd trigger
+ *  by accident. */
+function onNodePress(e: PointerEvent, node: Node) {
+  // Clear any suppression left over from a previous drag BEFORE deciding
+  // whether this press starts one. When a drag ends on a different row than
+  // it started on, the browser dispatches the trailing `click` on the two
+  // rows' common ancestor — the <ul> — so no row handler ever consumes the
+  // flag, and without this it would swallow the user's *next* click instead.
+  suppressClick.value = false;
+  if (e.button !== 0 || e.pointerType !== 'mouse' || !canMove.value) return;
+  pointerStart = { x: e.clientX, y: e.clientY, node };
+  window.addEventListener('pointermove', onDragMove);
+  window.addEventListener('pointerup', onDragUp);
+  window.addEventListener('pointercancel', onDragCancel);
+}
+
+function onDragMove(e: PointerEvent) {
+  if (!pointerStart) return;
+  if (!dragActive) {
+    const moved = Math.abs(e.clientX - pointerStart.x) + Math.abs(e.clientY - pointerStart.y);
+    if (moved < DRAG_THRESHOLD) return;
+    dragActive = true;
+    dragPath.value = pointerStart.node.path;
+    dragIsDir.value = !!pointerStart.node.is_dir;
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+  }
+  const dest = destinationAt(e.clientX, e.clientY);
+  const legal = dest && canDropInto(dragPath.value ?? '', dest) ? dest : null;
+  dropTarget.value = legal;
+  armAutoExpand(legal);
+  autoScroll(e.clientY);
+}
+
+function teardownDrag() {
+  window.removeEventListener('pointermove', onDragMove);
+  window.removeEventListener('pointerup', onDragUp);
+  window.removeEventListener('pointercancel', onDragCancel);
+  if (expandTimer) clearTimeout(expandTimer);
+  expandTimer = null;
+  expandArmedFor = '';
+  pointerStart = null;
+  dragActive = false;
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  endDrag();
+}
+
+function onDragCancel() {
+  teardownDrag();
+}
+
+function onDragUp() {
+  const from = dragPath.value;
+  const dest = dropTarget.value;
+  const isDir = dragIsDir.value;
+  const wasDrag = dragActive;
+  teardownDrag();
+  if (!wasDrag) return;
+  // The click that follows this pointerup belongs to the drag, not to the row.
+  suppressClick.value = true;
+  if (from && dest) void moveNode(from, dest, isDir);
+}
+
 async function commitEdit() {
   const e = editing.value;
   if (!e) return;
@@ -358,11 +817,15 @@ async function commitEdit() {
         return;
       }
       const target = joinPath(e.parent, finalName);
+      // A pending delete on this exact path would fire later and take the new
+      // file with it. Commit it now so the two never race.
+      await pendingDeletes.flushUnder(target);
       await invoke('fs_create_file', { path: target, content: '' });
       editing.value = null;
       scheduleRefresh();
       await files.openPath(target, { bypassNewWindow: true });
     } else if (e.kind === 'new-dir') {
+      await pendingDeletes.flushUnder(joinPath(e.parent, name));
       await invoke('fs_create_dir', { path: joinPath(e.parent, name) });
       editing.value = null;
       scheduleRefresh();
@@ -372,37 +835,17 @@ async function commitEdit() {
         editing.value = null;
         return;
       }
+      await pendingDeletes.flushUnder(target);
       await invoke('fs_rename', { from: e.original, to: target });
       editing.value = null;
       scheduleRefresh();
-      // v4.3.5 — if the renamed file is open in a tab, point the tab at the
-      // new path and (when content might have changed on disk via the
-      // per-file `.assets/` link rewrite) reload from disk for clean tabs.
-      // Dirty tabs keep their in-memory content; user resolves on save.
-      //
-      // #91 fix: the dirty check has to run BEFORE we call markSaved —
-      // markSaved sets savedContent = content as part of its bookkeeping,
-      // so the comparison was always true and dirty tabs lost their
-      // in-memory edits to whatever was on disk. Snapshot first, reload
-      // only if it was already clean.
+      // v4.3.5 — if the renamed file is open in a tab, the tab follows it.
+      // repointTab is shared with the move path: it keeps a dirty tab's
+      // unsaved edits and reloads a clean one, which picks up any per-file
+      // `.assets/` link rewrite the rename triggered (#91).
       try {
         const tab = tabs.tabs.find((t: { filePath?: string }) => t.filePath === e.original);
-        if (tab) {
-          const wasClean = tab.savedContent === tab.content;
-          if (wasClean) {
-            // Clean tab: safe to repoint + reload from disk (picks up any
-            // per-file `.assets/` link rewrite the rename triggered).
-            tabs.markSaved(tab.id, target);
-            const fr = await invoke<{ content: string }>('read_file', { path: target });
-            tabs.setContent(tab.id, fr.content);
-            tabs.markSaved(tab.id, target);
-          } else {
-            // Dirty tab: repoint to the new path but KEEP the unsaved edits
-            // AND the dirty flag. markSaved() here would clear savedContent
-            // and silently lose the edits when the tab is later closed (#91).
-            tabs.renamePath(tab.id, target);
-          }
-        }
+        if (tab) await repointTab(tab, target);
       } catch (err) {
         console.warn('[FileTree.rename] tab refresh failed', err);
       }
@@ -443,13 +886,31 @@ async function deleteNode(node: Node) {
       : `Delete "${node.name}"?\n\n${suffix}`,
   );
   if (!ok) return;
-  try {
-    await invoke('fs_delete', { path: node.path });
+
+  // The delete is held for a few seconds so the toast can offer Undo. The
+  // file is untouched until then; the tree hides it in the meantime.
+  const path = node.path;
+  const name = node.name;
+  await pendingDeletes.schedule({
+    path,
+    name,
+    isDir: !!node.is_dir,
+    delayMs: UNDO_WINDOW_MS,
+    commit: async () => {
+      try {
+        await invoke('fs_delete', { path });
+      } catch (e) {
+        toasts.error(`Delete failed: ${e}`);
+      }
+      scheduleRefresh();
+    },
+  });
+  scheduleRefresh();
+  toasts.push(t('explorer.deleted', { name }), 'success', UNDO_WINDOW_MS, () => {
+    if (!pendingDeletes.undo(path)) return;
     scheduleRefresh();
-    toasts.success(`Deleted ${node.name}`);
-  } catch (e) {
-    toasts.error(`Delete failed: ${e}`);
-  }
+    toasts.info(t('explorer.deleteUndone', { name }));
+  }, { actionLabel: t('explorer.undo') });
 }
 
 async function revealNode(node: Node) {
@@ -511,6 +972,7 @@ function closeFolder() {
 
 // Close the context menu on any outside click / escape.
 function onWindowClick() {
+  filterOpen.value = false;
   if (switcherOpen.value) closeSwitcher();
   if (!ctx.value) return;
   closeCtx();
@@ -519,6 +981,7 @@ function onWindowKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     closeCtx();
     closeSwitcher();
+    filterOpen.value = false;
     if (editing.value) editing.value = null;
   }
 }
@@ -554,6 +1017,42 @@ onBeforeUnmount(() => {
           @click="root && startNewFile(root.path)"
           :disabled="!root"
         >＋</button>
+        <div class="ftree__filter-wrap">
+          <button
+            v-if="localVault"
+            class="ftree__hbtn"
+            :class="{ 'ftree__hbtn--on': extFilter.length > 0 }"
+            :title="t('explorer.filterByType') || 'Filter by file type'"
+            @click.stop="openFilter"
+            :disabled="!root"
+          >{{ extFilter.length ? '▼' : '▽' }}</button>
+          <div v-if="filterOpen" class="ftree__filter-pop" @click.stop>
+            <div class="ftree__filter-label">{{ t('explorer.filterByType') || 'Filter by file type' }}</div>
+            <button
+              class="ftree__filter-item"
+              :class="{ 'ftree__filter-item--active': extFilter.length === 0 }"
+              @click="settings.clearExplorerExtFilter()"
+            >
+              <span class="ftree__filter-check">{{ extFilter.length === 0 ? '✓' : '' }}</span>
+              <span class="ftree__filter-name">{{ t('explorer.filterAll') || 'All files' }}</span>
+            </button>
+            <div class="ftree__filter-sep"></div>
+            <button
+              v-for="e in extList"
+              :key="e.ext || '__noext__'"
+              class="ftree__filter-item"
+              :class="{ 'ftree__filter-item--active': extFilter.includes(e.ext) }"
+              @click="settings.toggleExplorerExt(e.ext)"
+            >
+              <span class="ftree__filter-check">{{ extFilter.includes(e.ext) ? '✓' : '' }}</span>
+              <span class="ftree__filter-name">{{ extLabel(e.ext) }}</span>
+              <span class="ftree__filter-count">{{ e.count }}</span>
+            </button>
+            <div v-if="extList.length === 0" class="ftree__filter-empty">
+              {{ t('explorer.filterNoTypes') || 'Nothing to filter yet.' }}
+            </div>
+          </div>
+        </div>
         <button
           class="ftree__hbtn"
           :title="t('explorer.refresh') || 'Refresh'"
@@ -577,13 +1076,16 @@ onBeforeUnmount(() => {
     <div v-if="!root" class="ftree__empty">
       <button class="ftree__open-btn" @click="files.openFolder">Open Folder…</button>
     </div>
-    <div v-else class="ftree__body">
+    <div v-else ref="treeBody" class="ftree__body">
       <!-- v4.3.5: root display doubles as the workspace switcher. Click
            opens a dropdown listing recent folders + "Open folder…". -->
       <div class="ftree__root-wrap">
         <button
           class="ftree__root ftree__root--btn"
-          :class="{ 'ftree__root--open': switcherOpen }"
+          :class="{
+            'ftree__root--open': switcherOpen,
+            'ftree__root--drop': dropTarget === root.path,
+          }"
           :title="(t('explorer.switchWorkspace') || 'Switch workspace') + ' · ' + root.path"
           @click.stop="toggleSwitcher"
           @contextmenu.prevent="openCtx($event, root)"
@@ -611,6 +1113,22 @@ onBeforeUnmount(() => {
           <div class="ftree__switcher-sep"></div>
           <button class="ftree__switcher-item ftree__switcher-item--cta" @click="openFolderAndClose">
             📁 {{ t('explorer.openFolder') }}
+          </button>
+        </div>
+      </div>
+
+      <!-- The folder itself is gone (moved in Finder, deleted, drive
+           unmounted). Saying so beats an empty tree under its own name,
+           which reads as "my notes are gone". -->
+      <div v-if="rootMissing" class="ftree__missing">
+        <p class="ftree__missing-title">{{ t('explorer.folderMissing') }}</p>
+        <p class="ftree__missing-path">{{ root.path }}</p>
+        <div class="ftree__missing-actions">
+          <button class="ftree__open-btn" @click="files.openFolder">
+            {{ t('explorer.folderMissingLocate') }}
+          </button>
+          <button class="ftree__missing-secondary" @click="workspace.setFolder(null)">
+            {{ t('explorer.closeFolder') }}
           </button>
         </div>
       </div>
@@ -657,11 +1175,21 @@ onBeforeUnmount(() => {
         </span>
       </div>
 
+      <!-- A persisted filter that hides files must never be invisible. -->
+      <div v-if="extFilter.length" class="ftree__filter-banner">
+        <span class="ftree__filter-banner-text">
+          {{ t('explorer.filterActive', { types: filterLabel }) }}
+        </span>
+        <button class="ftree__filter-banner-clear" @click="settings.clearExplorerExtFilter()">
+          {{ t('explorer.filterClear') || 'Clear' }}
+        </button>
+      </div>
+
       <div v-if="root.loading" class="ftree__loading">
         <span class="ftree__spinner" aria-hidden="true"></span>
         <span>Loading…</span>
       </div>
-      <ul v-else class="ftree__list">
+      <ul v-else class="ftree__list" :class="{ 'ftree__list--drop': dropTarget === root.path }">
         <FileTreeNode
           v-for="child in root.children"
           :key="child.path"
@@ -669,8 +1197,11 @@ onBeforeUnmount(() => {
           :depth="0"
           :inbox-only="showInboxOnly"
           :inbox-paths="inbox.inboxPaths.value"
+          :ext-filter="extFilter"
+          :filter-dirs="filterDirs"
           @toggle="toggle"
           @contextmenu="openCtx"
+          @press="onNodePress"
         />
         <li v-if="root.truncated" class="ftree__truncated" :title="`This folder has more than 10,000 entries; showing the first batch. Move groups into subfolders to see them all.`">
           + 10,000+ more —— folder is huge
@@ -698,6 +1229,13 @@ onBeforeUnmount(() => {
       <button v-if="ctx.node" class="ftree__ctx-item" @click="startRename(ctx.node)">
         ✎ {{ t('explorer.rename') || 'Rename' }}
       </button>
+      <button
+        v-if="ctx.node && canMove && ctx.node.path !== root?.path"
+        class="ftree__ctx-item"
+        @click="startMoveTo(ctx.node)"
+      >
+        ↪ {{ t('explorer.moveTo') || 'Move to…' }}
+      </button>
       <button v-if="ctx.node" class="ftree__ctx-item ftree__ctx-item--danger" @click="deleteNode(ctx.node)">
         🗑 {{ t('explorer.delete') || 'Delete' }}
       </button>
@@ -720,6 +1258,16 @@ onBeforeUnmount(() => {
         </button>
       </template>
     </div>
+
+    <MoveToDialog
+      :open="!!moveDialog"
+      :node-name="moveDialog?.node.name ?? ''"
+      :dirs="moveDialog?.dirs ?? []"
+      :current-dir="moveDialog ? rootRelative(moveDialog.node.path).replace(/\/?[^/]+$/, '') : ''"
+      :self-dir="moveDialog?.node.is_dir ? rootRelative(moveDialog.node.path) : null"
+      @confirm="onMovePicked"
+      @cancel="moveDialog = null"
+    />
   </aside>
 </template>
 
@@ -733,8 +1281,14 @@ export const FileTreeNode = defineComponent({
     depth: { type: Number, default: 0 },
     inboxOnly: { type: Boolean, default: false },
     inboxPaths: { type: Object as () => Set<string>, default: () => new Set() },
+    /** #282 — lower-case extensions without the dot ('' = no extension).
+     *  Empty means no filtering. */
+    extFilter: { type: Array as () => string[], default: () => [] },
+    /** Absolute paths of folders whose subtree holds a match, or null when
+     *  no filter is active (or the backend walk failed — we fail open). */
+    filterDirs: { type: Object as () => Set<string> | null, default: null },
   },
-  emits: ['toggle', 'contextmenu'],
+  emits: ['toggle', 'contextmenu', 'press'],
   setup(props, { emit }) {
     // #182 — the full-names toggle lives in settings; this inner component is
     // module-scoped so it can't close over <script setup>'s store instance.
@@ -743,6 +1297,14 @@ export const FileTreeNode = defineComponent({
       if (!node.is_dir) return props.inboxPaths.has(node.path);
       if (!node.children) return false;
       return node.children.some(subtreeHasInbox);
+    };
+
+    // The extension the way `Path::extension()` sees it, so the tree filter
+    // and the backend's extension index agree: no dot, lower-cased, and a
+    // leading-dot name like `.gitignore` has NO extension (it's all stem).
+    const extensionOf = (name: string): string => {
+      const dot = name.lastIndexOf('.');
+      return dot <= 0 ? '' : name.slice(dot + 1).toLowerCase();
     };
 
     // Get file icon based on extension
@@ -820,6 +1382,13 @@ export const FileTreeNode = defineComponent({
         if (!n.is_dir && !props.inboxPaths.has(n.path)) return [];
         if (n.is_dir && n.children && !subtreeHasInbox(n)) return [];
       }
+      if (props.extFilter.length) {
+        if (!n.is_dir) {
+          if (!props.extFilter.includes(extensionOf(n.name))) return [];
+        } else if (props.filterDirs && !props.filterDirs.has(n.path)) {
+          return [];
+        }
+      }
       const indent = 8 + props.depth * 12;
 
       // Use truncated name for display, full name in tooltip. #182 — the
@@ -831,9 +1400,27 @@ export const FileTreeNode = defineComponent({
         h(
           'li',
           {
-            class: ['ftree__item', n.is_dir ? 'ftree__item--dir' : 'ftree__item--file'],
+            class: [
+              'ftree__item',
+              n.is_dir ? 'ftree__item--dir' : 'ftree__item--file',
+              dragPath.value === n.path ? 'ftree__item--dragging' : '',
+              n.is_dir && dropTarget.value === n.path ? 'ftree__item--drop' : '',
+            ],
             style: { paddingLeft: indent + 'px' },
-            onClick: () => emit('toggle', n),
+            // Hit-testing during a drag reads these off whatever row is under
+            // the pointer, so the drag logic never has to walk the tree.
+            'data-path': n.path,
+            'data-dir': n.is_dir ? '1' : '0',
+            onPointerdown: (e: PointerEvent) => emit('press', e, n),
+            onClick: () => {
+              // Swallow the click that ends a drag, or dropping a file would
+              // also open it and dropping a folder would toggle it.
+              if (suppressClick.value) {
+                suppressClick.value = false;
+                return;
+              }
+              emit('toggle', n);
+            },
             onContextmenu: (e: MouseEvent) => {
               e.preventDefault();
               e.stopPropagation();
@@ -858,8 +1445,11 @@ export const FileTreeNode = defineComponent({
               depth: props.depth + 1,
               inboxOnly: props.inboxOnly,
               inboxPaths: props.inboxPaths,
+              extFilter: props.extFilter,
+              filterDirs: props.filterDirs,
               onToggle: (target: any) => emit('toggle', target),
               onContextmenu: (event: MouseEvent, target: any) => emit('contextmenu', event, target),
+              onPress: (event: PointerEvent, target: any) => emit('press', event, target),
             })
           );
         }
@@ -914,6 +1504,37 @@ export const FileTreeNode = defineComponent({
 .ftree__hbtn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+.ftree__missing {
+  padding: 16px 14px;
+  text-align: center;
+}
+.ftree__missing-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--danger, #d64545);
+  font-weight: 600;
+}
+.ftree__missing-path {
+  margin: 0 0 10px;
+  font-size: 10px;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+.ftree__missing-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.ftree__missing-secondary {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
 }
 .ftree__empty {
   padding: 24px 14px;
@@ -1080,10 +1701,124 @@ export const FileTreeNode = defineComponent({
   background: var(--border);
   margin: 4px 0;
 }
+/* #282 — file-type filter: header popover + the always-visible banner that
+   keeps a persisted filter from reading as missing files. */
+.ftree__filter-wrap {
+  position: relative;
+  display: flex;
+}
+.ftree__hbtn--on {
+  color: var(--accent);
+}
+.ftree__filter-pop {
+  position: absolute;
+  top: 100%;
+  /* Anchored to the button's LEFT edge, not its right. The Explorer's header
+     buttons sit ~150px from the window edge, so a right-aligned 190px popover
+     hangs off-screen and every label loses its first characters — caught on
+     the Windows VM, and it would have looked identical on a narrow macOS
+     sidebar. Opening rightwards keeps it on screen at any sidebar width. */
+  left: 0;
+  z-index: 40;
+  min-width: 190px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+.ftree__filter-label {
+  padding: 6px 8px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.ftree__filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.ftree__filter-item:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.ftree__filter-item--active {
+  color: var(--accent);
+}
+.ftree__filter-check {
+  width: 10px;
+  flex: none;
+  font-size: 10px;
+}
+.ftree__filter-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ftree__filter-count {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ftree__filter-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
+}
+.ftree__filter-empty {
+  padding: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.ftree__filter-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 8px 4px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: 11px;
+  color: var(--text);
+}
+.ftree__filter-banner-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ftree__filter-banner-clear {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .ftree__list {
   list-style: none;
   margin: 0;
   padding: 0;
+  /* Gives the empty area under a short tree enough body to be a drop target
+     for "move to the vault root". */
+  min-height: 48px;
 }
 :deep(.ftree__item) {
   display: flex;
@@ -1097,6 +1832,24 @@ export const FileTreeNode = defineComponent({
 }
 :deep(.ftree__item:hover) {
   background: var(--bg-hover, color-mix(in srgb, var(--accent) 10%, transparent));
+}
+
+/* #290 / #267 — drag to move. The node being dragged fades; the folder that
+   would receive it gets a ring rather than a fill, so it stays distinguishable
+   from plain hover while a drag is in flight. */
+:deep(.ftree__item--dragging) {
+  opacity: 0.45;
+}
+:deep(.ftree__item--drop) {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  border-radius: 4px;
+}
+.ftree__root--drop {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.ftree__list--drop {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 :deep(.ftree__icon) {
   width: 14px;

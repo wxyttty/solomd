@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { combosFor, formatCombo } from '../lib/keybindings';
+import { isMacOS } from '../lib/platform';
+import { useSettingsStore } from '../stores/settings';
 import { DsModal, DsTabs, DsInput } from '../ui';
 
 const props = defineProps<{ open: boolean }>();
@@ -17,7 +20,12 @@ const today = new Date().toISOString().slice(0, 10);
 const cliExampleNew = `solomd new "daily-${today}" "今日待办："`;
 
 interface Shortcut {
-  keys: string;
+  /** #180 — when set, the chord is read from the user's bindings at render
+   *  time instead of being frozen into this table. */
+  action?: string;
+  /** A second action rendered as `A / B` (focus next / prev). */
+  action2?: string;
+  keys?: string;
   zh: string;
   en: string;
 }
@@ -25,45 +33,57 @@ interface ShortcutGroup {
   title: string;
   items: Shortcut[];
 }
+const macChord = isMacOS();
+const kbSettings = useSettingsStore();
+/** The chord to print for a row: live binding, else the literal in the table. */
+function rowKeys(item: Shortcut): string {
+  if (!item.action) return item.keys ?? '';
+  const render = (id: string) => {
+    const combos = combosFor(id, kbSettings.keybindings);
+    return combos.length ? combos.map((c) => formatCombo(c, macChord)).join(' / ') : '—';
+  };
+  return item.action2 ? `${render(item.action)} / ${render(item.action2)}` : render(item.action);
+}
+
 const shortcutGroups: ShortcutGroup[] = [
   {
     title: '文件 / Files',
     items: [
-      { keys: 'Ctrl+N', zh: '新建 Markdown 文件', en: 'New markdown file' },
-      { keys: 'Ctrl+Alt+N', zh: '新建纯文本文件', en: 'New plain text file' },
-      { keys: 'Ctrl+Shift+N', zh: '新建窗口', en: 'New window' },
-      { keys: 'Ctrl+O', zh: '打开文件', en: 'Open file' },
-      { keys: 'Ctrl+S', zh: '保存', en: 'Save' },
-      { keys: 'Ctrl+Shift+S', zh: '另存为', en: 'Save As' },
-      { keys: 'Ctrl+W', zh: '关闭标签页', en: 'Close tab' },
+      { action: 'file.new', zh: '新建 Markdown 文件', en: 'New markdown file' },
+      { action: 'file.newText', zh: '新建纯文本文件', en: 'New plain text file' },
+      { action: 'window.new', zh: '新建窗口', en: 'New window' },
+      { action: 'file.open', zh: '打开文件', en: 'Open file' },
+      { action: 'file.save', zh: '保存', en: 'Save' },
+      { action: 'file.saveAs', zh: '另存为', en: 'Save As' },
+      { action: 'file.closeTab', zh: '关闭标签页', en: 'Close tab' },
     ],
   },
   {
     title: '视图 / View',
     items: [
-      { keys: 'Ctrl+Shift+P', zh: '编辑 / 分栏 / 预览 三档循环', en: 'Cycle Edit / Split / Preview' },
-      { keys: 'Ctrl+B', zh: '文件树显隐', en: 'Toggle file tree' },
-      { keys: 'Ctrl+Shift+O', zh: '大纲显隐', en: 'Toggle outline' },
-      { keys: 'Ctrl+\\', zh: '向右分屏', en: 'Split editor right' },
-      { keys: 'Ctrl+Shift+\\', zh: '向下分屏', en: 'Split editor down' },
-      { keys: 'Ctrl+Alt+→ / ←', zh: '焦点切到下一/上一面板', en: 'Focus next / prev pane' },
+      { action: 'view.cycleView', zh: '编辑 / 分栏 / 预览 三档循环', en: 'Cycle Edit / Split / Preview' },
+      { action: 'view.toggleFileTree', zh: '文件树显隐', en: 'Toggle file tree' },
+      { action: 'view.toggleOutline', zh: '大纲显隐', en: 'Toggle outline' },
+      { action: 'tile.splitRight', zh: '向右分屏', en: 'Split editor right' },
+      { action: 'tile.splitDown', zh: '向下分屏', en: 'Split editor down' },
+      { action: 'tile.focusNext', action2: 'tile.focusPrev', zh: '焦点切到下一/上一面板', en: 'Focus next / prev pane' },
     ],
   },
   {
     title: '搜索 & 跳转 / Search & Navigate',
     items: [
-      { keys: 'Ctrl+F', zh: '编辑器内查找（预览模式则在预览中查找）', en: 'Find in editor (or preview when in Preview mode)' },
-      { keys: 'Ctrl+Shift+F', zh: '跨文件夹搜索', en: 'Search across folder' },
-      { keys: 'Ctrl+Shift+K', zh: '命令面板', en: 'Command palette' },
-      { keys: 'F1 / Ctrl+/', zh: '帮助（这个对话框）', en: 'Help (this dialog)' },
-      { keys: 'Ctrl+,', zh: '设置', en: 'Settings' },
+      { action: 'editor.find', zh: '编辑器内查找（预览模式则在预览中查找）', en: 'Find in editor (or preview when in Preview mode)' },
+      { action: 'search.global', zh: '跨文件夹搜索', en: 'Search across folder' },
+      { action: 'palette.open', zh: '命令面板', en: 'Command palette' },
+      { action: 'help.markdown', zh: '帮助（这个对话框）', en: 'Help (this dialog)' },
+      { action: 'settings.open', zh: '设置', en: 'Settings' },
     ],
   },
   {
     title: '编辑 & 格式化 / Editing',
     items: [
-      { keys: 'Ctrl+Alt+L', zh: '格式化 Markdown（Prettier）', en: 'Format Markdown (Prettier)' },
-      { keys: 'Ctrl+J', zh: 'AI 改写所选文本（需在设置开启）', en: 'AI rewrite the selection (requires enabling in Settings)' },
+      { action: 'format.markdown', zh: '格式化 Markdown（Prettier）', en: 'Format Markdown (Prettier)' },
+      { action: 'editor.aiRewrite', zh: 'AI 改写所选文本（需在设置开启）', en: 'AI rewrite the selection (requires enabling in Settings)' },
       { keys: 'Cmd/Ctrl + click [[link]]', zh: '跳转到双链目标', en: 'Open the target of a [[wikilink]]' },
       { keys: 'Tab', zh: '增加缩进 / 跨表格列', en: 'Indent / table column nav' },
       { keys: 'Shift+Tab', zh: '减少缩进', en: 'Outdent' },
@@ -72,18 +92,18 @@ const shortcutGroups: ShortcutGroup[] = [
   {
     title: '工作区 / Workspace',
     items: [
-      { keys: 'Ctrl+P', zh: '快速切换最近文件（VSCode 风格）', en: 'Quick file switcher (VSCode-style)' },
-      { keys: 'Ctrl+D', zh: '打开今日的每日笔记', en: 'Open today\'s daily note' },
+      { action: 'quickSwitcher.open', zh: '快速切换最近文件（VSCode 风格）', en: 'Quick file switcher (VSCode-style)' },
+      { action: 'daily.openToday', zh: '打开今日的每日笔记', en: 'Open today\'s daily note' },
       { keys: '(Command palette)', zh: 'Properties Table —— Bases 视图（按 Ctrl+Shift+K 找 "bases"）', en: 'Properties Table — Bases view (Ctrl+Shift+K → bases)' },
     ],
   },
   {
     title: '导出 & 演讲 / Export & Present',
     items: [
-      { keys: 'Ctrl+Shift+Alt+P', zh: '导出 PDF（系统打印对话框）', en: 'Export PDF (system print)' },
-      { keys: 'Ctrl+Shift+C', zh: '复制为 HTML', en: 'Copy as HTML' },
-      { keys: 'Ctrl+Alt+C', zh: '复制为 Markdown', en: 'Copy as Markdown' },
-      { keys: 'Ctrl+Alt+P', zh: '演讲模式（`---` 分页）', en: 'Slideshow mode (split on ---)' },
+      { action: 'export.pdfPrint', zh: '导出 PDF（系统打印对话框）', en: 'Export PDF (system print)' },
+      { action: 'export.copyHtml', zh: '复制为 HTML', en: 'Copy as HTML' },
+      { action: 'export.copyMd', zh: '复制为 Markdown', en: 'Copy as Markdown' },
+      { action: 'view.slideshow', zh: '演讲模式（`---` 分页）', en: 'Slideshow mode (split on ---)' },
     ],
   },
 ];
@@ -418,7 +438,7 @@ async function copyExample(text: string) {
             <table class="help__keys">
               <tbody>
               <tr v-for="(s, i) in g.items" :key="i">
-                <td class="help__keys-key"><kbd>{{ s.keys }}</kbd></td>
+                <td class="help__keys-key"><kbd>{{ rowKeys(s) }}</kbd></td>
                 <td class="help__keys-desc">
                   <div>{{ s.zh }}</div>
                   <div class="help__keys-en">{{ s.en }}</div>

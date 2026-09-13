@@ -10,7 +10,9 @@ import footnote from 'markdown-it-footnote';
 import frontMatter from 'markdown-it-front-matter';
 // @ts-ignore — no types shipped
 import mark from 'markdown-it-mark';
+import cjkFriendly from 'markdown-it-cjk-friendly';
 import yaml from 'js-yaml';
+import { numberEquations } from './equations';
 
 // NOTE: `@hedgedoc/markdown-it-task-lists` is installed but unusable here —
 // its compiled ESM entry does `import Token from 'markdown-it/lib/token.js'`
@@ -19,6 +21,19 @@ import yaml from 'js-yaml';
 // which also lets us attach `data-line` in the same pass.
 
 const katexPlugin: any = (katex as any).default ?? katex;
+
+// CJK-friendly emphasis (#262 / Gitee IKA1A0). `**限制：**硬链接` renders as
+// literal asterisks under stock CommonMark, and that shape is everywhere in
+// Chinese writing: a bold run ending in a full-width colon, immediately
+// followed by a Han character — no space, because CJK doesn't use one. The
+// closing `**` is preceded by punctuation and followed by a letter, so it
+// isn't right-flanking and can't close.
+//
+// `markdown-it-cjk-friendly` implements the CommonMark CJK amendment
+// (commonmark/commonmark-spec#650), which reads those clauses as *non-CJK*
+// punctuation. ASCII text keeps stock CommonMark behaviour — `**limit:**hard`
+// stays literal — because nothing CJK is adjacent.
+
 
 // Per-render front-matter capture. markdown-it is synchronous so a
 // module-level variable is safe for sequential calls, but this is NOT
@@ -69,7 +84,8 @@ export const md = new MarkdownIt({
   .use(anchor, { permalink: false, slugify: (s: string) => slugify(s) })
   .use(katexPlugin, { throwOnError: false })
   .use(footnote)
-  .use(mark);
+  .use(mark)
+  .use(cjkFriendly);
 
 // ---- Wikilink rule (`[[X]]`, `[[X|alias]]`, `[[X#heading]]`) ---------------
 // Used by F1 (v2.0). Renders into <a class="md-wikilink" data-wikilink-target="X">…</a>.
@@ -799,6 +815,10 @@ function numberedSectionHeadings(source: string): string {
 export function preprocessMarkdown(source: string): string {
   let s = normalizeTableDelimiters(unwrapInlineHtmlBlocks(source || ''));
   if (autoNumberHeadings) s = numberedSectionHeadings(s);
+  // `\label` / `\eqref` are LaTeX that KaTeX does not implement — resolve
+  // them to `\tag` + anchors + links here so preview, PDF, Word and image
+  // export all number equations the same way, from one place.
+  s = numberEquations(s).text;
   return normalizeListIndent(s);
 }
 

@@ -16,6 +16,9 @@
  * Hover surfaces last-push / last-pull / remote URL in a tooltip.
  */
 import { computed } from 'vue';
+import { isMacOS } from '../lib/platform';
+import { useSettingsStore } from '../stores/settings';
+import { shortcutLabel } from '../lib/keybindings';
 import { useGithubSyncStore } from '../stores/githubSync';
 import { useGithubSync } from '../composables/useGithubSync';
 import { useWorkspaceStore } from '../stores/workspace';
@@ -27,6 +30,13 @@ const ops = useGithubSync();
 const workspace = useWorkspaceStore();
 const toasts = useToastsStore();
 const { t } = useI18n();
+// #180 — the chord in this sentence comes from the user's bindings, not from
+// a literal baked into the translation.
+const macChord = isMacOS();
+const kbSettings = useSettingsStore();
+function withChord(key: string, actionId: string): string {
+  return t(key, { key: shortcutLabel(actionId, kbSettings.keybindings, macChord) || '—' });
+}
 
 const status = computed(() => sync.status);
 const visible = computed(() => Boolean(status.value?.linked));
@@ -76,7 +86,7 @@ const mode = computed<Mode>(() => {
   if (s.dirty) {
     return {
       glyph: '●',
-      label: t('githubSync.pillDirty') || 'Uncommitted local changes — save with ⌘S',
+      label: withChord('githubSync.pillDirty', 'file.save') || 'Uncommitted local changes — save with ⌘S',
       action: 'noop',
       tone: 'warn',
     };
@@ -137,7 +147,7 @@ async function onClick() {
       // Up-to-date / dirty-but-no-commit. Just confirm state in a toast
       // so a click never feels like nothing happened.
       if (status.value?.dirty) {
-        toasts.info(t('githubSync.pillDirty') || 'Save first to push.');
+        toasts.info(withChord('githubSync.pillDirty', 'file.save') || 'Save first to push.');
       } else {
         toasts.success(t('githubSync.upToDate') || 'Already up to date.');
       }

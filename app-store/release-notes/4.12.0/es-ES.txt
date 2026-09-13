@@ -1,0 +1,17 @@
+Plegar un encabezado y todo lo que hay debajo. Pulsa la flecha del margen o usa los comandos de plegado para cerrar una sección, todas las secciones o todo lo que quede por debajo de un nivel.
+
+La impresión ya no sigue el tema de la aplicación. Un tema oscuro se imprimía oscuro: tinta sobre papel, o un PDF que nadie podía leer. La impresión y el PDF usan ahora su propia paleta clara, con una opción oscura explícita si era eso lo que querías.
+
+Borrar un archivo da ocho segundos para deshacerlo. No se mueve a ninguna parte: el archivo se queda exactamente donde está hasta que se agota el tiempo.
+
+Captura rápida, desde donde sea. Un atajo global abre una casilla pequeña sobre lo que estés haciendo. Escribe una línea, pulsa Intro y aparece en tu bandeja de entrada sin que SoloMD llegue a ponerse delante.
+
+Un panel de Tareas. Cada «- [ ]» del espacio de trabajo en una sola lista, con prioridades y fechas leídas tanto de los emoji de Obsidian Tasks como de una notación en ASCII. Pulsa una tarea para ir a su línea; márcala para escribir el archivo.
+
+Importar Word, PDF, HTML y hojas de cálculo. Los conversores ya estaban, pero no había forma de llegar a ellos. Un nombre que ya existe ya no se sobrescribe: se elige el siguiente libre.
+
+Editar una tabla como una cuadrícula. Añade y quita filas y columnas sin contar barras. El texto CJK se ajusta por ancho de visualización, así que el Markdown de origen no se desalinea.
+
+Plantillas DOCX: portada, índice, encabezado y números de página. Ecuaciones numeradas, con enlaces \eqref que saltan hasta ellas.
+
+Correcciones: una carpeta de espacio de trabajo borrada ya no parece un almacén vacío, y cuatro entradas del menú del árbol de archivos que mostraban sus nombres de clave en los catorce idiomas ya tienen texto real.

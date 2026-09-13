@@ -50,11 +50,38 @@ function parseInner(inner: string): { target: string; alias?: string; heading?: 
 }
 
 function isResolved(target: string): boolean {
-  if (!target) return false;
+  const t = target.trim().toLowerCase();
+  if (!t) return false;
   try {
     const idx = useWorkspaceIndexStore();
     if (!idx.ready || idx.entries.length === 0) return true; // assume valid until index ready
-    return idx.byStem.has(target.toLowerCase());
+    // 1. stem exact — mirrors Rust workspace_index_resolve step 1
+    if (idx.byStem.has(t)) return true;
+    // 2. title exact
+    for (const e of idx.entries) {
+      if (e.title && e.title.toLowerCase() === t) return true;
+    }
+    // 3. alias (frontmatter aliases / alias)
+    for (const e of idx.entries) {
+      const fm = e.frontmatter as Record<string, unknown> | null;
+      if (!fm) continue;
+      const raw = (fm as Record<string, unknown>)['aliases'] ?? (fm as Record<string, unknown>)['alias'];
+      if (typeof raw === 'string' && raw.trim().toLowerCase() === t) return true;
+      if (Array.isArray(raw)) {
+        for (const v of raw) {
+          if (typeof v === 'string' && v.trim().toLowerCase() === t) return true;
+        }
+      }
+    }
+    // 4. path-suffix — handles Obsidian-style [[folder/note]] including Thai, e.g.
+    //    [[02_drafts/20260515_ep02_โรงหล่อวิจิตรบันลือ]] → path ends with /02_drafts/...md
+    const norm = t.replace(/\\/g, '/');
+    const noExt = norm.endsWith('.md') ? norm.slice(0, -3) : norm;
+    for (const e of idx.entries) {
+      const p = e.path.replace(/\\/g, '/').toLowerCase();
+      if (p.endsWith(`/${norm}`) || p.endsWith(`/${noExt}`) || p.endsWith(`/${noExt}.md`)) return true;
+    }
+    return false;
   } catch {
     return true;
   }

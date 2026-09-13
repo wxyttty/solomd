@@ -1,0 +1,17 @@
+Vouw een kop en alles eronder dicht. Klik op het pijltje in de kantlijn, of gebruik de vouwopdrachten om één sectie, alle secties of alles onder een niveau in te klappen.
+
+Afdrukken volgt niet langer het thema van de app. Een donker thema werd donker afgedrukt — inkt op papier, of een PDF die niemand kon lezen. Afdrukken en PDF gebruiken nu hun eigen lichte palet, met een uitdrukkelijke donkere optie als u dat juist wilde.
+
+Een bestand verwijderen geeft u acht seconden om terug te gaan. Er wordt niets ergens anders heen geschoven: het bestand blijft precies waar het staat tot de tijd om is.
+
+Snel vastleggen, waar u ook bent. Een systeembrede sneltoets opent een klein venster over waar u mee bezig bent. Typ een regel, druk op Enter, en die belandt in uw Postvak IN zonder dat SoloMD ooit naar voren komt.
+
+Een Takenpaneel. Elke „- [ ]" in de werkruimte in één lijst, met prioriteiten en einddata die zowel uit de emoji van Obsidian Tasks als uit een pure ASCII-notatie worden gelezen. Klik op een taak om naar de regel te springen; vink hem aan om het bestand te schrijven.
+
+Word, PDF, HTML en spreadsheets importeren. De omzetters zaten er al in, alleen was er geen weg ernaartoe. Een naam die al bestaat wordt niet meer overschreven, maar krijgt het eerstvolgende vrije nummer.
+
+Bewerk een tabel als een raster. Rijen en kolommen toevoegen en verwijderen zonder streepjes te tellen. CJK-tekst wordt op weergavebreedte uitgevuld, zodat de Markdown-bron uitgelijnd blijft.
+
+DOCX-sjablonen — omslag, inhoudsopgave, koptekst, paginanummers. Genummerde formules, met \eqref-verwijzingen die ernaartoe springen.
+
+Opgelost: een verwijderde werkruimtemap ziet er niet langer uit als een lege kluis, en vier items in het menu van de bestandsboom die in alle veertien talen hun sleutelnaam toonden, hebben nu echte opschriften.

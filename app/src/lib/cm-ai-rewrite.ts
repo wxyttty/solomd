@@ -174,7 +174,7 @@ function dispatchOpen(view: EditorView): boolean {
  *   - state field that renders the streaming-proposal widget
  *   - DOM listeners for stream / cancel events
  */
-export function aiRewriteExtension(): Extension {
+export function aiRewriteExtension(aiRewriteKey = 'Mod-j'): Extension {
   const domHandler = EditorView.domEventHandlers({});
 
   const listenerPlugin = EditorView.updateListener.of(() => {
@@ -198,7 +198,9 @@ export function aiRewriteExtension(): Extension {
     aiStreamTheme,
     keymap.of([
       {
-        key: 'Mod-j',
+        // #180 — the chord is the user's; the host reconfigures this
+        // extension through a compartment when the binding changes.
+        key: aiRewriteKey,
         preventDefault: true,
         run: dispatchOpen,
       },

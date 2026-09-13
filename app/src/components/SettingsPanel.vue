@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
+import { shortcutLabel } from '../lib/keybindings';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settings';
 import { useTabsStore } from '../stores/tabs';
@@ -9,6 +10,16 @@ import { useRagStore } from '../stores/rag';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import { themeLabels } from '../lib/themes';
 import { useI18n } from '../i18n';
+import { quickCaptureError } from '../lib/quick-capture-status';
+import {
+  activeKeyActions,
+  combosFor,
+  conflictFor,
+  eventToCombo,
+  formatCombo,
+  type KeyActionDef,
+} from '../lib/keybindings';
+import { isMacOS } from '../lib/platform';
 import { checkForUpdate, openReleaseUrl, isMasBuild } from '../lib/check-update';
 import { IS_APP_STORE_BUILD } from '../lib/app-build';
 import AISettings from './AISettings.vue';
@@ -26,13 +37,17 @@ import GithubSyncSettings from './GithubSyncSettings.vue';
 import CloudFolderBanner from './CloudFolderBanner.vue';
 import ProxySettings from './ProxySettings.vue';
 import ThemeMarketplace from './ThemeMarketplace.vue';
-import { isIOS, hasGitBackend } from '../lib/platform';
+import { isIOS, isMobile, hasGitBackend } from '../lib/platform';
 import { loadCustomTheme } from '../lib/custom-theme';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { DsModal } from '../ui';
 import type { Theme } from '../types';
 
 const isMobilePlatform = isIOS();
+// Quick capture needs an OS-level hotkey and a second window — neither exists
+// on Android or iOS, so the whole section stays off phones (isIOS alone would
+// still show it on Android).
+const isPhoneOrTablet = isMobile();
 const masBuild = isMasBuild();
 /**
  * #230 — the whole git-backed surface (version history, GitHub sync, proxy,
@@ -42,10 +57,17 @@ const masBuild = isMasBuild();
 const gitBackend = hasGitBackend();
 
 const { t } = useI18n();
+// #180 — the chord in this sentence comes from the user's bindings, not from
+// a literal baked into the translation.
+const macChord = isMacOS();
+const kbSettings = useSettingsStore();
+function withChord(key: string, actionId: string): string {
+  return t(key, { key: shortcutLabel(actionId, kbSettings.keybindings, macChord) || '—' });
+}
 
 // v3.0 — left-side category nav. Settings was a 30+ item single scroll;
 // split into 6 groups so the user navigates by category, not by scroll.
-type SettingsCategory = 'basics' | 'writing' | 'sync' | 'integrations' | 'export' | 'advanced';
+type SettingsCategory = 'basics' | 'writing' | 'sync' | 'integrations' | 'export' | 'keys' | 'advanced';
 const activeCategory = ref<SettingsCategory>('basics');
 // #144 — all six category pages share the single scrolling `.settings__body`
 // (pages are toggled via CSS display), so one page's scrollTop leaked into
@@ -54,12 +76,84 @@ const bodyEl = ref<HTMLElement | null>(null);
 watch(activeCategory, () => {
   bodyEl.value?.scrollTo({ top: 0 });
 });
+// ---------------------------------------------------------------------------
+// #180 — shortcut editor.
+//
+// Recording listens in the CAPTURE phase: the chord being recorded is usually
+// one the app itself binds (that is the whole point), and on the bubble phase
+// the global handler would have run the action before we saw the key.
+// ---------------------------------------------------------------------------
+const recordingAction = ref<string | null>(null);
+const recordError = ref<string | null>(null);
+const macKeys = isMacOS();
+
+const keyGroups = computed(() =>
+  (['file', 'edit', 'view', 'navigate', 'tools'] as const)
+    .map((key) => ({ key, items: activeKeyActions().filter((a) => a.category === key) }))
+    .filter((g) => g.items.length > 0),
+);
+
+/**
+ * Prefer the command palette's own translation (`cmd.<id>` — most action ids
+ * *are* command ids), so the list reads in the user's language instead of
+ * showing English names inside a translated panel. The table's English label
+ * is the fallback for the handful of UI-only actions the palette has no
+ * entry for.
+ */
+function actionLabel(action: KeyActionDef): string {
+  const translated = t(`cmd.${action.id}`);
+  return translated && translated !== `cmd.${action.id}` ? translated : action.label;
+}
+
+function actionCombos(action: KeyActionDef): string[] {
+  return combosFor(action.id, settings.keybindings).map((c) => formatCombo(c, macKeys));
+}
+function isCustomised(action: KeyActionDef): boolean {
+  // `in` is tracked by Vue's reactivity; `hasOwnProperty` is not (for a key
+  // that doesn't exist yet), which would leave Reset disabled after a rebind.
+  return action.id in settings.keybindings;
+}
+function startRecording(actionId: string): void {
+  recordError.value = null;
+  recordingAction.value = actionId;
+  window.addEventListener('keydown', onRecordKey, true);
+}
+function stopRecording(): void {
+  recordingAction.value = null;
+  window.removeEventListener('keydown', onRecordKey, true);
+}
+function onRecordKey(e: KeyboardEvent): void {
+  const id = recordingAction.value;
+  if (!id) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.key === 'Escape') {
+    stopRecording();
+    return;
+  }
+  const combo = eventToCombo(e);
+  if (!combo) return; // a bare modifier — keep waiting for the real key
+  const clash = conflictFor(combo, id, settings.keybindings);
+  if (clash) {
+    const other = activeKeyActions().find((a) => a.id === clash);
+    recordError.value = t('settings.keysConflict', {
+      combo: formatCombo(combo, macKeys),
+      action: other ? actionLabel(other) : clash,
+    });
+    return; // stay armed so the next chord replaces this attempt
+  }
+  settings.setKeybinding(id, combo);
+  stopRecording();
+}
+onUnmounted(stopRecording);
+
 const categories: { id: SettingsCategory; icon: string; labelKey: string }[] = [
   { id: 'basics', icon: '⚙️', labelKey: 'settings.catBasics' },
   { id: 'writing', icon: '✍️', labelKey: 'settings.catWriting' },
   { id: 'sync', icon: '☁️', labelKey: 'settings.catSync' },
   { id: 'integrations', icon: '🔌', labelKey: 'settings.catIntegrations' },
   { id: 'export', icon: '📤', labelKey: 'settings.catExport' },
+  { id: 'keys', icon: '⌨️', labelKey: 'settings.catKeys' },
   { id: 'advanced', icon: '🛠️', labelKey: 'settings.catAdvanced' },
 ];
 
@@ -563,6 +657,18 @@ function onSelectPdfFont(v: string) {
           <label>
             <input
               type="checkbox"
+              :checked="settings.foldingEnabled"
+              @change="settings.toggleFolding()"
+            />
+            {{ t('settings.folding') }}
+          </label>
+          <p class="setting-hint">{{ t('settings.foldingHint') }}</p>
+        </section>
+
+        <section data-cat="basics">
+          <label>
+            <input
+              type="checkbox"
               :checked="settings.codeBlockWrap"
               @change="settings.toggleCodeBlockWrap()"
             />
@@ -581,6 +687,30 @@ function onSelectPdfFont(v: string) {
             {{ t('settings.explorerFullNames') }}
           </label>
           <p class="setting-hint">{{ t('settings.explorerFullNamesHint') }}</p>
+        </section>
+
+        <section data-cat="basics">
+          <label>
+            <input
+              type="checkbox"
+              :checked="settings.explorerShowHidden"
+              @change="settings.toggleExplorerShowHidden()"
+            />
+            {{ t('settings.explorerShowHidden') }}
+          </label>
+          <p class="setting-hint">{{ t('settings.explorerShowHiddenHint') }}</p>
+        </section>
+
+        <section data-cat="basics">
+          <label>
+            <input
+              type="checkbox"
+              :checked="settings.distinctSplitPanes"
+              @change="settings.toggleDistinctSplitPanes()"
+            />
+            {{ t('settings.distinctSplitPanes') }}
+          </label>
+          <p class="setting-hint">{{ t('settings.distinctSplitPanesHint') }}</p>
         </section>
 
         <section data-cat="basics">
@@ -720,7 +850,7 @@ function onSelectPdfFont(v: string) {
             {{ t('settings.autoGitEnabled') }}
           </label>
           <p style="font-size: 11px; color: var(--text-faint); margin: 4px 0 0; line-height: 1.5;">
-            {{ t('settings.autoGitHelp') }}
+            {{ withChord('settings.autoGitHelp', 'file.save') }}
           </p>
         </section>
 
@@ -792,6 +922,56 @@ function onSelectPdfFont(v: string) {
             {{ t('settings.pdfDefaults.heading') }}
           </h3>
           <p class="setting-hint">{{ t('settings.pdfDefaults.headingHint') }}</p>
+        </section>
+
+        <section v-if="!isPhoneOrTablet" data-cat="integrations">
+          <label>
+            <input
+              type="checkbox"
+              :checked="settings.quickCaptureEnabled"
+              @change="settings.toggleQuickCapture()"
+            />
+            {{ t('settings.quickCapture') }}
+          </label>
+          <p class="setting-hint">{{ t('settings.quickCaptureHint') }}</p>
+          <input
+            type="text"
+            :value="settings.quickCaptureShortcut"
+            :disabled="!settings.quickCaptureEnabled"
+            spellcheck="false"
+            placeholder="CmdOrCtrl+Alt+M"
+            @change="settings.setQuickCaptureShortcut(($event.target as HTMLInputElement).value)"
+            style="margin-top: 6px; padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit; width: 100%;"
+          />
+          <p v-if="quickCaptureError" class="setting-hint" style="color: var(--danger);">
+            {{ t('settings.quickCaptureFailed', { error: quickCaptureError }) }}
+          </p>
+        </section>
+
+        <section data-cat="export">
+          <label>{{ t('settings.docxPreset') }}</label>
+          <select
+            :value="settings.docxPreset"
+            @change="settings.setDocxPreset(($event.target as HTMLSelectElement).value as 'plain' | 'report' | 'academic')"
+          >
+            <option value="plain">{{ t('settings.docxPresetPlain') }}</option>
+            <option value="report">{{ t('settings.docxPresetReport') }}</option>
+            <option value="academic">{{ t('settings.docxPresetAcademic') }}</option>
+          </select>
+          <p class="setting-hint">{{ t('settings.docxPresetHint') }}</p>
+        </section>
+
+        <section data-cat="export">
+          <label>{{ t('settings.printTheme') }}</label>
+          <select
+            :value="settings.printTheme"
+            @change="settings.setPrintTheme(($event.target as HTMLSelectElement).value as 'light' | 'dark' | 'follow')"
+          >
+            <option value="light">{{ t('settings.printThemeLight') }}</option>
+            <option value="dark">{{ t('settings.printThemeDark') }}</option>
+            <option value="follow">{{ t('settings.printThemeFollow') }}</option>
+          </select>
+          <p class="setting-hint">{{ t('settings.printThemeHint') }}</p>
         </section>
 
         <section data-cat="export">
@@ -1142,6 +1322,40 @@ function onSelectPdfFont(v: string) {
           </template>
         </template>
 
+        <section data-cat="keys">
+          <p class="setting-hint" style="margin-top:0;">{{ t('settings.keysHint') }}</p>
+          <div v-for="group in keyGroups" :key="group.key" class="kb-group">
+            <h4 class="kb-group__title">{{ t('settings.keysCat' + group.key.charAt(0).toUpperCase() + group.key.slice(1)) }}</h4>
+            <div v-for="action in group.items" :key="action.id" class="kb-row">
+              <span class="kb-row__label">{{ actionLabel(action) }}</span>
+              <span class="kb-row__combos">
+                <template v-if="recordingAction === action.id">
+                  <kbd class="kb-chip kb-chip--recording">{{ t('settings.keysRecording') }}</kbd>
+                </template>
+                <template v-else-if="actionCombos(action).length">
+                  <kbd v-for="c in actionCombos(action)" :key="c" class="kb-chip">{{ c }}</kbd>
+                </template>
+                <span v-else class="kb-row__unbound">{{ t('settings.keysUnbound') }}</span>
+              </span>
+              <span class="kb-row__actions">
+                <button
+                  class="kb-btn"
+                  :disabled="recordingAction !== null && recordingAction !== action.id"
+                  @click="recordingAction === action.id ? stopRecording() : startRecording(action.id)"
+                >{{ recordingAction === action.id ? t('settings.keysCancel') : t('settings.keysChange') }}</button>
+                <button class="kb-btn" @click="settings.setKeybinding(action.id, null)">{{ t('settings.keysUnbind') }}</button>
+                <button
+                  class="kb-btn"
+                  :disabled="!isCustomised(action)"
+                  @click="settings.setKeybinding(action.id, undefined)"
+                >{{ t('settings.keysReset') }}</button>
+              </span>
+            </div>
+          </div>
+          <p v-if="recordError" class="kb-error">{{ recordError }}</p>
+          <button class="kb-btn kb-btn--wide" @click="settings.resetKeybindings()">{{ t('settings.keysResetAll') }}</button>
+        </section>
+
         <section data-cat="advanced">
           <label>{{ t('settings.dailyNotesFolder') }}</label>
           <input
@@ -1235,7 +1449,7 @@ function onSelectPdfFont(v: string) {
             {{ t('pomodoro.showControls') }}
           </label>
           <p style="font-size: 11px; color: var(--text-faint); margin: 4px 0 8px; line-height: 1.5;">
-            {{ t('pomodoro.showControlsHint') }}
+            {{ withChord('pomodoro.showControlsHint', 'pomodoro.startLast') }}
           </p>
           <label>
             <input
@@ -1473,6 +1687,50 @@ function onSelectPdfFont(v: string) {
 </template>
 
 <style scoped>
+/* #180 shortcut editor */
+.kb-group { margin-bottom: 14px; }
+.kb-group__title {
+  margin: 12px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.kb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+.kb-row__label { flex: 1; min-width: 0; font-size: 13px; }
+.kb-row__combos { display: flex; gap: 4px; flex-shrink: 0; }
+.kb-row__unbound { font-size: 11px; color: var(--text-faint); }
+.kb-chip {
+  font: 11px/1.6 var(--font-mono, monospace);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-soft, var(--bg));
+  white-space: nowrap;
+}
+.kb-chip--recording { border-color: var(--accent); color: var(--accent); }
+.kb-row__actions { display: flex; gap: 4px; flex-shrink: 0; }
+.kb-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.kb-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.kb-btn:disabled { opacity: 0.35; cursor: default; }
+.kb-btn--wide { margin-top: 10px; padding: 5px 12px; }
+.kb-error { color: var(--danger, #e5484d); font-size: 12px; margin: 8px 0 0; }
+
 /* DsModal supplies the backdrop / frame / header (title + close). Zero its
    body padding so the two-column nav+body layout fills the panel edge-to-edge,
    and give the panel a fixed working height like the old shell. */
@@ -1530,9 +1788,13 @@ function onSelectPdfFont(v: string) {
   flex: 1;
 }
 /* v3.0 — single-source-of-truth visibility: each section/component
-   gets data-cat="basics|writing|sync|integrations|export|advanced",
+   gets data-cat="basics|writing|sync|integrations|export|keys|advanced",
    the body's data-active-cat determines which subset renders. Saves
-   wrapping every section in v-if. */
+   wrapping every section in v-if.
+
+   Every id in the `categories` array above needs a line in the show-list
+   below, or its page renders blank — the hide rule catches it and nothing
+   brings it back. That is how #180's `keys` page shipped empty. */
 .settings__body[data-active-cat] > [data-cat] {
   display: none;
 }
@@ -1541,6 +1803,7 @@ function onSelectPdfFont(v: string) {
 .settings__body[data-active-cat="sync"] > [data-cat="sync"],
 .settings__body[data-active-cat="integrations"] > [data-cat="integrations"],
 .settings__body[data-active-cat="export"] > [data-cat="export"],
+.settings__body[data-active-cat="keys"] > [data-cat="keys"],
 .settings__body[data-active-cat="advanced"] > [data-cat="advanced"] {
   display: flex;
   flex-direction: column;

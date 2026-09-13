@@ -107,6 +107,9 @@ importers:
       fflate:
         specifier: 0.8.2
         version: 0.8.2
+      get-east-asian-width:
+        specifier: ^1.6.0
+        version: 1.6.0
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
@@ -127,7 +130,10 @@ importers:
         version: 14.1.1
       markdown-it-anchor:
         specifier: ^9.2.0
-        version: 9.2.0(@types/markdown-it@14.1.2)(markdown-it@14.1.1)
+        version: 9.2.0(@types/markdown-it@14.2.0)(markdown-it@14.1.1)
+      markdown-it-cjk-friendly:
+        specifier: ^3.0.0
+        version: 3.0.0(@types/markdown-it@14.2.0)(markdown-it@14.1.1)
       markdown-it-footnote:
         specifier: ^4.0.0
         version: 4.0.0
@@ -168,6 +174,9 @@ importers:
         specifier: ^3.5.13
         version: 3.5.32(typescript@5.6.3)
     devDependencies:
+      '@lezer/markdown':
+        specifier: ^1.7.2
+        version: 1.7.2
       '@tauri-apps/cli':
         specifier: ^2
         version: 2.10.1
@@ -175,8 +184,8 @@ importers:
         specifier: ^4.0.9
         version: 4.0.9
       '@types/markdown-it':
-        specifier: ^14.1.2
-        version: 14.1.2
+        specifier: ^14.2.0
+        version: 14.2.0
       '@types/markdown-it-footnote':
         specifier: ^3.0.4
         version: 3.0.4
@@ -522,8 +531,8 @@ packages:
   '@lezer/lr@1.4.8':
     resolution: {integrity: sha512-bPWa0Pgx69ylNlMlPvBPryqeLYQjyJjqPx+Aupm5zydLIF3NE+6MMLT8Yi23Bd9cif9VS00aUebn+6fDIGBcDA==}
 
-  '@lezer/markdown@1.6.3':
-    resolution: {integrity: sha512-jpGm5Ps+XErS+xA4urw7ogEGkeZOahVQF21Z6oECF0sj+2liwZopd2+I8uH5I/vZsRuuze3OxBREIANLf6KKUw==}
+  '@lezer/markdown@1.7.2':
+    resolution: {integrity: sha512-iTkYvoVcKt3WkeL7qUDyXHONZEwLio4wj8KTNi2dnjQEXBZKMV63BpQrPqfsM+OkvuRbiSTAcycYAsQzLhRNoQ==}
 
   '@lezer/python@1.1.18':
     resolution: {integrity: sha512-31FiUrU7z9+d/ElGQLJFXl+dKOdx0jALlP3KEOsGTex8mvj+SoE1FgItcHWK/axkxCHGUSpqIHt6JAWfWu9Rhg==}
@@ -1771,8 +1780,8 @@ packages:
   '@types/markdown-it-footnote@3.0.4':
     resolution: {integrity: sha512-XJ6n+v+2u+2gmYLSHcxyoNT/YrgrKvHuDJQlykFjuxCQCr86P2/fx1V6/0lcKxv5cSIlCaJ6sUcNS3zDI7I+LA==}
 
-  '@types/markdown-it@14.1.2':
-    resolution: {integrity: sha512-promo4eFwuiW+TfGxhi+0x3czqTYJkG8qB17ZUJiVF10Xm7NLVRSLUsfRTU/6h1e24VvRnXCx+hG7li58lkzog==}
+  '@types/markdown-it@14.2.0':
+    resolution: {integrity: sha512-NoQ2yGlLWj4wpxMs+TYmRKk3thDrQ97agr7sFqfLsAlvoS8SNQuTrlObhFqG9iugdTtgOE9jpJ6FNM4ZGsa5xQ==}
 
   '@types/mdurl@2.0.0':
     resolution: {integrity: sha512-RGdgjQUZba5p6QEFAVx2OGb8rQDL/cPRG7GiedRzMcJ1tYnUANBncjbSB1NRGwbvjcPeikRABz2nshyPk1bhWg==}
@@ -2184,6 +2193,10 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
+  get-east-asian-width@1.6.0:
+    resolution: {integrity: sha512-QRbvDIbx6YklUe6RxeTeleMR0yv3cYH6PsPZHcnVn7xv7zO1BHN8r0XETu8n6Ye3Q+ahtSarc3WgtNWmehIBfA==}
+    engines: {node: '>=18'}
+
   get-nonce@1.0.1:
     resolution: {integrity: sha512-FJhYRoDaiatfEkUK8HKlicmu/3SGFD51q3itKDGoSTysQJBnfOcxU5GxnhE1E6soB76MbT0MBtnKJuXyAx+96Q==}
     engines: {node: '>=6'}
@@ -2317,6 +2330,16 @@ packages:
     peerDependencies:
       '@types/markdown-it': '*'
       markdown-it: '*'
+
+  markdown-it-cjk-friendly@3.0.0:
+    resolution: {integrity: sha512-y4OkqwenFXmb1i3w7qfh9E60qNX6U4KzECke8N/7io9SARFSvbR/wde0q/l6/Az9doieLOIw7ZsbDSgl27DR4g==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/markdown-it': '>=14.2.0'
+      markdown-it: '*'
+    peerDependenciesMeta:
+      '@types/markdown-it':
+        optional: true
 
   markdown-it-footnote@4.0.0:
     resolution: {integrity: sha512-WYJ7urf+khJYl3DqofQpYfEYkZKbmXmwxQV8c8mO/hGIhgZ1wOe7R4HLFNwqx7TjILbnC98fuyeSsin19JdFcQ==}
@@ -2891,7 +2914,7 @@ snapshots:
       '@codemirror/state': 6.6.0
       '@codemirror/view': 6.41.0
       '@lezer/common': 1.5.1
-      '@lezer/markdown': 1.6.3
+      '@lezer/markdown': 1.7.2
 
   '@codemirror/lang-python@6.2.1':
     dependencies:
@@ -3134,7 +3157,7 @@ snapshots:
     dependencies:
       '@lezer/common': 1.5.1
 
-  '@lezer/markdown@1.6.3':
+  '@lezer/markdown@1.7.2':
     dependencies:
       '@lezer/common': 1.5.1
       '@lezer/highlight': 1.2.3
@@ -4433,9 +4456,9 @@ snapshots:
 
   '@types/markdown-it-footnote@3.0.4':
     dependencies:
-      '@types/markdown-it': 14.1.2
+      '@types/markdown-it': 14.2.0
 
-  '@types/markdown-it@14.1.2':
+  '@types/markdown-it@14.2.0':
     dependencies:
       '@types/linkify-it': 5.0.0
       '@types/mdurl': 2.0.0
@@ -4938,6 +4961,8 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
+  get-east-asian-width@1.6.0: {}
+
   get-nonce@1.0.1: {}
 
   hachure-fill@0.5.2: {}
@@ -5059,10 +5084,17 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  markdown-it-anchor@9.2.0(@types/markdown-it@14.1.2)(markdown-it@14.1.1):
+  markdown-it-anchor@9.2.0(@types/markdown-it@14.2.0)(markdown-it@14.1.1):
     dependencies:
-      '@types/markdown-it': 14.1.2
+      '@types/markdown-it': 14.2.0
       markdown-it: 14.1.1
+
+  markdown-it-cjk-friendly@3.0.0(@types/markdown-it@14.2.0)(markdown-it@14.1.1):
+    dependencies:
+      get-east-asian-width: 1.6.0
+      markdown-it: 14.1.1
+    optionalDependencies:
+      '@types/markdown-it': 14.2.0
 
   markdown-it-footnote@4.0.0: {}
 

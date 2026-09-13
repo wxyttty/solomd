@@ -2,6 +2,9 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { useCommands, type Command } from '../composables/useCommands';
 import { useI18n } from '../i18n';
+import { useSettingsStore } from '../stores/settings';
+import { shortcutLabel } from '../lib/keybindings';
+import { isMacOS } from '../lib/platform';
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -20,6 +23,13 @@ function setItemRef(el: Element | unknown, i: number) {
 }
 const allCommands = useCommands();
 const { t } = useI18n();
+// #180 — read the chord at render time, not when the command list was built:
+// a rebind in Settings must show up here without reopening the app.
+const kbSettings = useSettingsStore();
+const macChords = isMacOS();
+function chordFor(c: { id: string; shortcut?: string }): string {
+  return shortcutLabel(c.id, kbSettings.keybindings, macChords) || '';
+}
 
 // #177 — localized command titles. `t()` falls back to English for any id
 // missing in a locale, so this is always displayable.
@@ -124,7 +134,7 @@ async function runIdx(i: number) {
           @mouseenter="selectedIdx = i"
         >
           <span class="palette__title">{{ localizedTitle(c) }}</span>
-          <span class="palette__shortcut" v-if="c.shortcut">{{ c.shortcut }}</span>
+          <span class="palette__shortcut" v-if="chordFor(c)">{{ chordFor(c) }}</span>
         </li>
       </ul>
       <div class="palette__empty" v-else>No matching command</div>

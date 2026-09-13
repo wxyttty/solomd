@@ -15,9 +15,11 @@
 #
 # Required environment variables (export them or put in .env.local):
 #   APPLE_SIGNING_IDENTITY  e.g. "Developer ID Application: xiangdong li (6NQM3XP5RF)"
-#   APPLE_ID                your Apple ID email
-#   APPLE_PASSWORD          app-specific password
-#   APPLE_TEAM_ID           e.g. 6NQM3XP5RF
+#
+# Notarization credentials — an App Store Connect API key is preferred and
+# used automatically when present; see scripts/lib/asc-auth.sh:
+#   ASC_KEY_ID + ASC_ISSUER_ID (+ ASC_KEY_PATH)     preferred
+#   APPLE_ID + APPLE_PASSWORD + APPLE_TEAM_ID       fallback
 
 set -euo pipefail
 
@@ -31,9 +33,10 @@ if [ -f .env.local ]; then
 fi
 
 : "${APPLE_SIGNING_IDENTITY:?Set APPLE_SIGNING_IDENTITY}"
-: "${APPLE_ID:?Set APPLE_ID}"
-: "${APPLE_PASSWORD:?Set APPLE_PASSWORD}"
-: "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID}"
+
+# shellcheck source=lib/asc-auth.sh
+source "$(dirname "$0")/lib/asc-auth.sh"
+asc_resolve_auth
 
 cd app
 VERSION=$(node -p "require('./package.json').version")
@@ -43,9 +46,11 @@ echo "==> Installing frontend deps"
 pnpm install --frozen-lockfile
 
 echo "==> Building .app (no dmg yet)"
-# APPLE_ID / APPLE_PASSWORD intentionally unset so Tauri skips notarization —
-# we'll notarize manually after patching the .app below.
+# Every credential Tauri would notarize with is unset here on purpose: it must
+# skip notarization, because the .app is still going to be patched (file icons,
+# then re-signed) below and a ticket issued now would not cover that.
 env -u APPLE_ID -u APPLE_PASSWORD \
+  -u APPLE_API_KEY -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH \
   APPLE_SIGNING_IDENTITY="$APPLE_SIGNING_IDENTITY" \
   pnpm tauri build --target universal-apple-darwin --bundles app
 
@@ -70,9 +75,7 @@ ZIP="/tmp/SoloMD-${VERSION}.zip"
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 xcrun notarytool submit "$ZIP" \
-  --apple-id "$APPLE_ID" \
-  --password "$APPLE_PASSWORD" \
-  --team-id "$APPLE_TEAM_ID" \
+  "${ASC_NOTARY_AUTH[@]}" \
   --wait
 rm -f "$ZIP"
 

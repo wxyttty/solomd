@@ -36,6 +36,12 @@ mod git_history;
 #[path = "capture_endpoint.rs"]
 mod capture_endpoint;
 
+// Quick capture — global hotkey → mini window → Inbox note. Writes through
+// capture_endpoint's note builder, so it must be declared alongside it here
+// (the binary's real invoke handler lives in this file, not lib.rs).
+#[path = "quick_capture.rs"]
+mod quick_capture;
+
 // v4.0 — public REST API mirroring the agent_tools surface for non-MCP
 // clients. Declared in both lib.rs and runner.rs so the binary's compile
 // root resolves `crate::rest_api` the same way the lib does.
@@ -213,6 +219,7 @@ struct MenuStrings {
     new_txt: &'static str,
     open_file: &'static str,
     open_folder: &'static str,
+    import_docs: &'static str,
     save: &'static str,
     save_as: &'static str,
     print_item: &'static str,
@@ -238,6 +245,10 @@ struct MenuStrings {
     settings_menu: &'static str,
     md_help: &'static str,
     about: &'static str,
+    /// Only the Linux menu builds an Exit item (#272), so this is dead on
+    /// macOS and Windows — where Quit lives in the app menu / Alt+F4.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    exit: &'static str,
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -252,6 +263,7 @@ fn strings_for(lang: &str) -> MenuStrings {
             new_txt: "新建纯文本",
             open_file: "打开文件…",
             open_folder: "打开文件夹…",
+            import_docs: "导入文档…",
             save: "保存",
             save_as: "另存为…",
             print_item: "打印…",
@@ -276,6 +288,7 @@ fn strings_for(lang: &str) -> MenuStrings {
             settings_menu: "设置…",
             md_help: "Markdown 速查",
             about: "关于 SoloMD",
+            exit: "退出",
         }
     } else {
         MenuStrings {
@@ -287,6 +300,7 @@ fn strings_for(lang: &str) -> MenuStrings {
             new_txt: "New Plain Text",
             open_file: "Open File…",
             open_folder: "Open Folder…",
+            import_docs: "Import Documents…",
             save: "Save",
             save_as: "Save As…",
             print_item: "Print…",
@@ -311,6 +325,7 @@ fn strings_for(lang: &str) -> MenuStrings {
             settings_menu: "Settings…",
             md_help: "Markdown Cheatsheet",
             about: "About SoloMD",
+            exit: "Exit",
         }
     }
 }
@@ -319,44 +334,87 @@ fn strings_for(lang: &str) -> MenuStrings {
 fn build_app_menu<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     lang: &str,
+    // #180 — the user's effective shortcut per menu-item id. A missing entry
+    // keeps the built-in accelerator; an entry holding an empty string means
+    // the action was rebound or unbound, so the item must carry NO
+    // accelerator — otherwise macOS keeps firing the old chord from the menu
+    // and "changing" a shortcut would only ever add a second one.
+    accels: &std::collections::HashMap<String, String>,
 ) -> tauri::Result<tauri::menu::Menu<R>> {
     let s = strings_for(lang);
+    // Resolve an item's accelerator: user override, else the shipped default.
+    macro_rules! accel {
+        ($item:expr, $id:expr, $default:expr) => {{
+            match accels.get($id).map(String::as_str) {
+                Some("") => $item,
+                Some(custom) => $item.accelerator(custom),
+                None => $item.accelerator($default),
+            }
+        }};
+    }
 
-    let new_md = MenuItemBuilder::with_id("file.new", s.new_md)
-        .accelerator("CmdOrCtrl+N")
+    let new_md = accel!(MenuItemBuilder::with_id("file.new", s.new_md), "file.new", "CmdOrCtrl+N")
         .build(app)?;
-    let new_txt = MenuItemBuilder::with_id("file.newText", s.new_txt)
-        .accelerator("CmdOrCtrl+Alt+N")
+    let new_txt = accel!(MenuItemBuilder::with_id("file.newText", s.new_txt), "file.newText", "CmdOrCtrl+Alt+N")
         .build(app)?;
-    let open_file = MenuItemBuilder::with_id("file.open", s.open_file)
-        .accelerator("CmdOrCtrl+O")
+    let open_file = accel!(MenuItemBuilder::with_id("file.open", s.open_file), "file.open", "CmdOrCtrl+O")
         .build(app)?;
     let open_folder = MenuItemBuilder::with_id("file.openFolder", s.open_folder).build(app)?;
-    let save = MenuItemBuilder::with_id("file.save", s.save)
-        .accelerator("CmdOrCtrl+S")
+    // Converting a Word/PDF/HTML file has been possible for versions, but only
+    // by opening one — there was no entry point that said "import", which is
+    // the word people look for.
+    let import_docs = accel!(
+        MenuItemBuilder::with_id("file.import", s.import_docs),
+        "file.import",
+        "CmdOrCtrl+Shift+L"
+    )
+    .build(app)?;
+    let save = accel!(MenuItemBuilder::with_id("file.save", s.save), "file.save", "CmdOrCtrl+S")
         .build(app)?;
-    let save_as = MenuItemBuilder::with_id("file.saveAs", s.save_as)
-        .accelerator("CmdOrCtrl+Shift+S")
+    let save_as = accel!(MenuItemBuilder::with_id("file.saveAs", s.save_as), "file.saveAs", "CmdOrCtrl+Shift+S")
         .build(app)?;
-    let print_item = MenuItemBuilder::with_id("file.print", s.print_item)
-        .accelerator("CmdOrCtrl+P")
+    let print_item = accel!(MenuItemBuilder::with_id("file.print", s.print_item), "file.print", "CmdOrCtrl+P")
         .build(app)?;
-    let close_tab = MenuItemBuilder::with_id("file.closeTab", s.close_tab)
-        .accelerator("CmdOrCtrl+W")
+    let close_tab = accel!(MenuItemBuilder::with_id("file.closeTab", s.close_tab), "file.closeTab", "CmdOrCtrl+W")
         .build(app)?;
-    let new_window = MenuItemBuilder::with_id("window.new", s.new_window)
-        .accelerator("CmdOrCtrl+Shift+N")
+    let new_window = accel!(MenuItemBuilder::with_id("window.new", s.new_window), "window.new", "CmdOrCtrl+Shift+N")
         .build(app)?;
-    let open_external = MenuItemBuilder::with_id("file.openExternal", s.open_external)
-        .accelerator("CmdOrCtrl+Shift+E")
+    let open_external = accel!(MenuItemBuilder::with_id("file.openExternal", s.open_external), "file.openExternal", "CmdOrCtrl+Shift+E")
         .build(app)?;
+    // Linux tiling WM has no window X button — needs discoverable Exit in native menu (Ctrl+Q).
+    #[cfg(target_os = "linux")]
+    let exit_item =
+        accel!(MenuItemBuilder::with_id("file.exit", s.exit), "file.exit", "Ctrl+Q").build(app)?;
 
+    #[cfg(target_os = "linux")]
     let file_submenu = SubmenuBuilder::new(app, s.file)
         .item(&new_md)
         .item(&new_txt)
         .separator()
         .item(&open_file)
         .item(&open_folder)
+        .item(&import_docs)
+        .separator()
+        .item(&save)
+        .item(&save_as)
+        .separator()
+        .item(&open_external)
+        .separator()
+        .item(&print_item)
+        .separator()
+        .item(&new_window)
+        .item(&close_tab)
+        .separator()
+        .item(&exit_item)
+        .build()?;
+    #[cfg(not(target_os = "linux"))]
+    let file_submenu = SubmenuBuilder::new(app, s.file)
+        .item(&new_md)
+        .item(&new_txt)
+        .separator()
+        .item(&open_file)
+        .item(&open_folder)
+        .item(&import_docs)
         .separator()
         .item(&save)
         .item(&save_as)
@@ -380,54 +438,39 @@ fn build_app_menu<R: tauri::Runtime>(
         .build()?;
 
     let toggle_theme = MenuItemBuilder::with_id("view.toggleTheme", s.toggle_theme).build(app)?;
-    let toggle_sidebar = MenuItemBuilder::with_id("view.toggleFileTree", s.toggle_sidebar)
-        .accelerator("CmdOrCtrl+B")
+    let toggle_sidebar = accel!(MenuItemBuilder::with_id("view.toggleFileTree", s.toggle_sidebar), "view.toggleFileTree", "CmdOrCtrl+B")
         .build(app)?;
-    let toggle_outline = MenuItemBuilder::with_id("view.toggleOutline", s.toggle_outline)
-        .accelerator("CmdOrCtrl+Shift+O")
+    let toggle_outline = accel!(MenuItemBuilder::with_id("view.toggleOutline", s.toggle_outline), "view.toggleOutline", "CmdOrCtrl+Shift+O")
         .build(app)?;
-    let cycle_view = MenuItemBuilder::with_id("view.cycleView", s.cycle_view)
-        .accelerator("CmdOrCtrl+Shift+P")
+    let cycle_view = accel!(MenuItemBuilder::with_id("view.cycleView", s.cycle_view), "view.cycleView", "CmdOrCtrl+Shift+P")
         .build(app)?;
     // v4.3.0 PR #74 — three independent zoom axes wired through native
     // menu accelerators (more reliable than JS keyboard handlers on macOS,
     // which the WKWebView can sometimes intercept). Action ids are
     // dispatched in App.vue's `dispatchMenuAction`.
-    let ui_zoom_in = MenuItemBuilder::with_id("view.zoomUiIn", s.ui_zoom_in)
-        .accelerator("CmdOrCtrl+=")
+    let ui_zoom_in = accel!(MenuItemBuilder::with_id("view.zoomUiIn", s.ui_zoom_in), "view.zoomUiIn", "CmdOrCtrl+=")
         .build(app)?;
-    let ui_zoom_out = MenuItemBuilder::with_id("view.zoomUiOut", s.ui_zoom_out)
-        .accelerator("CmdOrCtrl+-")
+    let ui_zoom_out = accel!(MenuItemBuilder::with_id("view.zoomUiOut", s.ui_zoom_out), "view.zoomUiOut", "CmdOrCtrl+-")
         .build(app)?;
-    let ui_zoom_reset = MenuItemBuilder::with_id("view.zoomUiReset", s.ui_zoom_reset)
-        .accelerator("CmdOrCtrl+0")
+    let ui_zoom_reset = accel!(MenuItemBuilder::with_id("view.zoomUiReset", s.ui_zoom_reset), "view.zoomUiReset", "CmdOrCtrl+0")
         .build(app)?;
-    let editor_zoom_in = MenuItemBuilder::with_id("view.zoomEditorIn", s.editor_zoom_in)
-        .accelerator("CmdOrCtrl+Shift+=")
+    let editor_zoom_in = accel!(MenuItemBuilder::with_id("view.zoomEditorIn", s.editor_zoom_in), "view.zoomEditorIn", "CmdOrCtrl+Shift+=")
         .build(app)?;
-    let editor_zoom_out = MenuItemBuilder::with_id("view.zoomEditorOut", s.editor_zoom_out)
-        .accelerator("CmdOrCtrl+Shift+-")
+    let editor_zoom_out = accel!(MenuItemBuilder::with_id("view.zoomEditorOut", s.editor_zoom_out), "view.zoomEditorOut", "CmdOrCtrl+Shift+-")
         .build(app)?;
-    let editor_zoom_reset = MenuItemBuilder::with_id("view.zoomEditorReset", s.editor_zoom_reset)
-        .accelerator("CmdOrCtrl+Shift+0")
+    let editor_zoom_reset = accel!(MenuItemBuilder::with_id("view.zoomEditorReset", s.editor_zoom_reset), "view.zoomEditorReset", "CmdOrCtrl+Shift+0")
         .build(app)?;
-    let preview_zoom_in = MenuItemBuilder::with_id("view.zoomPreviewIn", s.preview_zoom_in)
-        .accelerator("CmdOrCtrl+Control+=")
+    let preview_zoom_in = accel!(MenuItemBuilder::with_id("view.zoomPreviewIn", s.preview_zoom_in), "view.zoomPreviewIn", "CmdOrCtrl+Control+=")
         .build(app)?;
-    let preview_zoom_out = MenuItemBuilder::with_id("view.zoomPreviewOut", s.preview_zoom_out)
-        .accelerator("CmdOrCtrl+Control+-")
+    let preview_zoom_out = accel!(MenuItemBuilder::with_id("view.zoomPreviewOut", s.preview_zoom_out), "view.zoomPreviewOut", "CmdOrCtrl+Control+-")
         .build(app)?;
-    let preview_zoom_reset = MenuItemBuilder::with_id("view.zoomPreviewReset", s.preview_zoom_reset)
-        .accelerator("CmdOrCtrl+Control+0")
+    let preview_zoom_reset = accel!(MenuItemBuilder::with_id("view.zoomPreviewReset", s.preview_zoom_reset), "view.zoomPreviewReset", "CmdOrCtrl+Control+0")
         .build(app)?;
-    let palette = MenuItemBuilder::with_id("view.cmdPalette", s.palette)
-        .accelerator("CmdOrCtrl+Shift+K")
+    let palette = accel!(MenuItemBuilder::with_id("view.cmdPalette", s.palette), "view.cmdPalette", "CmdOrCtrl+Shift+K")
         .build(app)?;
-    let global_search = MenuItemBuilder::with_id("search.global", s.global_search)
-        .accelerator("CmdOrCtrl+Shift+F")
+    let global_search = accel!(MenuItemBuilder::with_id("search.global", s.global_search), "search.global", "CmdOrCtrl+Shift+F")
         .build(app)?;
-    let settings_item = MenuItemBuilder::with_id("view.settings", s.settings_menu)
-        .accelerator("CmdOrCtrl+,")
+    let settings_item = accel!(MenuItemBuilder::with_id("view.settings", s.settings_menu), "view.settings", "CmdOrCtrl+,")
         .build(app)?;
 
     let view_submenu = SubmenuBuilder::new(app, s.view)
@@ -455,8 +498,7 @@ fn build_app_menu<R: tauri::Runtime>(
         .item(&settings_item)
         .build()?;
 
-    let md_help = MenuItemBuilder::with_id("help.markdown", s.md_help)
-        .accelerator("F1")
+    let md_help = accel!(MenuItemBuilder::with_id("help.markdown", s.md_help), "help.markdown", "F1")
         .build(app)?;
     let about = MenuItemBuilder::with_id("help.about", s.about).build(app)?;
 
@@ -526,13 +568,26 @@ fn build_app_menu<R: tauri::Runtime>(
 /// menu re-renders reactively from the i18n store), so it's a no-op there.
 #[tauri::command]
 fn set_menu_language(app: tauri::AppHandle, lang: String) -> Result<(), String> {
+    set_menu_config(app, lang, std::collections::HashMap::new())
+}
+
+/// #180 — rebuild the native menu with the user's shortcut overrides applied.
+/// `accels` maps a menu item id to a Tauri accelerator string, or to an empty
+/// string to strip the accelerator entirely (the action moved to a chord the
+/// webview owns, or the user unbound it).
+#[tauri::command]
+fn set_menu_config(
+    app: tauri::AppHandle,
+    lang: String,
+    accels: std::collections::HashMap<String, String>,
+) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
     {
-        let menu = build_app_menu(&app, &lang).map_err(|e| e.to_string())?;
+        let menu = build_app_menu(&app, &lang, &accels).map_err(|e| e.to_string())?;
         app.set_menu(menu).map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "windows")]
-    let _ = (app, lang);
+    let _ = (app, lang, accels);
     Ok(())
 }
 
@@ -713,8 +768,17 @@ pub fn run_with(initial_file: Option<String>) {
                 tauri_plugin_window_state::StateFlags::all()
                     - tauri_plugin_window_state::StateFlags::DECORATIONS,
             )
+            // The quick-capture box is undecorated, fixed-size and always on
+            // top by design; restoring a remembered geometry would hand it a
+            // stale position on the next launch.
+            .with_denylist(&[quick_capture::CAPTURE_LABEL])
             .build(),
     );
+
+    // Quick capture's system-wide hotkey. Registration itself happens later,
+    // from the frontend, because the chord is a user setting.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
     let app = builder
         .manage(PendingOpen(Mutex::new(pending)))
@@ -732,11 +796,17 @@ pub fn run_with(initial_file: Option<String>) {
             commands::fs_create_file,
             commands::fs_create_dir,
             commands::fs_delete,
+            commands::fs_dir_exists,
             commands::fs_rename,
+            commands::fs_move,
+            commands::fs_list_dirs,
+            commands::fs_list_extensions,
+            commands::fs_dirs_with_extensions,
             search::search_in_dir,
             drain_pending_opens,
             force_close_window,
             set_menu_language,
+            set_menu_config,
             set_max_button_rect,
             save_language_preference,
             set_default::set_as_default_markdown_editor,
@@ -783,6 +853,10 @@ pub fn run_with(initial_file: Option<String>) {
             capture_endpoint::capture_regenerate_token,
             capture_endpoint::capture_set_inbox_folder,
             capture_endpoint::capture_set_workspace,
+            quick_capture::quick_capture_open,
+            quick_capture::quick_capture_close,
+            quick_capture::quick_capture_write,
+            quick_capture::quick_capture_set_shortcut,
             rest_api::rest_get_state,
             rest_api::rest_set_enabled,
             rest_api::rest_regenerate_token,
@@ -900,7 +974,7 @@ pub fn run_with(initial_file: Option<String>) {
             // File/Edit/View/Help menubar inside the unified toolbar row.
             #[cfg(not(target_os = "windows"))]
             {
-                let menu = build_app_menu(app.handle(), "en")?;
+                let menu = build_app_menu(app.handle(), "en", &std::collections::HashMap::new())?;
                 app.set_menu(menu)?;
             }
 

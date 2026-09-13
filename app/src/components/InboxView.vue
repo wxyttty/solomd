@@ -24,6 +24,8 @@
  * raw hex.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { shortcutLabel } from '../lib/keybindings';
+import { isMacOS } from '../lib/platform';
 import { DsButton, DsChip, DsListRow } from '../ui';
 import { useInbox, type InboxPeriod } from '../composables/useInbox';
 import { useFiles } from '../composables/useFiles';
@@ -41,6 +43,12 @@ const tabs = useTabsStore();
 const settings = useSettingsStore();
 const idx = useWorkspaceIndexStore();
 const { t, lang } = useI18n();
+// #180 — the chord in this sentence comes from the user's bindings.
+const macChord = isMacOS();
+const kbSettings = useSettingsStore();
+function withChord(key: string, actionId: string): string {
+  return t(key, { key: shortcutLabel(actionId, kbSettings.keybindings, macChord) || '—' });
+}
 
 // Local UI state — which period pill is selected, and the list container ref
 // used for roving keyboard focus.
@@ -292,7 +300,7 @@ onBeforeUnmount(() => {
       >
         {{ t('inbox.organizeAction') }}
       </DsButton>
-      <span class="inbox-view__hint">{{ t('inbox.organizeHint') }}</span>
+      <span class="inbox-view__hint">{{ withChord('inbox.organizeHint', 'inbox.toggle') }}</span>
     </footer>
   </div>
 </template>

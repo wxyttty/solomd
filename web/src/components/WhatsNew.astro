@@ -1,0 +1,131 @@
+---
+/**
+ * The what's-new page, for every language.
+ *
+ * This used to be fourteen hand-maintained copies of the same markup. Twelve
+ * of them drifted to v4.0 and stayed there for months — including their
+ * download buttons, which were still handing people 4.1.0 binaries. The markup
+ * lives here once now; each language supplies only prose, in
+ * src/data/whats-new/<lang>.ts.
+ */
+import Layout from '../layouts/Layout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import Giscus from '../components/Giscus.astro';
+import type { Lang } from '../i18n/translations';
+import { whatsNew } from '../data/whats-new';
+
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+
+const data = whatsNew[lang] ?? whatsNew.en;
+const VERSION = data.version;
+const baseUrl = `https://github.com/zhitongblog/solomd/releases/download/v${VERSION}`;
+const home = lang === 'en' ? '/' : `/${lang}/`;
+
+// Sections are rendered with set:html, so the styles below cannot be
+// component-scoped — Astro only adds its scoping attribute to elements it can
+// see in this template. They are global instead, every selector confined to
+// `.whats-new`.
+// `{VERSION}` is a placeholder in the prose — in the CTA labels and in the
+// page title/description, which say things like "What's new in SoloMD 4.12.0".
+// Substituted here rather than left to a template literal, because the prose
+// now lives in a data file where `${...}` would just be text.
+const fill = (t: string) => t.replaceAll('{VERSION}', VERSION);
+const cta = data.cta.map(fill);
+const metaTitle = fill(data.meta.title);
+const metaDescription = fill(data.meta.description);
+---
+
+<Layout title={metaTitle} description={metaDescription} lang={lang}>
+  <Header lang={lang} />
+  <main id="main">
+    <article class="container whats-new">
+      <nav class="breadcrumbs">
+        <a href={home}>{data.breadcrumb.home}</a> / <span>{data.breadcrumb.current}</span>
+      </nav>
+
+      <p class="version-row">
+        <span class="version-tag">v{VERSION}</span>
+        <time>{data.hero.date}</time>
+      </p>
+      <h1>{data.hero.h1}</h1>
+      <p class="lead" set:html={data.hero.lead} />
+
+      <div class="cta-row">
+        <a class="btn btn--primary btn--lg" href={`${baseUrl}/SoloMD_${VERSION}_universal.dmg`}>{cta[0]}</a>
+        <a class="btn btn--secondary btn--lg" href={`${baseUrl}/SoloMD_${VERSION}_x64_en-US.msi`}>{cta[1]}</a>
+        <a class="btn btn--secondary btn--lg" href={`https://github.com/zhitongblog/solomd/releases/tag/v${VERSION}`}>{cta[2]}</a>
+      </div>
+
+      {data.sections.map((html) => <section set:html={html} />)}
+
+      {data.thanks && <p class="thanks-row" set:html={data.thanks} />}
+    </article>
+    <Giscus lang={lang} />
+  </main>
+  <Footer lang={lang} />
+</Layout>
+
+<style is:global>
+
+  .whats-new { max-width: 880px; padding: 40px 20px 80px; }
+  .whats-new .breadcrumbs { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+  .whats-new .breadcrumbs a { color: inherit; }
+  .whats-new .version-row { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
+  .whats-new .version-tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #000;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .whats-new time { font-size: 13px; color: var(--text-muted); }
+  .whats-new h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); line-height: 1.1; margin: 0 0 22px; }
+  .whats-new h2 { font-size: clamp(1.5rem, 3vw, 1.9rem); margin: 56px 0 16px; }
+  .whats-new h3 { font-size: 1.1rem; margin: 0 0 8px; color: var(--accent); }
+  .whats-new .lead { font-size: 1.15rem; color: var(--text-muted); line-height: 1.65; margin-bottom: 28px; }
+  .whats-new p { line-height: 1.75; margin: 12px 0; }
+  .whats-new ul, .whats-new ol { padding-left: 22px; }
+  .whats-new li { margin: 8px 0; line-height: 1.7; }
+  .whats-new code {
+    background: var(--bg-soft);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.92em;
+    font-family: var(--font-mono);
+    color: var(--accent-deep);
+  }
+  .whats-new a:not(.btn) { color: var(--accent); }
+  .whats-new .cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 28px 0 8px;
+  }
+  .whats-new .pillars {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 22px;
+    margin-top: 22px;
+  }
+  .whats-new .pillar {
+    padding: 18px 22px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-soft);
+  }
+  .whats-new .pillar p { margin: 0; }
+  .whats-new .thanks-row {
+    margin-top: 64px;
+    padding-top: 22px;
+    border-top: 1px solid var(--border);
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+</style>

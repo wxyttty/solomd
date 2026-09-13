@@ -1,0 +1,17 @@
+Überschriften samt allem darunter einklappen. Klicken Sie auf den Pfeil am Rand oder nutzen Sie die Falt-Befehle, um einen Abschnitt, alle Abschnitte oder alles unterhalb einer Ebene zu schließen.
+
+Der Druck folgt nicht mehr dem App-Design. Ein dunkles Design wurde bisher dunkel gedruckt — Tinte auf Papier, oder ein PDF, das niemand lesen konnte. Druck und PDF haben jetzt ihre eigene helle Palette, mit einer ausdrücklichen dunklen Option, falls Sie genau das wollten.
+
+Nach dem Löschen bleiben acht Sekunden zum Rückgängigmachen. Die Datei wird nirgendwohin verschoben: Sie bleibt genau dort, wo sie ist, bis die Zeit abgelaufen ist.
+
+Schnellnotiz, von überall. Ein systemweites Tastenkürzel öffnet ein kleines Feld über dem, was Sie gerade tun. Eine Zeile tippen, Enter — und sie landet im Posteingang, ohne dass SoloMD je in den Vordergrund kommt.
+
+Ein Aufgabenbereich. Jedes „- [ ]" im Arbeitsbereich in einer Liste, mit Prioritäten und Fälligkeitsdaten, gelesen entweder aus den Emoji von Obsidian Tasks oder aus einer reinen ASCII-Schreibweise. Ein Klick springt zur Zeile, ein Häkchen schreibt die Datei.
+
+Word, PDF, HTML und Tabellen importieren. Die Konverter waren längst da, nur ohne Weg dorthin. Ein bereits vergebener Name wird jetzt nicht überschrieben, sondern durch den nächsten freien ersetzt.
+
+Tabellen als Raster bearbeiten. Zeilen und Spalten hinzufügen und entfernen, ohne Striche zu zählen. CJK-Text wird nach Anzeigebreite aufgefüllt, damit der Markdown-Quelltext ausgerichtet bleibt.
+
+DOCX-Vorlagen — Deckblatt, Inhaltsverzeichnis, Kopfzeile, Seitenzahlen. Nummerierte Formeln, mit \eqref-Verweisen, die dorthin springen.
+
+Behoben: Ein gelöschter Arbeitsbereichsordner sah nicht länger aus wie ein leerer Tresor, und vier Einträge im Kontextmenü des Dateibaums, die in allen vierzehn Sprachen ihre Schlüsselnamen zeigten, tragen jetzt echte Beschriftungen.

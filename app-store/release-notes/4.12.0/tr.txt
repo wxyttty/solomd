@@ -1,0 +1,17 @@
+Bir başlığı ve altındaki her şeyi katlayın. Kenar boşluğundaki oka tıklayın ya da katlama komutlarıyla tek bir bölümü, bütün bölümleri veya belirli bir düzeyin altındaki her şeyi kapatın.
+
+Yazdırma artık uygulamanın temasını izlemiyor. Koyu tema koyu basılıyordu — kâğıtta mürekkep, ya da kimsenin okuyamadığı bir PDF. Yazdırma ve PDF artık kendi açık paletini kullanıyor; gerçekten koyu istiyorsanız bunun için ayrı bir seçenek var.
+
+Bir dosyayı silmek size geri almak için sekiz saniye veriyor. Hiçbir yere taşınmıyor: süre dolana kadar dosya tam olduğu yerde kalıyor.
+
+Her yerden hızlı not. Sistem genelinde bir kısayol, yaptığınız işin üzerinde küçük bir kutu açar. Bir satır yazın, Enter'a basın; SoloMD hiç öne çıkmadan not Gelen Kutunuza düşer.
+
+Görevler paneli. Çalışma alanındaki her "- [ ]" tek bir listede; öncelikler ve son tarihler hem Obsidian Tasks emojilerinden hem de düz ASCII yazımdan okunuyor. Bir göreve tıklayınca satırına gider, işaretleyince dosyaya yazılır.
+
+Word, PDF, HTML ve hesap tablosu içe aktarma. Dönüştürücüler zaten buradaydı, ama onlara ulaşacak bir yol yoktu. Var olan bir ad artık üzerine yazılmıyor; boş olan ilk ad seçiliyor.
+
+Tabloyu ızgara olarak düzenleyin. Çubukları saymadan satır ve sütun ekleyip çıkarın. CJK metni görüntü genişliğine göre hizalandığı için Markdown kaynağı kaymıyor.
+
+DOCX şablonları — kapak, içindekiler, üstbilgi, sayfa numaraları. Numaralı denklemler ve onlara atlayan \eqref bağlantıları.
+
+Düzeltmeler: silinen bir çalışma alanı klasörü artık boş bir kasa gibi görünmüyor ve dosya ağacı menüsünde on dört dilin hepsinde anahtar adını gösteren dört öğe nihayet gerçek etiketlere kavuştu.

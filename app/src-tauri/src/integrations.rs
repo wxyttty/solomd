@@ -306,7 +306,12 @@ fn ai_client_config_path(client_id: &str, app: &AppHandle) -> Option<PathBuf> {
                 home.map(|h| h.join(".config/Claude/claude_desktop_config.json"))
             }
         }
-        "claude-code" => home.map(|h| h.join(".claude/mcp.json")),
+        // Claude Code keeps user-scope MCP servers in ~/.claude.json — the
+        // single dotfile, NOT ~/.claude/mcp.json (a path it never reads).
+        // The schema is the same `mcpServers.<name> = { command, args }`
+        // map Claude Desktop uses, so the splice below needs no special
+        // case; only the location differs.
+        "claude-code" => home.map(|h| h.join(".claude.json")),
         "cursor" => home.map(|h| h.join(".cursor/mcp.json")),
         "cline" => {
             // VS Code globalStorage. Path varies by OS but follows the same
@@ -341,6 +346,17 @@ fn ai_client_config_path(client_id: &str, app: &AppHandle) -> Option<PathBuf> {
     }
 }
 
+/// "Is this client installed on this machine?" probe. Usually the config
+/// file's own directory — but Claude Code's config is `~/.claude.json`,
+/// whose parent is `$HOME` and therefore always exists, so probe the
+/// `~/.claude` data dir instead.
+fn ai_client_probe_dir(client_id: &str, app: &AppHandle) -> Option<PathBuf> {
+    if client_id == "claude-code" {
+        return app.path().home_dir().ok().map(|h| h.join(".claude"));
+    }
+    ai_client_config_path(client_id, app).and_then(|p| p.parent().map(|p| p.to_path_buf()))
+}
+
 const AI_CLIENTS: &[(&str, &str)] = &[
     ("claude-desktop", "Claude Desktop"),
     ("claude-code", "Claude Code"),
@@ -349,6 +365,35 @@ const AI_CLIENTS: &[(&str, &str)] = &[
     ("continue", "Continue.dev"),
     ("zed", "Zed"),
 ];
+
+/// Does this config already declare a `solomd` MCP server?
+///
+/// Parses the config and looks under the key the client actually uses. A
+/// substring match is not good enough: `~/.claude.json` (Claude Code) also
+/// carries per-project history, so any user who has opened a folder with
+/// "solomd" in its path would otherwise read as "already configured". Falls
+/// back to the substring check only when the file doesn't parse as JSON.
+fn config_has_solomd(client_id: &str, raw: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<JsonValue>(raw) else {
+        return raw.contains("solomd");
+    };
+    match client_id {
+        "continue" => v
+            .get("mcp")
+            .and_then(|m| m.as_array())
+            .map(|list| {
+                list.iter()
+                    .any(|e| e.get("name").and_then(|n| n.as_str()) == Some("solomd"))
+            })
+            .unwrap_or(false),
+        "zed" => v
+            .get("context_servers")
+            .and_then(|m| m.get("solomd"))
+            .is_some(),
+        // claude-desktop / claude-code / cursor / cline
+        _ => v.get("mcpServers").and_then(|m| m.get("solomd")).is_some(),
+    }
+}
 
 /// List every supported AI client, whether its config file / directory
 /// already exists on this machine, and whether the config already mentions
@@ -361,10 +406,12 @@ pub fn detect_ai_clients(app: AppHandle) -> Vec<AiClient> {
         .filter_map(|(id, display)| {
             let path = ai_client_config_path(id, &app)?;
             let config_exists = path.is_file();
-            let config_dir_exists = path.parent().map(|p| p.is_dir()).unwrap_or(false);
+            let config_dir_exists = ai_client_probe_dir(id, &app)
+                .map(|p| p.is_dir())
+                .unwrap_or(false);
             let has_solomd_entry = if config_exists {
                 std::fs::read_to_string(&path)
-                    .map(|s| s.contains("solomd"))
+                    .map(|s| config_has_solomd(id, &s))
                     .unwrap_or(false)
             } else {
                 false
@@ -649,5 +696,39 @@ mod tests {
         });
         splice_solomd_entry("zed", &mut c, entry.clone()).unwrap();
         assert_eq!(c["context_servers"]["solomd"], entry);
+    }
+
+    #[test]
+    fn detect_reads_the_right_key_per_client() {
+        let claude = r#"{"mcpServers":{"solomd":{"command":"/bin/solomd-mcp"}}}"#;
+        assert!(config_has_solomd("claude-code", claude));
+        assert!(config_has_solomd("claude-desktop", claude));
+        assert!(config_has_solomd(
+            "continue",
+            r#"{"mcp":[{"name":"solomd","command":"/bin/solomd-mcp"}]}"#
+        ));
+        assert!(config_has_solomd(
+            "zed",
+            r#"{"context_servers":{"solomd":{"command":{"path":"/bin/solomd-mcp"}}}}"#
+        ));
+    }
+
+    #[test]
+    fn detect_ignores_solomd_mentions_outside_the_server_map() {
+        // ~/.claude.json carries per-project history. A user who has opened
+        // ~/code/solomd must still read as "not configured".
+        let claude = r#"{"projects":{"/Users/me/code/solomd":{"history":[]}},"mcpServers":{}}"#;
+        assert!(!config_has_solomd("claude-code", claude));
+        // Wrong-shaped configs don't false-positive either.
+        assert!(!config_has_solomd(
+            "zed",
+            r#"{"mcpServers":{"solomd":{"command":"/bin/solomd-mcp"}}}"#
+        ));
+    }
+
+    #[test]
+    fn detect_falls_back_to_substring_on_unparseable_config() {
+        assert!(config_has_solomd("claude-code", "{ not json — solomd"));
+        assert!(!config_has_solomd("claude-code", "{ not json"));
     }
 }

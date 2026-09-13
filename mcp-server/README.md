@@ -89,8 +89,16 @@ extract `solomd-mcp`, and put it on your `PATH`.
 
 ### Claude Code
 
-`~/.config/claude-code/mcp.json` (or `claude mcp add` if you prefer the
-CLI):
+Easiest route is the CLI — it writes the user-scope config (`~/.claude.json`)
+for you:
+
+```bash
+claude mcp add --scope user solomd-vault -- \
+  solomd-mcp --workspace /Users/me/Documents/Notes
+```
+
+To scope the server to one project instead, drop an `.mcp.json` in the project
+root:
 
 ```json
 {

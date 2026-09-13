@@ -1,0 +1,17 @@
+Replier un titre et tout ce qu'il contient. Cliquez sur la flèche dans la marge, ou utilisez les commandes de repli pour fermer une section, toutes les sections, ou tout ce qui se trouve sous un niveau donné.
+
+L'impression ne suit plus le thème de l'application. Un thème sombre s'imprimait sombre — de l'encre sur le papier, ou un PDF illisible. L'impression et le PDF utilisent désormais leur propre palette claire, avec une option sombre explicite si c'est bien ce que vous vouliez.
+
+Supprimer un fichier laisse huit secondes pour annuler. Rien n'est déplacé ailleurs : le fichier reste exactement là où il est jusqu'à la fin du délai.
+
+Capture rapide, depuis n'importe où. Un raccourci système ouvre une petite zone par-dessus ce que vous faites. Écrivez une ligne, appuyez sur Entrée, et elle arrive dans votre boîte de réception sans que SoloMD passe au premier plan.
+
+Un panneau Tâches. Chaque « - [ ] » de l'espace de travail dans une seule liste, avec priorités et échéances lues aussi bien depuis les emoji d'Obsidian Tasks que depuis une écriture en ASCII. Un clic saute à la ligne ; une coche écrit le fichier.
+
+Importer Word, PDF, HTML et tableurs. Les convertisseurs étaient déjà là, sans moyen d'y accéder. Un nom déjà pris n'est plus écrasé : le suivant disponible est choisi.
+
+Modifier un tableau comme une grille. Ajoutez et retirez lignes et colonnes sans compter les barres verticales. Le texte CJK est aligné sur la largeur d'affichage, pour que la source Markdown reste alignée.
+
+Modèles DOCX — page de couverture, sommaire, en-tête, numéros de page. Équations numérotées, avec des liens \eqref qui y mènent.
+
+Corrections : un dossier d'espace de travail supprimé ne ressemble plus à un coffre vide, et quatre entrées du menu de l'arborescence qui affichaient leurs noms de clé dans les quatorze langues portent enfin de vrais libellés.

@@ -319,6 +319,9 @@ onMounted(() => {
   window.addEventListener('solomd:upload-local-images', onUploadLocalImagesEvent);
   window.addEventListener('solomd:editor-find', onEditorFindEvent);
   window.addEventListener('solomd:preview-search', onPreviewSearchEvent);
+  window.addEventListener('solomd:fold', onFoldEvent);
+  window.addEventListener('solomd:edit-table', onEditTableEvent);
+  window.addEventListener('solomd:edit-formula', onEditFormulaEvent);
 });
 
 onBeforeUnmount(() => {
@@ -331,6 +334,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('solomd:upload-local-images', onUploadLocalImagesEvent);
   window.removeEventListener('solomd:editor-find', onEditorFindEvent);
   window.removeEventListener('solomd:preview-search', onPreviewSearchEvent);
+  window.removeEventListener('solomd:fold', onFoldEvent);
+  window.removeEventListener('solomd:edit-table', onEditTableEvent);
+  window.removeEventListener('solomd:edit-formula', onEditFormulaEvent);
 });
 
 defineExpose({ gotoLine, editorRef });
@@ -378,6 +384,35 @@ function onEditorFindEvent(e: Event) {
   ed?.openFind?.();
 }
 
+/** Formula editor — same focused-pane routing as find. */
+function onEditFormulaEvent(e: Event) {
+  const { paneId } = (e as CustomEvent).detail || {};
+  if (paneId && paneId !== props.paneId) return;
+  if (!paneId && !isFocused.value) return;
+  const ed = editorRef.value as unknown as { openFormulaAtCursor?: () => void } | null;
+  ed?.openFormulaAtCursor?.();
+}
+
+/** Grid table editor — same focused-pane routing as find. */
+function onEditTableEvent(e: Event) {
+  const { paneId } = (e as CustomEvent).detail || {};
+  if (paneId && paneId !== props.paneId) return;
+  if (!paneId && !isFocused.value) return;
+  const ed = editorRef.value as unknown as { openTableAtCursor?: () => void } | null;
+  ed?.openTableAtCursor?.();
+}
+
+/** Heading folding — same focused-pane routing as find (#fold). */
+function onFoldEvent(e: Event) {
+  const { paneId, action, level } = (e as CustomEvent).detail || {};
+  if (paneId && paneId !== props.paneId) return;
+  if (!paneId && !isFocused.value) return;
+  const ed = editorRef.value as unknown as {
+    applyFold?: (a: string, l?: number) => void;
+  } | null;
+  ed?.applyFold?.(action || 'toggle', level);
+}
+
 function onPreviewSearchEvent(e: Event) {
   const { paneId } = (e as CustomEvent).detail;
   if (paneId !== props.paneId) return;
@@ -386,7 +421,16 @@ function onPreviewSearchEvent(e: Event) {
 </script>
 
 <template>
-  <div class="pane-content">
+  <!-- #279 — "现在都一样看着有点累": side by side, the two panes are the same
+       surface, so the split reads as one wide column. The opt-in class lifts
+       the preview a shade; it only applies when BOTH panes are on screen,
+       because there is nothing to tell apart otherwise. -->
+  <div
+    class="pane-content"
+    :class="{
+      'pane-content--distinct': settings.distinctSplitPanes && showEditor && showPreview,
+    }"
+  >
     <div class="pane pane--editor" v-if="showEditor && tab">
       <Editor
         :key="editorImplementationKey"
@@ -418,6 +462,8 @@ function onPreviewSearchEvent(e: Event) {
   min-height: 0;
   overflow: hidden;
 }
+/* #168 phone layout for these panes lives in styles/main.css — a scoped
+   block can't reach it: `:global(.x) .y` compiles down to `.x` here. */
 .pane {
   flex: 1;
   min-width: 0;

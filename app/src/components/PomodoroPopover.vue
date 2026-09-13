@@ -7,6 +7,9 @@
  * this component lives in the Pinia store; we only handle UI here.
  */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { shortcutLabel } from '../lib/keybindings';
+import { isMacOS } from '../lib/platform';
+import { useSettingsStore } from '../stores/settings';
 import { usePomodoroStore } from '../stores/pomodoro';
 import { useI18n } from '../i18n';
 
@@ -15,6 +18,12 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 
 const pomodoro = usePomodoroStore();
 const { t } = useI18n();
+// #180 — the chord in this sentence comes from the user's bindings.
+const macChord = isMacOS();
+const kbSettings = useSettingsStore();
+function withChord(key: string, actionId: string): string {
+  return t(key, { key: shortcutLabel(actionId, kbSettings.keybindings, macChord) || '—' });
+}
 
 const customMin = ref<number>(15);
 const autoBreak = ref<boolean>(false);
@@ -84,7 +93,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
       <input type="checkbox" v-model="notify" />
       <span>{{ t('pomodoro.notify') }}</span>
     </label>
-    <div class="pomo-popover__hint">{{ t('pomodoro.shortcutHint') }}</div>
+    <div class="pomo-popover__hint">{{ withChord('pomodoro.shortcutHint', 'pomodoro.startLast') }}</div>
   </div>
 </template>
 

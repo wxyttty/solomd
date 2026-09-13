@@ -406,6 +406,9 @@ async function saveKey(): Promise<void> {
         key,
         apiFormat: cfg?.apiFormat || 'openai',
         baseUrl: props.baseUrl || cfg?.defaultBaseUrl || null,
+        // Endpoints without a GET /models list verify by chat ping instead
+        // (#261); that needs a model name to send.
+        model: props.model?.trim() || cfg?.defaultModel || null,
       });
     } catch (verifyErr) {
       status.value = {
@@ -443,6 +446,7 @@ async function verifyExisting(): Promise<void> {
       key: null,
       apiFormat: cfg?.apiFormat || 'openai',
       baseUrl: props.baseUrl || cfg?.defaultBaseUrl || null,
+      model: props.model?.trim() || cfg?.defaultModel || null,
     });
     status.value = { kind: 'ok', msg: t('ai.verified') + ' · ' + ok };
   } catch (e) {
