@@ -12,7 +12,7 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::dock::{DockArea, DockLayout, DockPlacement, DockSkin};
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::command::{Command, CommandItem, CommandState};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
 
@@ -37,7 +37,9 @@ pub struct Workspace {
     file_tree: Entity<FileTreePanel>,
     /// ⌘P 笔记切换面板。
     palette_open: bool,
-    palette_query: Entity<InputState>,
+    command_state: Entity<CommandState>,
+    /// ⌘P 条目顺序（渲染时与 items 一一对应，on_confirm 按 row 取回）。
+    palette_paths: Vec<PathBuf>,
     dark: bool,
     settings: Settings,
     /// AI 面板（懒创建）。
@@ -167,10 +169,8 @@ impl Workspace {
             tabs: Vec::new(),
             pending_welcome: false,
             palette_open: false,
-            palette_query: cx.new(|cx| {
-                InputState::new(window, cx)
-                    .placeholder("输入文件名过滤，Enter 打开首个匹配")
-            }),
+            command_state: cx.new(|cx| CommandState::new(window, cx)),
+            palette_paths: Vec::new(),
             dark: false,
             settings: Settings::default(),
             ai_panel: None,
@@ -195,12 +195,8 @@ impl Workspace {
             mermaid: Rc::new(RefCell::new(MermaidStore::default())),
             math: Rc::new(RefCell::new(crate::math::MathStore::default())),
         };
-        // ⌘P 面板：Enter 打开首个匹配。
-        cx.subscribe_in(&this.palette_query, window, |this, _, ev: &InputEvent, window, cx| match ev {
-            InputEvent::PressEnter { .. } => this.palette_confirm_first(window, cx),
-            _ => {}
-        })
-        .detach();
+        // ⌘P 的 Enter/Esc/↑↓ 键控与过滤由 gpui-component 的 Command 组件承担
+        // （gpui_component::init 已绑定其 context 键位），宿主只管开合与确认。
 
         // 恢复持久化主题：全局 Theme + 已打开编辑器的 SyntaxStyle。
         let saved = Settings::load(&this_vault.root);
@@ -291,35 +287,17 @@ impl Workspace {
 
     fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.palette_open = true;
-        self.palette_query.update(cx, |q, cx| q.set_value("", window, cx));
-        self.palette_query.update(cx, |q, cx| q.focus(window, cx));
+        let state = self.command_state.clone();
+        state.update(cx, |s, cx| {
+            s.set_query("", window, cx);
+            s.focus(window, cx);
+        });
         cx.notify();
     }
 
     fn close_palette(&mut self, cx: &mut Context<Self>) {
         self.palette_open = false;
         cx.notify();
-    }
-
-    /// 当前过滤词匹配的笔记（最多 12 条）。
-    fn palette_matches(&self, cx: &Context<Self>) -> Vec<PathBuf> {
-        let query = self.palette_query.read(cx).value().to_lowercase();
-        self.vault
-            .walk_notes()
-            .into_iter()
-            .filter(|p| {
-                query.is_empty() || p.to_string_lossy().to_lowercase().contains(&query)
-            })
-            .take(12)
-            .collect()
-    }
-
-    fn palette_confirm_first(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let first = self.palette_matches(cx).first().cloned();
-        if let Some(path) = first {
-            self.close_palette(cx);
-            self.open_note(path, window, cx);
-        }
     }
 
     /// 激活第 ix 个标签：remove + re-add（add_panel 落位即激活）。
@@ -1047,67 +1025,29 @@ impl Workspace {
 }
 
 impl Workspace {
-    /// ⌘P 浮层：半透明遮罩 + 居中卡片（输入框 + 匹配列表）。
+    /// ⌘P 浮层：半透明遮罩 + vendored gpc CommandPalette（搜索/过滤/键控全内置）。
     fn render_palette_overlay(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.palette_open {
             return div().into_any_element();
         }
-        let matches = self.palette_matches(cx);
-        let theme = cx.theme().clone();
-
-        let mut list = v_flex().gap_0p5();
-        if matches.is_empty() {
-            list = list.child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child("无匹配笔记"),
-            );
-        }
-        for path in matches {
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let dir = path
-                .parent()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let open_path = path.clone();
-            list = list.child(
-                div()
-                    .id(SharedString::from(format!("pal-{}", open_path.display())))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px_3()
-                    .py_1p5()
-                    .rounded_md()
-                    .text_sm()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme.accent.opacity(0.12)))
-                    .on_mouse_down(gpui::MouseButton::Left, {
-                        let this = cx.weak_entity();
-                        move |_, window, cx| {
-                            let _ = this.update(cx, |ws, cx| {
-                                ws.close_palette(cx);
-                                ws.open_note(open_path.clone(), window, cx);
-                            });
-                        }
-                    })
-                    .child(name)
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(dir),
-                    ),
-            );
-        }
-
-        let query = self.palette_query.clone();
+        // 条目与 palette_paths 按序一一对应；过滤、滚动、Enter/Esc/↑↓ 由
+        // Command 组件承担，on_confirm 按 IndexPath.row 取回路径。
+        let paths = self.vault.walk_notes();
+        self.palette_paths = paths.clone();
+        let items: Vec<CommandItem> = paths
+            .iter()
+            .map(|p| {
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                CommandItem::new()
+                    .label(name)
+                    .keywords([p.to_string_lossy().to_string()])
+            })
+            .collect();
+        let weak = cx.weak_entity();
+        let weak_cancel = weak.clone();
         div()
             .absolute()
             .inset_0()
@@ -1124,25 +1064,31 @@ impl Workspace {
                     .left(px(160.))
                     .right(px(160.))
                     .top(px(72.))
-                    .flex()
-                    .flex_col()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.background)
-                    .shadow_lg()
-                    .overflow_hidden()
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
                     .child(
-                        div()
-                            .p_2()
-                            .border_b_1()
-                            .border_color(theme.border)
-                            .child(Input::new(&query).small()),
-                    )
-                    .child(div().max_h(px(420.)).overflow_y_scrollbar().p_1().child(list)),
+                        Command::new(&self.command_state)
+                            .placeholder("搜索笔记…")
+                            .max_h(px(420.))
+                            .items(items)
+                            .empty(|_, _, _| {
+                                div().px_3().py_2().text_sm().child("无匹配笔记")
+                            })
+                            .on_confirm(move |ix, window, cx| {
+                                let _ = weak.update(cx, |ws, cx| {
+                                    if ix.section == 0
+                                        && let Some(path) = ws.palette_paths.get(ix.row).cloned()
+                                    {
+                                        ws.close_palette(cx);
+                                        ws.open_note(path, window, cx);
+                                    }
+                                });
+                            })
+                            .on_cancel(move |_window, cx| {
+                                let _ = weak_cancel.update(cx, |ws, cx| ws.close_palette(cx));
+                            }),
+                    ),
             )
             .into_any_element()
     }
