@@ -42,6 +42,8 @@ pub struct NotePanel {
     math: Rc<RefCell<MathStore>>,
     /// 打开中的结构化公式编辑会话（math_edit.rs）。
     math_edit: Option<math_edit::MathEditSession>,
+    /// [[wikilink]] 点击 → Workspace 打开/新建目标笔记。
+    on_open_note: Option<Box<dyn Fn(&mut Window, &mut gpui::App, PathBuf)>>,
 }
 
 impl NotePanel {
@@ -184,6 +186,9 @@ impl NotePanel {
                 } => {
                     this.open_math_edit(range.clone(), source.clone(), *at_end, *inline, window, cx);
                 }
+                EditorEvent::OpenWikiLink(target) => {
+                    this.open_wiki_target(target.to_string(), window, cx);
+                }
                 EditorEvent::MathMenu { source, .. } => {
                     // v1：右键公式直接复制 LaTeX（完整菜单——对齐/导出——后置）。
                     cx.write_to_clipboard(ClipboardItem::new_string(source.to_string()));
@@ -209,6 +214,7 @@ impl NotePanel {
             scroll,
             math,
             math_edit: None,
+            on_open_note: None,
         }
     }
 
@@ -220,6 +226,44 @@ impl NotePanel {
     /// Workspace 用来接收激活事件（跟踪当前笔记，供历史/AI/导出使用）。
     pub fn on_activated_notify(&mut self, f: Box<dyn Fn(&mut gpui::App)>) {
         self.on_activated = Some(f);
+    }
+
+    /// Workspace 用来打开 [[wikilink]] 目标（解析后可能新建草稿）。
+    pub fn on_open_note_notify(
+        &mut self,
+        f: Box<dyn Fn(&mut Window, &mut gpui::App, PathBuf)>,
+    ) {
+        self.on_open_note = Some(f);
+    }
+
+    /// [[链接]] 点击：索引解析（stem → 标题 → 别名 → 路径后缀，上游 10e1860）
+    /// → 打开；未命中 → vault 根新建草稿。目录分量视为 vault 路径而非相对路径。
+    fn open_wiki_target(&mut self, target: String, window: &mut Window, cx: &mut Context<Self>) {
+        let resolved = solomd_core::workspace_index::workspace_index_resolve(target.clone())
+            .ok()
+            .flatten();
+        let path = match resolved {
+            Some(p) => PathBuf::from(p),
+            None => {
+                let stem = target
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or(&target)
+                    .trim_end_matches(".md")
+                    .to_string();
+                if stem.is_empty() {
+                    return;
+                }
+                let p = self.vault.root.join(format!("{stem}.md"));
+                if !p.exists() {
+                    let _ = self.vault.write_note(&p, &format!("# {stem}\n\n"));
+                }
+                p
+            }
+        };
+        if let Some(cb) = &self.on_open_note {
+            cb(window, cx, path);
+        }
     }
 
     /// 打字机模式：光标行垂直居中。SelectionChanged 驱动；视口高按窗口高

@@ -96,13 +96,21 @@ impl Vault {
 
     /// 列一层目录：子目录在前，仅 .md/.markdown 文件，跳过隐藏与构建产物。
     pub fn list_dir(&self, rel: &Path) -> std::io::Result<Vec<Entry>> {
+        self.list_dir_ex(rel, false)
+    }
+
+    /// `show_hidden` = 显示 dotfile（target/node_modules 等构建目录始终隐藏）。
+    pub fn list_dir_ex(&self, rel: &Path, show_hidden: bool) -> std::io::Result<Vec<Entry>> {
         let dir = self.resolve(rel);
         let mut entries: Vec<Entry> = std::fs::read_dir(dir)?
             .filter_map(Result::ok)
             .filter_map(|e| {
                 let path = e.path();
                 let name = e.file_name().to_string_lossy().to_string();
-                if name.starts_with('.') || name == "target" || name == "node_modules" {
+                if (!show_hidden && name.starts_with('.'))
+                    || name == "target"
+                    || name == "node_modules"
+                {
                     return None;
                 }
                 let is_dir = path.is_dir();

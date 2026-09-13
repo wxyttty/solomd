@@ -14,6 +14,7 @@ mod search_panel;
 mod settings;
 mod single_instance;
 mod sync_panel;
+mod tasks_panel;
 mod images;
 mod math;
 mod mermaid;
@@ -24,6 +25,10 @@ mod whiteboard;
 mod workspace;
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+
+/// workspace_index 全进程只初始化一次（单 vault；info/tasks 面板共享守卫）。
+pub(crate) static INDEX_INITED: AtomicBool = AtomicBool::new(false);
 
 use gpui::{
     actions, AppContext as _, KeyBinding, Menu, MenuItem, WindowOptions,

@@ -25,10 +25,8 @@ use solomd_core::workspace_index::{
 };
 
 use crate::note_panel::NotePanel;
+use crate::INDEX_INITED;
 use crate::vault::Vault;
-
-/// workspace_index 只初始化一次（单 vault 单进程）。
-static INDEX_INITED: AtomicBool = AtomicBool::new(false);
 
 #[derive(PartialEq, Clone, Copy)]
 enum InfoTab {

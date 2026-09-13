@@ -382,11 +382,48 @@ fn drop_cancel_flag(id: &str) {
 /// Returns Ok with a short message (e.g. model count) on success, Err with
 /// a human-readable reason on failure. Used by AISettings to show a green
 /// "Verified ✓" / red "Invalid key" pill right after the user clicks Save.
+/// Ping `POST {base}/chat/completions` with a 1-token request — the verify
+/// fallback for endpoints that don't serve `GET /models` (#261). Returns the
+/// endpoint's own error text on failure so the UI can show it verbatim.
+async fn openai_chat_ping(
+    client: &reqwest::Client,
+    base: &str,
+    key: &str,
+    model: Option<&str>,
+) -> Result<String, String> {
+    let model = model
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .ok_or_else(|| "no /models list and no model name configured to test with".to_string())?;
+    let url = format!("{base}/chat/completions");
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "ping"}]
+    });
+    let res = with_optional_bearer(client.post(&url), key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("network: {e}"))?;
+    let status = res.status();
+    if status.is_success() {
+        Ok(format!("OK · {model} responded (endpoint has no /models list)"))
+    } else {
+        let txt = res.text().await.unwrap_or_default();
+        Err(format!("chat ping HTTP {status}: {}", truncate(&txt, 200)))
+    }
+}
+
 pub async fn ai_verify_key(
     provider: String,
     key: Option<String>,
     api_format: Option<String>,
     base_url: Option<String>,
+    // Model for the chat-ping fallback when the endpoint has no
+    // `GET /models`. Optional — callers that don't know one yet just get
+    // the original error back. (Ported from upstream #261.)
+    model: Option<String>,
 ) -> Result<String, String> {
     let format = wire_format(&api_format.unwrap_or_else(|| provider.clone()));
     let key_str = match key {
@@ -420,10 +457,27 @@ pub async fn ai_verify_key(
                     .and_then(|d| d.as_array())
                     .map(|a| a.len())
                     .unwrap_or(0);
-                Ok(format!("OK · {n} models available"))
-            } else {
-                let txt = res.text().await.unwrap_or_default();
-                Err(format!("HTTP {status}: {}", truncate(&txt, 200)))
+                return Ok(format!("OK · {n} models available"));
+            }
+            let txt = res.text().await.unwrap_or_default();
+            // 401/403 is the endpoint telling us the key is wrong. That IS
+            // a verification failure — don't paper over it with a ping that
+            // would fail the same way.
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                || status == reqwest::StatusCode::FORBIDDEN
+            {
+                return Err(format!("HTTP {status}: {}", truncate(&txt, 200)));
+            }
+            // #261 — `GET /models` is optional in practice. Corporate
+            // gateways and some self-hosted runtimes 404 it while chat
+            // completions work fine. Ask the endpoint the question that
+            // actually matters instead.
+            match openai_chat_ping(&client, &base, &key_str, model.as_deref()).await {
+                Ok(msg) => Ok(msg),
+                Err(ping_err) => Err(format!(
+                    "HTTP {status}: {} · {ping_err}",
+                    truncate(&txt, 200)
+                )),
             }
         }
         "anthropic" => {

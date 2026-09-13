@@ -295,7 +295,10 @@ fn ai_client_config_path(client_id: &str) -> Option<PathBuf> {
                 home.map(|h| h.join(".config/Claude/claude_desktop_config.json"))
             }
         }
-        "claude-code" => home.map(|h| h.join(".claude/mcp.json")),
+        // Claude Code keeps user-scope MCP servers in ~/.claude.json — the
+        // single dotfile, NOT ~/.claude/mcp.json (a path it never reads).
+        // Same `mcpServers.<name>` schema as Claude Desktop (upstream 4bf9b1e).
+        "claude-code" => home.map(|h| h.join(".claude.json")),
         "cursor" => home.map(|h| h.join(".cursor/mcp.json")),
         "cline" => {
             // VS Code globalStorage. Path varies by OS but follows the same
@@ -330,6 +333,43 @@ fn ai_client_config_path(client_id: &str) -> Option<PathBuf> {
     }
 }
 
+/// "Is this client installed on this machine?" probe. Claude Code's config is
+/// `~/.claude.json`, whose parent is `$HOME` and therefore always exists —
+/// probe the `~/.claude` data dir instead (upstream 4bf9b1e).
+fn ai_client_probe_dir(client_id: &str, home: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
+    if client_id == "claude-code" {
+        return home.map(|h| h.join(".claude"));
+    }
+    ai_client_config_path(client_id).and_then(|p| p.parent().map(|p| p.to_path_buf()))
+}
+
+/// Does this config already declare a `solomd` MCP server? Substring match is
+/// not good enough: `~/.claude.json` also carries per-project history, so any
+/// user who opened a folder with "solomd" in its path would read as
+/// "already configured". Falls back to substring only when the file doesn't
+/// parse as JSON.
+fn config_has_solomd(client_id: &str, raw: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return raw.contains("solomd");
+    };
+    match client_id {
+        "continue" => v
+            .get("mcp")
+            .and_then(|m| m.as_array())
+            .map(|list| {
+                list.iter()
+                    .any(|e| e.get("name").and_then(|n| n.as_str()) == Some("solomd"))
+            })
+            .unwrap_or(false),
+        "zed" => v
+            .get("context_servers")
+            .and_then(|m| m.get("solomd"))
+            .is_some(),
+        // claude-desktop / claude-code / cursor / cline
+        _ => v.get("mcpServers").and_then(|m| m.get("solomd")).is_some(),
+    }
+}
+
 const AI_CLIENTS: &[(&str, &str)] = &[
     ("claude-desktop", "Claude Desktop"),
     ("claude-code", "Claude Code"),
@@ -349,10 +389,11 @@ pub fn detect_ai_clients() -> Vec<AiClient> {
         .filter_map(|(id, display)| {
             let path = ai_client_config_path(id)?;
             let config_exists = path.is_file();
-            let config_dir_exists = path.parent().map(|p| p.is_dir()).unwrap_or(false);
+            let config_dir_exists =
+                ai_client_probe_dir(id, dirs::home_dir()).map(|p| p.is_dir()).unwrap_or(false);
             let has_solomd_entry = if config_exists {
                 std::fs::read_to_string(&path)
-                    .map(|s| s.contains("solomd"))
+                    .map(|s| config_has_solomd(id, &s))
                     .unwrap_or(false)
             } else {
                 false

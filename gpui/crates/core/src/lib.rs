@@ -21,6 +21,8 @@ pub mod convert;
 // dev_bridge 暂不编译：其本质是"外部 eval 驱动 Vue UI"的调试通道，
 // GPUI 无 JS 求值面，需原生重设计（P3）。源文件保留备查。
 // pub mod dev_bridge;
+mod file_ops;
+pub use file_ops::*;
 pub mod github_sync;
 pub mod integrations;
 pub mod watcher;

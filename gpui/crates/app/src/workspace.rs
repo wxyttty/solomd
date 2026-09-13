@@ -50,6 +50,7 @@ pub struct Workspace {
     recipes_panel: Option<Entity<crate::recipes_panel::RecipesPanel>>,
     history_panel: Option<Entity<crate::history_panel::HistoryPanel>>,
     info_panel: Option<Entity<crate::info_panel::InfoPanel>>,
+    tasks_panel: Option<Entity<crate::tasks_panel::TasksPanel>>,
     right_tab: RightTab,
     /// 当前活跃笔记（历史/AI/导出共用；由 NotePanel 激活回调驱动）。
     active_note: Option<PathBuf>,
@@ -74,6 +75,7 @@ enum RightTab {
     Recipes,
     History,
     Info,
+    Tasks,
 }
 
 /// 导出菜单项（label, pandoc 输出扩展名）。
@@ -119,6 +121,19 @@ impl Workspace {
         // 文件树点开笔记 → open_note。
         cx.subscribe_in(&file_tree, window, |this, _, ev: &TreeEvent, window, cx| match ev {
             TreeEvent::OpenNote(path) => this.open_note(path.clone(), window, cx),
+            TreeEvent::Moved { old, new } => {
+                // 移动/重命名后重指向已开标签（面板的 path 字段决定保存落点）。
+                for (p, panel) in &mut this.tabs {
+                    if *p == *old {
+                        *p = new.clone();
+                        panel.update(cx, |np, _| np.path = new.clone());
+                    }
+                }
+                if this.active_note.as_ref() == Some(old) {
+                    this.active_note = Some(new.clone());
+                }
+                cx.notify();
+            }
         })
         .detach();
 
@@ -180,6 +195,7 @@ impl Workspace {
             recipes_panel: None,
             history_panel: None,
             info_panel: None,
+            tasks_panel: None,
             right_tab: RightTab::None,
             active_note: None,
             active_panel: None,
@@ -251,6 +267,15 @@ impl Workspace {
         // Tab 关闭（UI ✕ / ⌘W）→ 同步本地列表。
         let weak_ws = cx.entity().downgrade();
         let close_path = path.clone();
+        panel.update(cx, |np, _| {
+            // [[wikilink]] 点击 → 打开/新建目标笔记（解析在 core workspace_index）。
+            let weak_open = weak_ws.clone();
+            np.on_open_note_notify(Box::new(move |window, app, path| {
+                if let Some(ws) = weak_open.upgrade() {
+                    let _ = ws.update(app, |ws, cx| ws.open_note(path, window, cx));
+                }
+            }));
+        });
         panel.update(cx, |np, _| {
             np.on_removed_notify(Box::new(move |app| {
                 if let Some(ws) = weak_ws.upgrade() {
@@ -746,6 +771,42 @@ impl Render for Workspace {
                             })),
                     )
                     .child(
+                            Button::new("tasks-panel")
+                                .label(if self.right_tab == RightTab::Tasks { "任务 ▾" } else { "任务" })
+                                .xsmall()
+                                .ghost()
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.right_tab = if this.right_tab == RightTab::Tasks {
+                                        RightTab::None
+                                    } else {
+                                        RightTab::Tasks
+                                    };
+                                    if this.tasks_panel.is_none() && this.right_tab == RightTab::Tasks {
+                                        let panel = cx.new(|cx| {
+                                            crate::tasks_panel::TasksPanel::new(
+                                                this.vault.clone(),
+                                                window,
+                                                cx,
+                                            )
+                                        });
+                                        this.tasks_panel = Some(panel.clone());
+                                        cx.subscribe_in(
+                                            &panel,
+                                            window,
+                                            |this, _, ev: &crate::tasks_panel::TaskEvent, window, cx| {
+                                                match ev {
+                                                    crate::tasks_panel::TaskEvent::OpenNote { path, line } => {
+                                                        this.open_note_at(path.clone(), *line, window, cx);
+                                                    }
+                                                }
+                                            },
+                                        )
+                                        .detach();
+                                    }
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
                         Button::new("info-panel")
                             .label(if self.right_tab == RightTab::Info { "信息 ▾" } else { "信息" })
                             .xsmall()
@@ -886,6 +947,11 @@ impl Render for Workspace {
                                 .unwrap_or_else(|| div().into_any_element()),
                             RightTab::History => self
                                 .history_panel
+                                .as_ref()
+                                .map(|p| p.clone().into_any_element())
+                                .unwrap_or_else(|| div().into_any_element()),
+                            RightTab::Tasks => self
+                                .tasks_panel
                                 .as_ref()
                                 .map(|p| p.clone().into_any_element())
                                 .unwrap_or_else(|| div().into_any_element()),

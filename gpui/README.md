@@ -124,6 +124,8 @@ Rust 侧 ipc 回调只投 channel，GPUI 实体内的异步泵消费消息并驱
 | 打字机模式 | 🟩 工具行「打字机」开关（Settings.typewriter 持久化）；SelectionChanged → caret_screen_bounds/window_top/content_height 换算光标内容 y → 滚动容器居中（视口高按窗口高扣 72px chrome 估算；vendored gpui-editor 加 `window_top`/`content_height` 两个访问器） |
 | 结构化公式编辑 | 🟩 note_panel 拆目录 + math_edit.rs 会话模块（zorite app/math.rs 移植）：光标进入公式（EditMath）→ MathEditor 塞进编辑器 editing 槽位（块级全宽空隙/行内原位覆盖）→ blur/方向键越界提交 → `replace_range` 回写（可撤销）+ 落盘 + 单条公式热身重渲；右键公式复制 LaTeX（v1，对齐/导出菜单后置）；简化项：RTL 出向、公式上方无内容守卫未移植 |
 | 依赖回收（2026-09-13） | 🟩 ⌘P 收编 vendored gpc CommandPalette、删自研浮层（`2ed0620`）；zorite editor 三 crate 7915aad → tip 0.11.0（`2dab499`）跟改名 zorite-editor/zorite-markdown、上游转 MIT；补回 #77 行内公式位移补偿 + 编辑出向守卫；本地补丁只剩 window_top/content_height 两个访问器；tip 对 f66ed39 零额外 churn |
+| 上游 4.12.x 移植（2026-09-13） | 🟩 **P1**：wikilink 解析修复（[[folder/note]] 路径后缀 + frontmatter aliases，core/workspace_index）+ **OpenWikiLink 接通**（此前占位）；TaskRef 全库任务扫描 + 任务右栏页（勾选回写文件行、watcher 自动带回新索引）；Claude Code 注册路径（~/.claude.json）+ config_has_solomd 结构化判定；ai_verify_key 无 /models 端点的 chat-ping 兜底（401/403 仍硬失败）。**P2**：core/file_ops.rs（fs_move + `<stem>.assets/` 随迁 + 围栏感知全库链接重写 + 子树防自移 + 隐藏/扩展名枚举，上游 commands.rs 去壳移植）；文件树加隐藏开关、类型过滤、选中行重命名/移动（Moved 事件重指向已开标签） |
+| 上游 4.12.x 未移植（评估见会话记录） | quick capture（需 GPUI 全局热键方案，原"砍 capture"决策待翻案）、DOCX 模板导出（需 pandoc reference-doc 方案）、快捷键重绑定、CJK 强调（等 zorite 上游）、数学编号/交叉引用、表格网格编辑/标题折叠（等 zorite） |
 | 待人工 | 数学：排版保真度对照（生僻宏/化学式 mhchem 类预期缺）、中文 IME 下公式附近编辑、**MathEditor 结构化编辑全流程**（进入/编辑/回写/撤销/重渲）；打字机：滚动跟随手感、拖拽选区时的居中策略（现版会随选区移动）；滚动容器：长文滚动手感 + 滚动条 UI（现为裸滚动，无 thumb） |
 
 ## 性能基线记录

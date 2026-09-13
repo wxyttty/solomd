@@ -294,12 +294,17 @@ impl AiPanel {
             let v = self.base_url_input.read(cx).value().to_string();
             (!v.trim().is_empty()).then_some(v)
         };
+        // 无 /models 的端点用 chat ping 兜底，需要模型名（#261）。
+        let model = {
+            let v = self.model_input.read(cx).value().to_string();
+            (!v.trim().is_empty()).then_some(v)
+        };
         self.status = "验证中…".into();
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             // JoinHandle 可在 GPUI executor 上 await；reqwest 在进程级 runtime 内跑。
             let jh = solomd_core::rt::spawn(async move {
-                ai_verify_key(provider, None, None, base).await
+                ai_verify_key(provider, None, None, base, model).await
             });
             let r = jh.await.unwrap_or_else(|e| Err(format!("join: {e}")));
             let _ = this.update_in(cx, |panel, _, cx| {

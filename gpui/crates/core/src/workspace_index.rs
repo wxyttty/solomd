@@ -66,6 +66,11 @@ pub struct IndexEntry {
     /// that predates this field.
     #[serde(default)]
     pub relationships: HashMap<String, Vec<String>>,
+    /// GFM task-list items (`- [ ]` / `- [x]`), for the workspace task panel.
+    /// Defaults to empty when deserialized from an index cache written before
+    /// this field existed.
+    #[serde(default)]
+    pub tasks: Vec<TaskRef>,
 }
 
 /// F3 — one inverse (referenced-by) edge resolved over the in-memory index.
@@ -84,6 +89,22 @@ pub struct WikilinkRef {
     pub alias: Option<String>,
     /// 1-based line number where the link appears.
     pub line: u32,
+}
+
+/// One `- [ ]` / `- [x]` item, as found in a file.
+/// (Ported from upstream be333cf — workspace task panel.)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskRef {
+    /// 1-based line number **in the file**, front matter included.
+    ///
+    /// Deliberately not the body-relative number `WikilinkRef::line` uses: the
+    /// panel both jumps to this line and rewrites the checkbox on it, so an
+    /// off-by-front-matter number would tick the wrong box.
+    pub line: u32,
+    /// The task text, marker and leading bullet stripped. Priority and due
+    /// tokens are left in — the panel parses those itself.
+    pub text: String,
+    pub done: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -329,6 +350,36 @@ pub fn workspace_index_tags() -> Result<Vec<TagCount>, String> {
     Ok(out)
 }
 
+/// One task across the workspace, flattened for the tasks panel.
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskItem {
+    pub path: String,
+    pub name: String,
+    pub line: u32,
+    pub text: String,
+    pub done: bool,
+}
+
+/// Every GFM task in the workspace, flattened from the index
+/// (upstream be333cf; the index carries per-file `tasks`).
+pub fn workspace_index_tasks() -> Result<Vec<TaskItem>, String> {
+    let s = STATE.read().map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for entry in s.entries.values() {
+        for t in &entry.tasks {
+            out.push(TaskItem {
+                path: entry.path.clone(),
+                name: entry.name.clone(),
+                line: t.line,
+                text: t.text.clone(),
+                done: t.done,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
+    Ok(out)
+}
+
 pub fn workspace_index_resolve(name: String) -> Result<Option<String>, String> {
     let s = STATE.read().map_err(|e| e.to_string())?;
     let needle = name.trim();
@@ -353,7 +404,40 @@ pub fn workspace_index_resolve(name: String) -> Result<Option<String>, String> {
             return Ok(Some(entry.path.clone()));
         }
     }
-    // 3. Substring match in stem
+    // 3. Alias match (frontmatter aliases / alias)
+    for entry in s.entries.values() {
+        if let serde_json::Value::Object(map) = &entry.frontmatter {
+            if let Some(a) = map.get("aliases").or_else(|| map.get("alias")) {
+                let mut names = Vec::new();
+                collect_alias_names(a, &mut names);
+                if names.iter().any(|n| n.to_lowercase() == needle_lc) {
+                    return Ok(Some(entry.path.clone()));
+                }
+            }
+        }
+    }
+    // 4. Path-suffix match — handles Obsidian-style [[folder/note]] where
+    //    the target includes a folder component. Check if the absolute path
+    //    ends with "/needle" or "/needle.md" (case-insensitive, normalized
+    //    to forward slashes). Ported from upstream 10e1860: wikilinks with a
+    //    folder component used to fall through and create a duplicate file.
+    {
+        let needle_norm = needle_lc.replace('\\', "/");
+        let needle_no_ext = needle_norm
+            .strip_suffix(".md")
+            .unwrap_or(&needle_norm)
+            .to_string();
+        for entry in s.entries.values() {
+            let path_norm = entry.path.replace('\\', "/").to_lowercase();
+            if path_norm.ends_with(&format!("/{}", needle_norm))
+                || path_norm.ends_with(&format!("/{}", needle_no_ext))
+                || path_norm.ends_with(&format!("/{}.md", needle_no_ext))
+            {
+                return Ok(Some(entry.path.clone()));
+            }
+        }
+    }
+    // 5. Substring match in stem (legacy fallback)
     for entry in s.entries.values() {
         if entry.stem.to_lowercase().contains(&needle_lc) {
             return Ok(Some(entry.path.clone()));
@@ -459,6 +543,8 @@ fn scan_file(path: &Path) -> Result<IndexEntry, String> {
     let title = extract_title(&frontmatter_json, &headings);
     let summary = extract_summary(body);
     let relationships = extract_relationships(&frontmatter_json);
+    // Over `raw`, not `body`: task line numbers have to match the file.
+    let tasks = extract_tasks(&raw);
 
     Ok(IndexEntry {
         path: path.to_string_lossy().to_string(),
@@ -473,6 +559,7 @@ fn scan_file(path: &Path) -> Result<IndexEntry, String> {
         summary,
         title,
         relationships,
+        tasks,
     })
 }
 
@@ -975,6 +1062,7 @@ mod tests {
                 mtime: 0,
                 size: 0,
                 relationships: extract_relationships(&fmv),
+                tasks: vec![],
                 frontmatter: fmv,
                 wikilinks: vec![],
                 tags: vec![],
@@ -1019,6 +1107,7 @@ mod tests {
                 mtime: 0,
                 size: 0,
                 relationships: extract_relationships(&fmv),
+                tasks: vec![],
                 frontmatter: fmv,
                 wikilinks: vec![],
                 tags: vec![],
@@ -1263,4 +1352,99 @@ fn read_context(path: &Path, line_no: u32) -> Vec<String> {
         .iter()
         .filter_map(|x| x.map(|s| s.to_string()))
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// GFM task scan（移植自上游 be333cf）
+// ---------------------------------------------------------------------------
+
+/// GFM task-list items, scanned over the raw file so line numbers are the
+/// file's own.
+///
+/// Skips fenced code (a `- [ ] step one` inside a shell block is
+/// documentation, not a task) and YAML front matter.
+fn extract_tasks(raw: &str) -> Vec<TaskRef> {
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"^\s*[-*+]\s+\[([ xX])\]\s+(.+?)\s*$").expect("task regex")
+    });
+    let mut out = Vec::new();
+    let mut in_fence = false;
+    let mut in_front_matter = false;
+    for (idx, line) in raw.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if idx == 0 && line.trim_end() == "---" {
+            in_front_matter = true;
+            continue;
+        }
+        if in_front_matter {
+            if line.trim_end() == "---" || line.trim_end() == "..." {
+                in_front_matter = false;
+            }
+            continue;
+        }
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        if let Some(cap) = RE.captures(line) {
+            let done = cap.get(1).map(|m| m.as_str() != " ").unwrap_or(false);
+            let text = cap
+                .get(2)
+                .map(|m| m.as_str().trim().to_string())
+                .unwrap_or_default();
+            if text.is_empty() {
+                continue;
+            }
+            out.push(TaskRef {
+                line: idx as u32 + 1,
+                text,
+                done,
+            });
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod task_scan_tests {
+    use super::extract_tasks;
+
+    #[test]
+    fn finds_open_and_done_items_with_file_line_numbers() {
+        let raw = "---\ntitle: x\n---\n\n# Heading\n\n- [ ] first\n- [x] second\n";
+        let tasks = extract_tasks(raw);
+        assert_eq!(tasks.len(), 2);
+        // Line 7 in the FILE, not line 4 of the body — the panel rewrites the
+        // checkbox on this line.
+        assert_eq!(tasks[0].line, 7);
+        assert_eq!(tasks[0].text, "first");
+        assert!(!tasks[0].done);
+        assert_eq!(tasks[1].line, 8);
+        assert!(tasks[1].done);
+    }
+
+    #[test]
+    fn ignores_task_shaped_lines_inside_fenced_code() {
+        let raw = "- [ ] real\n\n```sh\n- [ ] not a task\n```\n\n- [x] also real\n";
+        assert_eq!(
+            tasks_texts(&raw),
+            vec!["real", "also real"]
+        );
+    }
+
+    fn tasks_texts(raw: &str) -> Vec<String> {
+        extract_tasks(raw)
+            .iter()
+            .map(|t| t.text.clone())
+            .collect()
+    }
+
+    #[test]
+    fn skips_front_matter_lines() {
+        let raw = "---\nalias: x\n- [ ] not a task, it is yaml\n---\n- [ ] real\n";
+        assert_eq!(tasks_texts(&raw), vec!["real"]);
+    }
 }
