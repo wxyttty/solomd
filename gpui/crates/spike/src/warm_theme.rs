@@ -4,7 +4,7 @@
 //! GitHub alert 五色在 SoloMD 调色板中无对应项，取语义近似并注释说明。
 
 use gpui::{rgb, Font, Hsla, SharedString};
-use gpui_editor::SyntaxStyle;
+use zorite_editor::SyntaxStyle;
 
 fn hex(c: u32) -> Hsla {
     rgb(c).into()

@@ -1,13 +1,13 @@
-# gpui-markdown API
+# zorite-markdown API
 
-The complete public API of [`gpui-markdown`](README.md) — every exported item,
+The complete public API of [`zorite-markdown`](README.md) — every exported item,
 with its signature, parameters, return contract, edge cases, and cost. For the
 what-and-why (the two layers, quick start, per-table designs, supported
 syntax), see the [README](README.md).
 
 The crate is two layers, and this reference mirrors that:
 
-- **[Part I — `gpui_markdown::syntax`](#part-i--gpui_markdownsyntax)** — always
+- **[Part I — `zorite_markdown::syntax`](#part-i--zorite_markdownsyntax)** — always
   compiled, dependency-free construct *recognition* shared by every renderer.
 - **[Part II — the reader view](#part-ii--the-reader-view-feature-view)** —
   `MarkdownView` and everything around it, behind the default-on **`view`**
@@ -16,7 +16,7 @@ The crate is two layers, and this reference mirrors that:
 ## Public API at a glance
 
 Everything below is the complete public surface — if it isn't listed here, it
-isn't public. Feature `—` = always compiled (`gpui_markdown::syntax`);
+isn't public. Feature `—` = always compiled (`zorite_markdown::syntax`);
 `view` = behind the default-on `view` feature (crate root).
 
 | Item | Kind | Signature | Purpose | Feature |
@@ -75,6 +75,7 @@ isn't public. Feature `—` = always compiled (`gpui_markdown::syntax`);
 | [`MarkdownView::track_blocks`](#markdownviewtrack_blocks) | builder | `fn track_blocks(self, handle: ScrollHandle) -> Self` | Track-scroll the block column (scroll-to-match) | `view` |
 | [`MarkdownView::on_click_source`](#markdownviewon_click_source) | builder | `fn on_click_source(self, handler: ClickSourceHandler) -> Self` | Click-to-caret (source offset of a click) | `view` |
 | [`MarkdownView::on_image_preview`](#markdownviewon_image_preview) | builder | `fn on_image_preview(self, handler: ImagePreviewHandler) -> Self` | Handle inline-thumbnail clicks | `view` |
+| [`MarkdownView::on_link_hover`](#markdownviewon_link_hover) | builder | `fn on_link_hover(self, handler: LinkHoverHandler) -> Self` | Report the link under the pointer + its box (hover previews) | `view` |
 | [`MarkdownView::on_task_toggle`](#markdownviewon_task_toggle) | builder | `fn on_task_toggle(self, handler: TaskToggleHandler) -> Self` | Make task checkboxes clickable | `view` |
 | [`MarkdownView::on_alert_toggle`](#markdownviewon_alert_toggle) | builder | `fn on_alert_toggle(self, handler: TaskToggleHandler) -> Self` | Handle foldable-callout title clicks | `view` |
 | [`MarkdownView::on_embed`](#markdownviewon_embed) | builder | `fn on_embed(self, provider: EmbedProvider) -> Self` | Resolve standalone `![[target]]` transclusions | `view` |
@@ -97,6 +98,7 @@ isn't public. Feature `—` = always compiled (`gpui_markdown::syntax`);
 | [`InlineImageRenderer`](#inlineimagerenderer) | type alias | `Rc<dyn Fn(SharedString) -> Option<(Arc<RenderImage>, f32, f32)>>` | Mid-text image → raster + logical size | `view` |
 | [`ClickSourceHandler`](#clicksourcehandler) | type alias | `Rc<dyn Fn(usize, Pixels, &mut Window, &mut App)>` | Click-to-caret callback (source offset, window y) | `view` |
 | [`ImagePreviewHandler`](#imagepreviewhandler) | type alias | `Rc<dyn Fn(SharedString, &mut Window, &mut App)>` | Inline-thumbnail click callback (src) | `view` |
+| [`LinkHoverHandler`](#linkhoverhandler) | type alias | `Rc<dyn Fn(Option<(LinkHit, Bounds<Pixels>)>, &mut Window, &mut App)>` | Link-hover callback: target + window-space box, or `None` off every link | `view` |
 | [`TaskToggleHandler`](#tasktogglehandler) | type alias | `Rc<dyn Fn(usize, &mut Window, &mut App)>` | Task / callout toggle callback (source offset) | `view` |
 | [`HeadingToggleHandler`](#headingtogglehandler) | type alias | `Rc<dyn Fn(&str, &mut Window, &mut App)>` | Heading fold-chevron callback (fold key) | `view` |
 | [`EmbedProvider`](#embedprovider) | type alias | `Rc<dyn Fn(&str) -> Option<(SharedString, SharedString)>>` | Resolve `![[target]]` → `(label, content)` | `view` |
@@ -120,10 +122,10 @@ isn't public. Feature `—` = always compiled (`gpui_markdown::syntax`);
 
 ---
 
-# Part I — `gpui_markdown::syntax`
+# Part I — `zorite_markdown::syntax`
 
 Always compiled, **dependency-free** (no `gpui`, no `markdown`): the shared
-construct recognition that this crate's reader, `gpui-editor`'s WYSIWYG view,
+construct recognition that this crate's reader, `zorite-editor`'s WYSIWYG view,
 and the PDF exporter all consume, so *what a construct is* is defined exactly
 once. Everything here is pure text over `&str` — no I/O, no allocation beyond
 the returned values, no threading constraints.
@@ -1066,6 +1068,26 @@ pub fn on_image_preview(self, handler: ImagePreviewHandler) -> Self
 Handle a click on an inline thumbnail — open a full-size preview (see
 [`ImagePreviewHandler`](#imagepreviewhandler)).
 
+### `MarkdownView::on_link_hover`
+
+```rust
+pub fn on_link_hover(self, handler: LinkHoverHandler) -> Self
+```
+
+Report the link under the pointer as the mouse moves, so the host can show a
+preview card anchored to it (see [`LinkHoverHandler`](#linkhoverhandler)).
+Covers paragraph links in both text directions (a wrapped link reports the
+row it starts on) and property-panel pills. Links inside table cells don't
+report yet.
+
+**Guarantees & edge cases**
+
+- Fires on every pointer move over the paragraph, including repeated `None`s
+  off links — hosts should compare against their last value before
+  repainting.
+- The box is window-space, from this frame's layout; it goes stale if the
+  content scrolls without the pointer moving.
+
 ### `MarkdownView::on_task_toggle`
 
 ```rust
@@ -1122,7 +1144,7 @@ The collapsed headings — keys are **trimmed source lines** (e.g. `"## Goals"`)
 A folded heading renders with a `▸` chevron and its whole section (everything
 until the next heading at its level or higher) is skipped. Host-owned state,
 since this view is rebuilt every frame; the line-text key is shared with
-gpui-editor's WYSIWYG folds and self-heals — editing the heading drops the
+zorite-editor's WYSIWYG folds and self-heals — editing the heading drops the
 fold instead of letting it drift.
 
 ### `MarkdownView::on_heading_toggle`
@@ -1163,7 +1185,7 @@ sets only `text_size` — set the font family on a parent element if needed.
 | --- | --- | --- |
 | `text_color` | `Hsla` | Body text |
 | `text_size` | `Pixels` | Base size; headings scale from it via [`heading_scale`](#heading_scale) (default `px(15.0)`) |
-| `line_height` | `f32` | Body line height as a multiple of `text_size`. Hosts with an editor match its ratio so reading and editing line up (default `1.45`, gpui-editor's) |
+| `line_height` | `f32` | Body line height as a multiple of `text_size`. Hosts with an editor match its ratio so reading and editing line up (default `1.45`, zorite-editor's) |
 | `heading_color` | `Hsla` | h1–h6 |
 | `link_color` | `Hsla` | Links, footnote markers, image labels |
 | `tag_color` | `Hsla` | `#tags` |
@@ -1443,6 +1465,19 @@ opens a full-size preview. Set via
 [`on_image_preview`](#markdownviewon_image_preview).
 
 ---
+
+## `LinkHoverHandler`
+
+```rust
+pub type LinkHoverHandler =
+    Rc<dyn Fn(Option<(LinkHit, Bounds<Pixels>)>, &mut Window, &mut App)>;
+```
+
+The pointer moved onto a link (`Some` — its [`LinkHit`](#enum-linkhit) and its
+window-space box) or off every link (`None`). Set via
+[`on_link_hover`](#markdownviewon_link_hover). A `[[wiki]]` / `#tag` arrives
+as `LinkHit::Page`, a URL as `LinkHit::Url`, a pill's `((id))` as
+`LinkHit::BlockRef`.
 
 ## `TaskToggleHandler`
 

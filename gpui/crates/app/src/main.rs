@@ -40,7 +40,7 @@ use crate::workspace::{ClosePalette, TogglePalette, ToggleTheme, Workspace};
 actions!(solomd, [Quit]);
 // 编辑菜单：GPUI 编辑器是自绘文本视图，原生剪贴板/撤销 selector 打不到它，
 // 菜单项直接派发编辑器动作（经焦点路由）。
-use gpui_editor as editor_actions;
+use zorite_editor as editor_actions;
 
 fn main() {
     crate::single_instance::ensure_single_instance();
@@ -75,7 +75,7 @@ fn main() {
                 cx,
             );
         }
-        gpui_editor::bind_keys(cx);
+        zorite_editor::bind_keys(cx);
         cx.bind_keys([
             KeyBinding::new("cmd-s", SaveNote, None),
             KeyBinding::new("ctrl-s", SaveNote, None),

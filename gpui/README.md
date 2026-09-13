@@ -6,8 +6,10 @@ Tauri → GPUI 迁移的 Phase 0 spike 与后续桌面端主工程。计划与�
 ## 依赖策略
 
 zed@`f66ed39`（2026-08-29 gpui-component tip lockfile 实测 rev）+ gpui-component@`0e2fb7a`
-+ zorite@`7915aad`，**后两者已 vendor 进本仓库**（`crates/gpui-component/` 五 crate、
-`crates/zorite/` 三 crate，均为 path 依赖 + workspace 继承）。
++ zorite@`2dab499`（0.11.0，2026-09-13 全量刷新），**后两者已 vendor 进本仓库**
+（`crates/gpui-component/` 五 crate、`crates/zorite/` 五 crate：zorite-editor /
+zorite-markdown / gpui-bidi / gpui-whiteboard / ratex-gpui，均为 path 依赖 +
+workspace 继承；0.11.0 起上游 editor 三 crate 转 MIT 并改名，本仓库跟改）。
 
 - 为什么 vendor：git 依赖只有 spec 完全一致才会去重；zorite 仓库把整条链钉死在
   旧 rev（其 main tip 至 2026-08-29 仍钉 zed@1d217ee），gpc tip 又改成浮 pin
@@ -121,6 +123,7 @@ Rust 侧 ipc 回调只投 channel，GPUI 实体内的异步泵消费消息并驱
 | 笔记滚动容器 | 🟩 NotePanel 编辑器包 `track_scroll` + `overflow_y_scroll`（此前编辑器无滚动宿主）；`set_scroll_compensator` 滚动锚定——异步块在视口上方渲染完成改变高度时吸收偏移，阅读位置不动 |
 | 打字机模式 | 🟩 工具行「打字机」开关（Settings.typewriter 持久化）；SelectionChanged → caret_screen_bounds/window_top/content_height 换算光标内容 y → 滚动容器居中（视口高按窗口高扣 72px chrome 估算；vendored gpui-editor 加 `window_top`/`content_height` 两个访问器） |
 | 结构化公式编辑 | 🟩 note_panel 拆目录 + math_edit.rs 会话模块（zorite app/math.rs 移植）：光标进入公式（EditMath）→ MathEditor 塞进编辑器 editing 槽位（块级全宽空隙/行内原位覆盖）→ blur/方向键越界提交 → `replace_range` 回写（可撤销）+ 落盘 + 单条公式热身重渲；右键公式复制 LaTeX（v1，对齐/导出菜单后置）；简化项：RTL 出向、公式上方无内容守卫未移植 |
+| 依赖回收（2026-09-13） | 🟩 ⌘P 收编 vendored gpc CommandPalette、删自研浮层（`2ed0620`）；zorite editor 三 crate 7915aad → tip 0.11.0（`2dab499`）跟改名 zorite-editor/zorite-markdown、上游转 MIT；补回 #77 行内公式位移补偿 + 编辑出向守卫；本地补丁只剩 window_top/content_height 两个访问器；tip 对 f66ed39 零额外 churn |
 | 待人工 | 数学：排版保真度对照（生僻宏/化学式 mhchem 类预期缺）、中文 IME 下公式附近编辑、**MathEditor 结构化编辑全流程**（进入/编辑/回写/撤销/重渲）；打字机：滚动跟随手感、拖拽选区时的居中策略（现版会随选区移动）；滚动容器：长文滚动手感 + 滚动条 UI（现为裸滚动，无 thumb） |
 
 ## 性能基线记录

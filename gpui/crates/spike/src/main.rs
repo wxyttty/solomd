@@ -77,7 +77,7 @@ fn main() {
         // 必须先于任何 gpui-component 特性调用。
         gpui_component::init(cx);
         // zorite 编辑器的编辑键位（独立 key context，不遮蔽宿主快捷键）。
-        gpui_editor::bind_keys(cx);
+        zorite_editor::bind_keys(cx);
         // 图片粘贴：绑真实粘贴键（cmd-/ctrl- 按平台），无图时 propagate
         // 给编辑器原生文本粘贴——与 zorite 同款双键位模式。
         #[cfg(target_os = "macos")]
@@ -858,7 +858,7 @@ flowchart LR
 "#;
 
 struct WysPanel {
-    state: Entity<gpui_editor::EditorState>,
+    state: Entity<zorite_editor::EditorState>,
     wys_off: bool,
 }
 
@@ -881,7 +881,7 @@ impl WysPanel {
 
         let t1 = std::time::Instant::now();
         let state = cx.new(|cx| {
-            let mut ed = gpui_editor::EditorState::new(window, cx).with_text(text.clone());
+            let mut ed = zorite_editor::EditorState::new(window, cx).with_text(text.clone());
             // WYSIWYG 开关：装了 SyntaxStyle 即活渲染（clear_markdown_style 可随时关闭）。
             let mono = cx.theme().mono_font_family.clone();
             ed.set_markdown_style(warm_theme::warm_light(mono), cx);
@@ -905,17 +905,17 @@ impl WysPanel {
         // 设计注意：左键点图片发 PreviewImage 而非放置光标——编辑源码要
         // "点旁边 + 方向键移入"（reveal-on-caret 是光标驱动）。
         let cwd = std::env::current_dir().unwrap_or_default();
-        cx.subscribe(&state, move |_, _, ev: &gpui_editor::EditorEvent, _cx| match ev {
-            gpui_editor::EditorEvent::PreviewImage(src) => {
+        cx.subscribe(&state, move |_, _, ev: &zorite_editor::EditorEvent, _cx| match ev {
+            zorite_editor::EditorEvent::PreviewImage(src) => {
                 println!("[wys] PreviewImage: {src} → 系统看图器");
                 let p = cwd.join(src.trim_start_matches("./"));
                 let _ = std::process::Command::new("open").arg(p).spawn();
             }
-            gpui_editor::EditorEvent::OpenLink(url) => {
+            zorite_editor::EditorEvent::OpenLink(url) => {
                 println!("[wys] OpenLink: {url} → 系统浏览器");
                 let _ = std::process::Command::new("open").arg(url.as_ref()).spawn();
             }
-            gpui_editor::EditorEvent::OpenWikiLink(target) => {
+            zorite_editor::EditorEvent::OpenWikiLink(target) => {
                 println!("[wys] OpenWikiLink: {target} →（真实应用里跳转笔记）");
             }
             _ => {}
@@ -958,7 +958,7 @@ impl WysPanel {
         mermaid: &spike_mermaid::SharedMermaidStore,
         cx: &mut Context<Self>,
     ) {
-        for source in gpui_editor::mermaid_sources(text) {
+        for source in zorite_editor::mermaid_sources(text) {
             if !mermaid.borrow_mut().begin(&source) {
                 continue;
             }

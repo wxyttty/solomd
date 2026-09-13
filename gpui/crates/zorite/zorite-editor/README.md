@@ -1,19 +1,21 @@
-# gpui-editor
+# zorite-editor
 
-A from-scratch, multi-line **text editor for [GPUI](https://github.com/zed-industries/zed)** —
-the basis for [Zorite](https://github.com/packetThrower/zorite)'s note editor.
+[![crates.io](https://img.shields.io/crates/v/zorite-editor.svg)](https://crates.io/crates/zorite-editor) [![docs.rs](https://docs.rs/zorite-editor/badge.svg)](https://docs.rs/zorite-editor) [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Host-agnostic: it depends on `gpui` (+ `unicode-segmentation`), **not** on
-`gpui-component` — plus one sibling, [`gpui-markdown`](../gpui-markdown/README.md)
-with default features off, which contributes only `gpui_markdown::syntax`: the
-**dependency-free** construct-recognition module (what counts as a link / alert /
-table style) shared with the reader so the two views can never drift apart. It's built directly on GPUI's text primitives — an
-`EntityInputHandler` for keyboard + IME input, `shape_line` for per-line text
-shaping, and a custom `Element` that lays out and paints the lines, caret, and
-selection.
+A multi-line text editor for [GPUI](https://www.gpui.rs/) with live Markdown
+preview. It is the editor behind [Zorite](https://github.com/packetThrower/zorite)'s
+notes.
 
-**📖 Full reference:** every public item, with signatures, parameter tables,
-return contracts, edge cases, and the seat/commit protocols, lives in
+It is built directly on GPUI's text primitives: an `EntityInputHandler` for
+keyboard and IME input, `shape_line` for per-line shaping, and a custom
+`Element` that lays out and paints the lines, caret, and selection. It depends
+on `gpui` and `unicode-segmentation`, plus one sibling crate,
+[`zorite-markdown`](../zorite-markdown/README.md) with default features off,
+for its dependency-free `syntax` module. That module decides what counts as a
+link, an alert, or a table style; sharing it keeps the editor and the reading
+view in agreement.
+
+The complete API reference, including the seat/commit protocols, is in
 [API.md](API.md).
 
 ## Overview
@@ -67,26 +69,27 @@ return contracts, edge cases, and the seat/commit protocols, lives in
 
 ## Adding the dependency
 
-It's a path/git crate (not on crates.io — `gpui` is a git-only dependency):
+Published on [crates.io](https://crates.io/crates/zorite-editor):
 
 ```toml
 [dependencies]
-gpui-editor = { path = "crates/gpui-editor" }   # or a git dependency
+zorite-editor = "0.10"
 ```
 
-> **gpui revision:** this crate takes the workspace's pinned `gpui` rev
-> (`[workspace.dependencies]` — one spec, byte-for-byte). In a separate
-> workspace, keep your `gpui` rev in lockstep with this crate's or you'll get
-> two `gpui` versions in one build (won't compile).
+> **gpui version:** the crate depends on GPUI as published on crates.io — the
+> `gpui-pre` family, consumed under the name `gpui` (`gpui = { package = "gpui-pre",
+> version = "0.3" }`). Every `gpui-pre` release is a different Zed snapshot, so your
+> app must resolve to the **same** `gpui-pre` version as this crate (one gpui graph);
+> pin it in your `Cargo.lock` and move both together.
 
 ## Quick start
 
 ```rust
 use gpui::*;
-use gpui_editor::{EditorState, EditorEvent};
+use zorite_editor::{EditorState, EditorEvent};
 
 // 1. Once at startup, bind the editing keys (scoped to the editor's key context).
-gpui_editor::bind_keys(cx);
+zorite_editor::bind_keys(cx);
 
 // 2. Create the editor entity.
 let editor = cx.new(|cx| {
@@ -126,7 +129,7 @@ div()
 The editor is a **text editor first**: create it, focus it, and it edits plain
 text. The whole Markdown/WYSIWYG side is dormant until the host installs a
 `SyntaxStyle` — there is deliberately **no cargo feature** for it, because
-its only compile-time cost is the dependency-free `gpui_markdown::syntax`
+its only compile-time cost is the dependency-free `zorite_markdown::syntax`
 module, and every markdown code path is dead (and dead-code-eliminated) unless
 these calls are made:
 
@@ -215,7 +218,7 @@ A standalone window wired to the real OS spell checker (via the
 file chip, and styled tables:
 
 ```sh
-cargo run -p gpui-editor --example demo
+cargo run -p zorite-editor --example demo
 ```
 
 Type to watch the spell squiggles update; right-click a flagged word for
@@ -231,4 +234,4 @@ suggestions.
 
 ## License
 
-GPL-3.0-or-later.
+MIT. (The Zorite app itself is GPL-3.0-or-later.)

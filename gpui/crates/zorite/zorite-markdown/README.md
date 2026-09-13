@@ -1,30 +1,30 @@
-# gpui-markdown
+# zorite-markdown
 
-A small **Markdown renderer for [GPUI](https://www.gpui.rs/)**, built on gpui's own
-`StyledText` / `InteractiveText` so paragraphs wrap properly and links are clickable
-through a real **callback** — unlike renderers that only `cx.open_url` externally.
+[![crates.io](https://img.shields.io/crates/v/zorite-markdown.svg)](https://crates.io/crates/zorite-markdown) [![docs.rs](https://docs.rs/zorite-markdown/badge.svg)](https://docs.rs/zorite-markdown) [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-It is host-agnostic: styling comes in via `MarkdownStyle`, and the host supplies
-closures for clicking a `[[wiki-link]]`/`#tag`, rendering an image, rendering a
-mermaid diagram, syntax-highlighting code, and click-to-caret. Standard
-`[text](url)` links open externally.
+A Markdown reading view for [GPUI](https://www.gpui.rs/). It is built on gpui's
+own `StyledText` and `InteractiveText`, so paragraphs wrap properly and links
+call back into your app instead of only opening a browser.
 
-**📖 Full reference:** every public item, with signatures, parameter tables,
-return contracts, edge cases, and cost notes, lives in [API.md](API.md).
+Styling comes in through `MarkdownStyle`; the host supplies callbacks for
+clicking a `[[wiki-link]]` or `#tag`, rendering an image or a Mermaid diagram,
+syntax-highlighting code, and click-to-caret. Standard `[text](url)` links open
+externally.
 
-This is **the** markdown crate of the Zorite workspace, in two layers:
+The crate has two layers:
 
-- **`gpui_markdown::syntax`** — always compiled, **dependency-free**: the shared
-  construct *recognition* (linkables, GitHub alert kinds + fold chars, table
-  styles, heading scales, `key:: value` properties, ` ^block-id` anchors,
-  `#Heading` / `#^id` link-target splitting, and `![[embed]]` lines with
-  block/section extraction) that this reader, the
-  [`gpui-editor`](../gpui-editor/README.md) WYSIWYG
-  view, and the PDF exporter all consume, so what a construct IS is defined once.
-- **The reader view** — `MarkdownView` and everything around it, behind the
-  default-on **`view`** feature, which owns the `gpui` + `markdown` dependencies.
-  Consumers that only need recognition (like gpui-editor) depend with
-  `default-features = false`.
+- **`zorite_markdown::syntax`**, always compiled and dependency-free: the
+  shared recognition of constructs (links, GitHub alert kinds and fold
+  characters, table styles, heading scales, `key:: value` properties,
+  ` ^block-id` anchors, `#Heading` / `#^id` link targets, and `![[embed]]`
+  lines). The reading view, the [`zorite-editor`](../zorite-editor/README.md)
+  WYSIWYG view, and Zorite's PDF exporter all use it, so each construct is
+  defined once.
+- **The reading view**, `MarkdownView`, behind the default-on `view` feature,
+  which owns the `gpui` and `markdown` dependencies. Consumers that only need
+  recognition depend with `default-features = false`.
+
+The complete API reference is in [API.md](API.md).
 
 ## Features
 
@@ -84,11 +84,26 @@ This is **the** markdown crate of the Zorite workspace, in two layers:
 
 See [`sample.md`](sample.md) for a document exercising everything.
 
+## Adding the dependency
+
+Published on [crates.io](https://crates.io/crates/zorite-markdown):
+
+```toml
+[dependencies]
+zorite-markdown = "0.9"
+```
+
+> **gpui version:** the crate depends on GPUI as published on crates.io — the
+> `gpui-pre` family, consumed under the name `gpui` (`gpui = { package = "gpui-pre",
+> version = "0.3" }`). Every `gpui-pre` release is a different Zed snapshot, so your
+> app must resolve to the **same** `gpui-pre` version as this crate (one gpui graph);
+> pin it in your `Cargo.lock` and move both together.
+
 ## Quick start
 
 ```rust
 use std::rc::Rc;
-use gpui_markdown::{MarkdownView, MarkdownStyle};
+use zorite_markdown::{MarkdownView, MarkdownStyle};
 
 // In a render method, returning an `impl IntoElement`:
 MarkdownView::new("note-1", source_text)          // unique id + markdown source
@@ -159,9 +174,8 @@ documented in [API.md](API.md).
 
 Feature-complete for CommonMark + GFM. The view parses with the
 [`markdown`](https://crates.io/crates/markdown) crate (mdast); `syntax` is pure
-text and dependency-free. Not yet published to crates.io (gpui is a git-only
-dependency).
+text and dependency-free.
 
 ## License
 
-GPL-3.0-or-later.
+MIT. (The Zorite app itself is GPL-3.0-or-later.)

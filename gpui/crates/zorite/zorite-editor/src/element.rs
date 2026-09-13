@@ -65,6 +65,8 @@ pub(crate) struct PrepaintState {
     /// Pointer-cursor hitboxes over inline links (`[[wiki]]` / `#tag` /
     /// `[text](url)`), so hovering a clickable link shows a hand.
     link_grips: Vec<Hitbox>,
+    /// The links' boxes + targets, committed to the editor for hover → `HoverLink`.
+    link_rects: Vec<(Bounds<Pixels>, zorite_markdown::syntax::LinkHit)>,
     /// Pointer-cursor hitboxes over clickable property-panel pills, so hovering
     /// a pill shows a hand (like `link_grips`).
     prop_pill_grips: Vec<Hitbox>,
@@ -747,6 +749,7 @@ impl Element for EditorElement {
         // a 3+-row link are skipped). Widget/code/table rows carry no inline
         // links (images and chips have their own machinery).
         let mut link_grips = Vec::new();
+        let mut link_rects: Vec<(Bounds<Pixels>, zorite_markdown::syntax::LinkHit)> = Vec::new();
         let mut inline_image_grips = Vec::new();
         if editor.markdown_style.is_some() && !editor.content.is_empty() {
             let starts = editor.line_starts();
@@ -771,14 +774,15 @@ impl Element for EditorElement {
                     .and_then(|st| st.block_ref_count.as_ref())
                     .filter(|_| editor.row_col(editor.selected_range.start).0 != i)
                     .and_then(|f| {
-                        gpui_markdown::syntax::block_id(line)
+                        zorite_markdown::syntax::block_id(line)
                             .filter(|(_, id)| f(id) > 0)
                             .map(|(at, _)| at..line.len())
                     });
-                for range in markdown_syntax::links(line)
+                // `None` = the badge (clickable, but not a link to preview).
+                for (range, hit) in markdown_syntax::links(line)
                     .into_iter()
-                    .map(|(r, _)| r)
-                    .chain(badge)
+                    .map(|(r, h)| (r, Some(h)))
+                    .chain(badge.map(|r| (r, None)))
                 {
                     let map = maps.get(i).and_then(Option::as_ref);
                     let d1 = display_col_in(map, range.start);
@@ -793,6 +797,7 @@ impl Element for EditorElement {
                         continue; // fully hidden (e.g. collapsed markers)
                     }
                     let origin = point(bounds.origin.x + inset, bounds.origin.y + line_tops[i]);
+                    let hit_ref = hit;
                     if p1.y == p2.y {
                         // An RTL link ends to the LEFT of where it starts, so
                         // the box spans min→max x rather than p1→p2.
@@ -801,6 +806,9 @@ impl Element for EditorElement {
                             size((p2.x - p1.x).abs(), *lh),
                         );
                         link_grips.push(window.insert_hitbox(hit, HitboxBehavior::Normal));
+                        if let Some(h) = hit_target(&hit_ref) {
+                            link_rects.push((hit, h));
+                        }
                     } else {
                         // Wrapped: head runs to the row's end, tail from its row's start.
                         let head = Bounds::new(
@@ -810,6 +818,10 @@ impl Element for EditorElement {
                         let tail = Bounds::new(point(origin.x, origin.y + p2.y), size(p2.x, *lh));
                         link_grips.push(window.insert_hitbox(head, HitboxBehavior::Normal));
                         link_grips.push(window.insert_hitbox(tail, HitboxBehavior::Normal));
+                        if let Some(h) = hit_target(&hit_ref) {
+                            link_rects.push((head, h.clone()));
+                            link_rects.push((tail, h));
+                        }
                     }
                 }
                 // Inline images on this line get a pointer-cursor hitbox (they
@@ -1421,6 +1433,7 @@ impl Element for EditorElement {
             heading_fold_grips,
             heading_row_rects,
             link_grips,
+            link_rects,
             prop_pill_grips,
             inline_image_grips,
             alert_icons: editor
@@ -1485,7 +1498,8 @@ impl Element for EditorElement {
         let mut inline_math_rects: Vec<(Range<usize>, SharedString, Bounds<Pixels>)> = Vec::new();
         // Property-panel pill bounds + targets (click-to-open) and row bounds
         // (hover change-detection), committed for the next frame's handlers.
-        let mut prop_pill_rects: Vec<(Bounds<Pixels>, gpui_markdown::syntax::LinkHit)> = Vec::new();
+        let mut prop_pill_rects: Vec<(Bounds<Pixels>, zorite_markdown::syntax::LinkHit)> =
+            Vec::new();
         let mut prop_row_rects: Vec<(Bounds<Pixels>, usize)> = Vec::new();
         // The span being structurally edited (if any): skip painting its raster — the seated
         // editor overlays its spot.
@@ -1591,7 +1605,7 @@ impl Element for EditorElement {
             // past it by QUOTE_INSET).
             if let Some(LineMark::Quote { bar, .. }) = prepaint.marks.get(i).copied().flatten() {
                 // RTL: the rule belongs on the right, where the text starts —
-                // the reader's `border_r_2` (see `gpui-markdown`'s blockquote).
+                // the reader's `border_r_2` (see `zorite-markdown`'s blockquote).
                 let bx = origin.x + rtl.map_or(px(0.), |_| content_w - px(2.));
                 window.paint_quad(fill(
                     Bounds::new(point(bx, origin.y), size(px(2.), *lh)),
@@ -1765,7 +1779,7 @@ impl Element for EditorElement {
             }) = prepaint.marks.get(i).copied().flatten()
             {
                 let glyph: SharedString = if ordered {
-                    gpui_markdown::syntax::ordered_marker(level, num).into()
+                    zorite_markdown::syntax::ordered_marker(level, num).into()
                 } else {
                     "•".into()
                 };
@@ -1930,7 +1944,14 @@ impl Element for EditorElement {
                     point(img_x, origin.y + px(IMG_ROW_PAD / 2.)),
                     size(img_w, img_h),
                 );
-                let _ = window.paint_image(img_bounds, img_bounds, Corners::default(), w.img.clone(), 0, false);
+                let _ = window.paint_image(
+                    img_bounds,
+                    img_bounds,
+                    Corners::default(),
+                    w.img.clone(),
+                    0,
+                    false,
+                );
                 // A draggable corner grip (accent square) + the resize cursor over it,
                 // via the hitbox inserted in prepaint. Recorded in `image_rects` for the
                 // next frame's grip hit-testing. Skipped for non-resizable blocks (math),
@@ -2049,8 +2070,14 @@ impl Element for EditorElement {
                         let b = Bounds::new(point(x, y), size(im.width, im.height));
                         inline_math_rects.push((im.source.clone(), im.latex.clone(), b));
                         if editing_inline.as_ref() != Some(&im.source) {
-                            let _ =
-                                window.paint_image(b, b, Corners::default(), im.img.clone(), 0, false);
+                            let _ = window.paint_image(
+                                b,
+                                b,
+                                Corners::default(),
+                                im.img.clone(),
+                                0,
+                                false,
+                            );
                         }
                     }
                 }
@@ -2359,6 +2386,7 @@ impl Element for EditorElement {
             editor.image_rects = image_rects;
             editor.inline_math_rects = inline_math_rects;
             editor.prop_pill_rects = prop_pill_rects;
+            editor.link_rects = std::mem::take(&mut prepaint.link_rects);
             editor.prop_row_rects = prop_row_rects;
             editor.checkbox_rects = checkbox_rects;
             editor.table_thumbs = prepaint.table_thumbs.iter().map(|(t, _)| *t).collect();
@@ -3054,7 +3082,7 @@ fn shape_document(
         // through to the chip below.
         if md.is_some()
             && caret_row != Some(idx)
-            && let Some(inner) = gpui_markdown::syntax::embed_line(line)
+            && let Some(inner) = zorite_markdown::syntax::embed_line(line)
             && let Some(h) = embed_view.and_then(|f| f(inner).map(|(_, h)| h))
         {
             out.push_placeholder(window, base_font_size, wrap_width, h, None, None, 1);
@@ -3173,14 +3201,14 @@ fn shape_document(
             _ => px(0.),
         };
         let widget: Option<Block> = if let Some(st) = md.filter(|_| !is_code)
-            && let Some(inner) = gpui_markdown::syntax::embed_line(line)
+            && let Some(inner) = zorite_markdown::syntax::embed_line(line)
         {
             // A standalone `![[target]]` transclusion renders as a clickable
             // chip (`⧉ Note → anchor`) that opens/jumps to the source — the
             // reading view renders the full embedded content; nesting live
             // views inside the editor isn't feasible. Raw on caret, like a
             // file chip.
-            let (target, _) = gpui_markdown::syntax::wiki_target_display(inner);
+            let (target, _) = zorite_markdown::syntax::wiki_target_display(inner);
             (Some(idx) != caret_row).then(|| Block::Chip {
                 src: target.to_string().into(),
                 label: embed_chip_label(inner).into(),
@@ -3380,7 +3408,7 @@ fn shape_document(
                     // Word-style depth markers (1. -> a. -> i.), shared with
                     // the reader. The level is structural (from the
                     // renumbering pass), not an indent-width guess.
-                    gpui_markdown::syntax::ordered_marker(level, num)
+                    zorite_markdown::syntax::ordered_marker(level, num)
                 } else {
                     "\u{2022}".to_string()
                 };
@@ -3872,7 +3900,7 @@ fn shape_document(
             // ponytail: it inherits from ABOVE, so an alert whose title follows
             // English text but whose body is Persian still splits. Looking ahead
             // to the body would fix it; no one has hit that yet.
-            let line_rtl = match gpui_markdown::syntax::content_direction_opt(line) {
+            let line_rtl = match zorite_markdown::syntax::content_direction_opt(line) {
                 Some(d) => {
                     last_strong_rtl = d.is_rtl();
                     d.is_rtl()
@@ -3886,7 +3914,7 @@ fn shape_document(
                 None if !line.trim().is_empty() => lines
                     .get(idx + 1)
                     .filter(|next| !next.trim().is_empty())
-                    .and_then(|next| gpui_markdown::syntax::content_direction_opt(next))
+                    .and_then(|next| zorite_markdown::syntax::content_direction_opt(next))
                     .map_or(last_strong_rtl, |d| d.is_rtl()),
                 None => last_strong_rtl,
             };
@@ -3899,7 +3927,7 @@ fn shape_document(
             // ponytail: word breaking is space-based, so a line mixing RTL with
             // unspaced CJK would wrap poorly. Lines without any RTL keep gpui's
             // wrapping, so plain CJK is untouched.
-            let has_rtl = line_rtl || gpui_markdown::syntax::contains_rtl(line);
+            let has_rtl = line_rtl || zorite_markdown::syntax::contains_rtl(line);
             let rtl_rows = (bg.is_none() && widget.is_none() && table.is_none() && has_rtl)
                 .then(|| {
                     gpui_bidi::paragraph::layout_rows(&shaped_text, &runs, line_wrap, fs, window)
@@ -3994,20 +4022,20 @@ fn build_prop_panel(
     let mut key_w = px(0.);
     let mut val_w = px(0.);
     for &line in &lines[range.start..range.end] {
-        let Some((_, k, v)) = gpui_markdown::syntax::prefixed_property(line) else {
+        let Some((_, k, v)) = zorite_markdown::syntax::prefixed_property(line) else {
             continue;
         };
         key_w = key_w.max(measure_width(window, k, font, font_size));
         let icon = icon_of.and_then(|f| f(k));
         let mut w = px(0.);
-        let segs = gpui_markdown::syntax::property_value_segments(v)
+        let segs = zorite_markdown::syntax::property_value_segments(v)
             .into_iter()
             .map(|seg| match seg {
-                gpui_markdown::syntax::PropSeg::Text(t) => {
+                zorite_markdown::syntax::PropSeg::Text(t) => {
                     w += measure_width(window, &t, font, font_size);
                     PanelSeg::Plain(t.into())
                 }
-                gpui_markdown::syntax::PropSeg::Pill {
+                zorite_markdown::syntax::PropSeg::Pill {
                     label,
                     is_tag,
                     target,
@@ -4098,7 +4126,7 @@ fn paint_prop_panel(
     font_size: Pixels,
     window: &mut Window,
     cx: &mut App,
-    pill_rects: &mut Vec<(Bounds<Pixels>, gpui_markdown::syntax::LinkHit)>,
+    pill_rects: &mut Vec<(Bounds<Pixels>, zorite_markdown::syntax::LinkHit)>,
     row_rects: &mut Vec<(Bounds<Pixels>, usize)>,
     base_row: usize,
 ) {
@@ -4114,7 +4142,7 @@ fn paint_prop_panel(
                 PanelSeg::Plain(t) => t,
                 PanelSeg::Pill { text, .. } => text,
             };
-            gpui_markdown::syntax::content_direction(t).is_rtl()
+            zorite_markdown::syntax::content_direction(t).is_rtl()
         })
     });
     // The panel is sized to its content, so mirroring INSIDE it is not enough —
@@ -4249,15 +4277,15 @@ fn paint_prop_panel(
 /// anchor-link display (`Note → id` / `Note → Heading`), else the page name —
 /// each behind a transclusion glyph.
 fn embed_chip_label(inner: &str) -> String {
-    let (target, display) = gpui_markdown::syntax::wiki_target_display(inner);
+    let (target, display) = zorite_markdown::syntax::wiki_target_display(inner);
     if display != target {
         return format!("⧉ {display}");
     }
-    let (page, block) = gpui_markdown::syntax::split_block_anchor(target);
+    let (page, block) = zorite_markdown::syntax::split_block_anchor(target);
     if let Some(id) = block {
         return format!("⧉ {page} → {id}");
     }
-    let (page, heading) = gpui_markdown::syntax::split_heading_anchor(target);
+    let (page, heading) = zorite_markdown::syntax::split_heading_anchor(target);
     match heading {
         Some(h) => format!("⧉ {page} → {}", h.trim()),
         None => format!("⧉ {page}"),
@@ -4324,4 +4352,12 @@ fn paint_chip(
         window,
         cx,
     );
+}
+
+/// The previewable target of a link range: a real link, or `None` for the
+/// reference-count badge that rides along in the same loop.
+fn hit_target(
+    hit: &Option<zorite_markdown::syntax::LinkHit>,
+) -> Option<zorite_markdown::syntax::LinkHit> {
+    hit.clone()
 }

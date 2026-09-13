@@ -3148,25 +3148,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gpui-editor"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "gpui-bidi",
- "gpui-markdown",
- "unicode-segmentation",
-]
-
-[[package]]
-name = "gpui-markdown"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "gpui-bidi",
- "markdown",
-]
-
-[[package]]
 name = "gpui-whiteboard"
 version = "0.1.0"
 dependencies = [
@@ -8061,7 +8042,6 @@ dependencies = [
  "gpui",
  "gpui-component",
  "gpui-component-assets",
- "gpui-editor",
  "gpui-whiteboard",
  "gpui-wry",
  "gpui_platform",
@@ -8073,6 +8053,7 @@ dependencies = [
  "serde",
  "serde_json",
  "solomd-core",
+ "zorite-editor",
 ]
 
 [[package]]
@@ -8149,7 +8130,6 @@ dependencies = [
  "gpui",
  "gpui-component",
  "gpui-component-assets",
- "gpui-editor",
  "gpui-wry",
  "gpui_platform",
  "image",
@@ -8157,6 +8137,7 @@ dependencies = [
  "mermaid-rs-renderer",
  "raw-window-handle",
  "serde_json",
+ "zorite-editor",
 ]
 
 [[package]]
@@ -11529,6 +11510,25 @@ dependencies = [
  "crc32fast",
  "log",
  "simd-adler32",
+]
+
+[[package]]
+name = "zorite-editor"
+version = "0.10.0"
+dependencies = [
+ "gpui",
+ "gpui-bidi",
+ "unicode-segmentation",
+ "zorite-markdown",
+]
+
+[[package]]
+name = "zorite-markdown"
+version = "0.9.0"
+dependencies = [
+ "gpui",
+ "gpui-bidi",
+ "markdown",
 ]
 
 [[package]]

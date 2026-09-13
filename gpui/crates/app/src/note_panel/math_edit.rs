@@ -27,19 +27,19 @@ pub(super) struct MathEditSession {
     pub(super) _nav_sub: gpui::Subscription,
 }
 
-fn to_ratex_align(a: gpui_editor::MathAlign) -> MathAlign {
+fn to_ratex_align(a: zorite_editor::MathAlign) -> MathAlign {
     match a {
-        gpui_editor::MathAlign::Left => MathAlign::Left,
-        gpui_editor::MathAlign::Center => MathAlign::Center,
-        gpui_editor::MathAlign::Right => MathAlign::Right,
+        zorite_editor::MathAlign::Left => MathAlign::Left,
+        zorite_editor::MathAlign::Center => MathAlign::Center,
+        zorite_editor::MathAlign::Right => MathAlign::Right,
     }
 }
 
-fn to_editor_align(a: MathAlign) -> gpui_editor::MathAlign {
+fn to_editor_align(a: MathAlign) -> zorite_editor::MathAlign {
     match a {
-        MathAlign::Left => gpui_editor::MathAlign::Left,
-        MathAlign::Center => gpui_editor::MathAlign::Center,
-        MathAlign::Right => gpui_editor::MathAlign::Right,
+        MathAlign::Left => zorite_editor::MathAlign::Left,
+        MathAlign::Center => zorite_editor::MathAlign::Center,
+        MathAlign::Right => zorite_editor::MathAlign::Right,
     }
 }
 
@@ -89,8 +89,16 @@ impl NotePanel {
         });
         let focus = editor.read(cx).focus_handle();
         if inline {
+            // 编辑器光栅的 PAD 按行内字号烘焙，显示光栅按块 em 烘焙后缩放——
+            // 补差避免进入编辑时公式位移（zorite #77；tip 的 4 参签名）。
+            let pad_delta = ratex_gpui::render::PAD * (TEXT_SIZE / crate::math::FONT_SIZE - 1.0);
             self.state.update(cx, |e, cx| {
-                e.set_editing_inline(range, editor.clone().into(), cx)
+                e.set_editing_inline(
+                    range,
+                    editor.clone().into(),
+                    gpui::point(px(pad_delta), px(pad_delta)),
+                    cx,
+                )
             });
         } else {
             let height = self
@@ -244,6 +252,18 @@ impl NotePanel {
     /// 行内落在 span 同侧旁；块级交给 `exit_math`（编辑器自管落到邻行）。
     fn exit_math_edit(&mut self, after: bool, window: &mut Window, cx: &mut Context<Self>) {
         let inline = self.math_edit.as_ref().is_some_and(|m| m.inline);
+        // `$$` 块上方无内容（文档开头，或只有自己的对齐 marker）时向上出向会把
+        // 正文光标落在开头围栏行上、露出原始源码——留在公式里（zorite 同款守卫）。
+        if !after
+            && !inline
+            && let Some(range) = self.state.read(cx).editing_block_range()
+        {
+            let text = self.state.read(cx).text().to_string();
+            let above = text[..range.start.min(text.len())].trim_end_matches('\n');
+            if above.is_empty() || (!above.contains('\n') && above.starts_with("<!-- math:")) {
+                return;
+            }
+        }
         if let Some(block) = self.commit_math_edit(cx) {
             self.state.update(cx, |e, cx| {
                 if inline {

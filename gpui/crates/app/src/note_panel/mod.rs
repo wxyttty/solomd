@@ -14,7 +14,7 @@ use gpui::{
 use gpui_component::dock::{BasePanel, Panel, PanelEvent};
 use gpui_component::ActiveTheme as _;
 use gpui::EntityInputHandler as _;
-use gpui_editor::EditorEvent;
+use zorite_editor::EditorEvent;
 
 use crate::images::ImageStore;
 use crate::math::MathStore;
@@ -27,7 +27,7 @@ pub struct NotePanel {
     pub path: PathBuf,
     pub title: String,
     pub dirty: bool,
-    pub state: gpui::Entity<gpui_editor::EditorState>,
+    pub state: gpui::Entity<zorite_editor::EditorState>,
     vault: Vault,
     _changed_sub: gpui::Subscription,
     on_removed: Option<Box<dyn Fn(&mut gpui::App)>>,
@@ -64,7 +64,7 @@ impl NotePanel {
             .unwrap_or_else(|| "untitled".into());
 
         let state = cx.new(|cx| {
-            let mut ed = gpui_editor::EditorState::new(window, cx).with_text(content.clone());
+            let mut ed = zorite_editor::EditorState::new(window, cx).with_text(content.clone());
             let mono = cx.theme().mono_font_family.clone();
             ed.set_markdown_style(crate::theme::warm_light(mono), cx);
 
@@ -106,7 +106,7 @@ impl NotePanel {
             let mermaid = mermaid.clone();
             let svg = cx.svg_renderer();
             cx.spawn_in(window, async move |this, cx| {
-                for source in gpui_editor::mermaid_sources(&text) {
+                for source in zorite_editor::mermaid_sources(&text) {
                     if !mermaid.borrow_mut().begin(&source) {
                         continue;
                     }
@@ -136,9 +136,9 @@ impl NotePanel {
             let color = cx.theme().foreground;
             math.borrow_mut().set_color(color);
             cx.spawn_in(window, async move |this, cx| {
-                let sources = gpui_editor::math_sources(&text)
+                let sources = zorite_editor::math_sources(&text)
                     .into_iter()
-                    .chain(gpui_editor::inline_math_sources(&text));
+                    .chain(zorite_editor::inline_math_sources(&text));
                 for source in sources {
                     if !math.borrow_mut().begin(&source) {
                         continue;
@@ -254,7 +254,7 @@ impl NotePanel {
         self.proof_issues = issues.len();
         let diags = issues
             .into_iter()
-            .map(|i| gpui_editor::Diagnostic {
+            .map(|i| zorite_editor::Diagnostic {
                 range: i.col_start as usize..i.col_end as usize,
             })
             .collect();
