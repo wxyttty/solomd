@@ -4,7 +4,7 @@ interface Props { lang: Lang }
 const { lang } = Astro.props;
 const tr = getT(lang);
 
-const VERSION = '4.11.17';
+const VERSION = '4.12.1';
 const REPO = 'zhitongblog/solomd';
 const baseUrl = `https://github.com/${REPO}/releases/download/v${VERSION}`;
 const langPrefix = lang === 'en' ? '' : `/${lang}`;
@@ -133,6 +133,7 @@ const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownload
         data-linux-text={tr.hero.ctaForLinux}
         data-mac-href={`${baseUrl}/SoloMD_${VERSION}_universal.dmg`}
         data-win-href={`${baseUrl}/SoloMD_${VERSION}_x64_en-US.msi`}
+        data-win-arm-href={`${baseUrl}/SoloMD_${VERSION}_arm64_en-US.msi`}
         data-linux-href={`${baseUrl}/SoloMD_${VERSION}_amd64.AppImage`}
       >
         ⬇ {tr.hero.ctaPrimary}
@@ -261,6 +262,23 @@ const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownload
     if (os === 'win') {
       var winTab = document.querySelector('.hi-tab[data-hi-tab="win"]');
       if (winTab) winTab.click();
+
+      // Windows on Arm cannot be detected from the UA string: Edge and Chrome
+      // both report "Windows NT 10.0; Win64; x64" there for compatibility, so
+      // the sniff above hands an Arm machine the x64 build. The architecture
+      // is only available through high-entropy client hints, which are async —
+      // hence the upgrade-after-the-fact rather than folding it in above. The
+      // x64 link is already in place and works (emulated) if this never
+      // resolves, so there is nothing to wait for.
+      var uaData = navigator.userAgentData;
+      if (uaData && uaData.getHighEntropyValues) {
+        uaData.getHighEntropyValues(['architecture']).then(function (h) {
+          if (h && h.architecture === 'arm') {
+            var armHref = btn.getAttribute('data-win-arm-href');
+            if (armHref) btn.setAttribute('href', armHref);
+          }
+        }).catch(function () { /* keep the x64 link */ });
+      }
     }
   })();
 

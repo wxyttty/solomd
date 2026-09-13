@@ -165,7 +165,8 @@ echo
 echo "Try: solomd-mcp --version"
 echo
 echo "Next step — register with your MCP client. Example for Claude Code:"
-echo '  claude mcp add solomd-vault solomd-mcp -- --workspace ~/Documents/Notes'
+echo '  claude mcp add --scope user solomd-vault -- solomd-mcp --workspace ~/Documents/Notes'
 echo
-echo "or edit ~/.config/claude-code/mcp.json directly. See:"
+echo "That writes the user-scope config at ~/.claude.json. To scope the server"
+echo "to a single project instead, put an .mcp.json in the project root. See:"
 echo "  https://github.com/$REPO/tree/main/mcp-server#wire-it-up"

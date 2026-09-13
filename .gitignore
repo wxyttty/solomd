@@ -43,7 +43,12 @@ winget-pkgs
 
 # ai assist
 CLAUDE.md
-.claude/
+# Everything under .claude/ is local — worktrees alone are gigabytes — except
+# the skills, which are shared tooling. A skill that lives on one disk is a
+# skill that goes missing: pack_msix.py did exactly that.
+.claude/*
+!.claude/skills/
+.claude/skills/**/.last-scan
 app/src-tauri/embedded.provisionprofile
 
 # Mac App Store distribution artifacts
@@ -61,3 +66,7 @@ dist/
 
 # local-only strategy / scratch (never commit — public repo)
 .local/
+
+# Python bytecode from the release scripts
+__pycache__/
+*.pyc

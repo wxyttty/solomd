@@ -1,8 +1,8 @@
 # `solomd-mcp` in Claude Code
 
 [Claude Code](https://docs.anthropic.com/claude/docs/claude-code) reads
-MCP server config from `~/.claude/mcp.json` (global) or `.mcp.json` in
-the current project root.
+MCP server config from `~/.claude.json` (user scope — written by
+`claude mcp add --scope user`) or `.mcp.json` in the current project root.
 
 ## Install the server
 
@@ -21,7 +21,16 @@ curl -L https://github.com/zhitongblog/solomd/releases/latest/download/solomd-mc
 # Windows (x64 / arm64) — extract from the zip and put on PATH.
 ```
 
-## Config — `~/.claude/mcp.json` (global)
+## Config — user scope (`~/.claude.json`)
+
+Register it with the CLI rather than hand-editing `~/.claude.json` (that file
+also holds unrelated Claude Code state):
+
+```bash
+claude mcp add --scope user solomd -- solomd-mcp --workspace /Users/you/notes
+```
+
+Which is equivalent to this entry under `mcpServers`:
 
 ```json
 {

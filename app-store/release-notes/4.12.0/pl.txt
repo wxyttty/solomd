@@ -1,0 +1,17 @@
+Zwiń nagłówek razem ze wszystkim, co pod nim. Kliknij strzałkę na marginesie albo użyj poleceń zwijania, aby zamknąć jedną sekcję, wszystkie sekcje lub całą zawartość poniżej wybranego poziomu.
+
+Wydruk nie podąża już za motywem aplikacji. Ciemny motyw drukował się na ciemno — tusz na papierze albo PDF, którego nikt nie mógł przeczytać. Wydruk i PDF mają teraz własną jasną paletę, a jeśli naprawdę chodziło o ciemną, jest osobna opcja.
+
+Po usunięciu pliku masz osiem sekund na cofnięcie. Nic nie jest nigdzie przenoszone: plik zostaje dokładnie tam, gdzie był, dopóki czas nie minie.
+
+Szybkie notatki, z dowolnego miejsca. Skrót systemowy otwiera małe pole nad tym, co właśnie robisz. Wpisz linijkę, naciśnij Enter i trafi ona do skrzynki odbiorczej, a SoloMD ani razu nie wysunie się na wierzch.
+
+Panel zadań. Każde „- [ ]" w obszarze roboczym na jednej liście, z priorytetami i terminami odczytywanymi zarówno z emoji Obsidian Tasks, jak i z zapisu czysto ASCII. Kliknięcie przenosi do wiersza, zaznaczenie zapisuje plik.
+
+Import plików Word, PDF, HTML i arkuszy. Konwertery były już w aplikacji, tylko nie było do nich drogi. Zajęta nazwa nie jest już nadpisywana — wybierana jest następna wolna.
+
+Edycja tabeli jak siatki. Dodawaj i usuwaj wiersze oraz kolumny bez liczenia kresek. Tekst CJK jest wyrównywany według szerokości wyświetlania, więc źródło Markdown nie rozjeżdża się.
+
+Szablony DOCX — strona tytułowa, spis treści, żywa pagina, numery stron. Numerowane równania i odsyłacze \eqref, które do nich przeskakują.
+
+Poprawki: usunięty folder obszaru roboczego nie wygląda już jak pusty magazyn, a cztery pozycje menu drzewa plików, które we wszystkich czternastu językach pokazywały nazwy kluczy, mają wreszcie prawdziwe etykiety.

@@ -27,8 +27,8 @@ filesystem tools are simpler. This skill is specifically for
 
 ## Setup (one-time)
 
-The skill assumes `solomd-mcp` is installed and registered in your
-`~/.claude/mcp.json`. If `/mcp` doesn't list `solomd`, run:
+The skill assumes `solomd-mcp` is installed and registered as a user-scope
+MCP server (`~/.claude.json`). If `/mcp` doesn't list `solomd`, run:
 
 ```bash
 bash ~/.claude/skills/solomd/install.sh
@@ -37,11 +37,18 @@ bash ~/.claude/skills/solomd/install.sh
 This installs the binary (via `cargo install solomd-mcp` on macOS or
 downloading the prebuilt binary from
 https://github.com/zhitongblog/solomd/releases/latest on Linux / Windows)
-and patches `~/.claude/mcp.json` with a `solomd` entry pointing at your
-notes folder.
+and registers a `solomd` server pointing at your notes folder via
+`claude mcp add --scope user` (falling back to patching `~/.claude.json`
+directly when the `claude` CLI isn't on PATH).
 
-Default mode is **read-only**. Add `--allow-write` to the args block in
-`~/.claude/mcp.json` to enable the 3 write tools.
+Default mode is **read-only**. To enable the 3 write tools, re-register with
+`--allow-write`:
+
+```bash
+claude mcp remove solomd -s user
+claude mcp add --scope user solomd -- \
+  ~/.claude/bin/solomd-mcp --workspace ~/your-notes --allow-write
+```
 
 ## Tools available
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue';
 import Icon from './Icons.vue';
 import BrandMark from './BrandMark.vue';
 import PomodoroPopover from './PomodoroPopover.vue';
@@ -10,6 +10,8 @@ import { useTilesStore } from '../stores/tiles';
 import { track } from '../lib/telemetry';
 import { getPlainSelection } from '../lib/plain-selection';
 import { useFiles } from '../composables/useFiles';
+import { useViewport } from '../composables/useViewport';
+import { shortcutLabel } from '../lib/keybindings';
 import { useExport } from '../composables/useExport';
 import { useToastsStore } from '../stores/toasts';
 import { cleanAIArtifacts } from '../lib/clean-ai';
@@ -34,6 +36,66 @@ defineEmits<{
 
 const tabs = useTabsStore();
 const settings = useSettingsStore();
+
+// #168 — phone toolbar. The strip carries ~29 controls; on a phone only a
+// handful are worth permanent space, but nothing may become unreachable, so
+// the rest aren't removed — they're folded away until "more" expands the bar
+// into a labelled sheet. Same buttons, same handlers, two presentations:
+// duplicating them into a separate menu would be a second copy to keep in
+// sync with every future toolbar change.
+const { isNarrow } = useViewport();
+
+// #180 — tooltips show the chord that works right now. The chord used to be
+// baked into the translated string ("Open file (Ctrl+O)"), which turned every
+// tooltip into a lie the moment a user rebound anything.
+const macChord = isMacOS();
+function tip(labelKey: string, actionId: string): string {
+  const label = t(labelKey);
+  const chord = shortcutLabel(actionId, settings.keybindings, macChord);
+  return chord ? `${label} (${chord})` : label;
+}
+const sheetOpen = ref(false);
+function toggleSheet(): void {
+  sheetOpen.value = !sheetOpen.value;
+}
+// Collapse after any action inside the sheet — the sheet covers the document,
+// and leaving it open after a click reads as "nothing happened".
+function onToolbarActivate(e: Event): void {
+  if (!sheetOpen.value) return;
+  const el = e.target as HTMLElement | null;
+  if (el?.closest('[data-phone-more]')) return;
+  if (el?.closest('button, [role="menuitem"], a')) sheetOpen.value = false;
+}
+
+// #282 — "在显示器（分辨率)比较小的时候，顶部工具栏和菜单栏会显示不完全".
+//
+// The strip has scrolled horizontally since #134, so nothing was ever
+// unreachable — but a silently clipped row still reads as broken, and you
+// have to guess that it scrolls. So the same "more" control the phone layout
+// uses (#168) now appears on ANY window where the bar overflows, and opens
+// the same labelled sheet. Reusing that mechanism rather than building a
+// desktop-only overflow dropdown avoids the trap that killed the obvious
+// design: the strip's dropdown triggers anchor their teleported menus to
+// their own rect, so a button moved into an overflow menu — or scrolled off
+// screen — opens its menu somewhere the user isn't looking.
+const barOverflows = ref(false);
+function measureOverflow(): void {
+  const el = toolbarRef.value;
+  // While the sheet is open the bar wraps, so it never "overflows" — measuring
+  // then would hide the very button that closes it.
+  if (!el || sheetOpen.value) return;
+  // A scroll container reports scrollWidth === clientWidth whenever the
+  // content fits, so this one comparison is the whole test — an earlier
+  // attempt to add an explicit hysteresis band (`scrollWidth + 48 <=
+  // clientWidth`) could never be true and the button, once shown, never went
+  // away again. The hysteresis is already implicit and self-limiting: the
+  // button's own ~40px counts toward the overflow that keeps it on screen, so
+  // there's a 40px band where it lingers after the bar would fit without it,
+  // and removing it only ever frees space — it cannot oscillate.
+  barOverflows.value = el.scrollWidth > el.clientWidth + 1;
+}
+/** The phone layout always offers it; wider windows only when it's needed. */
+const showMore = computed(() => isNarrow.value || barOverflows.value);
 const workspace = useWorkspaceStore();
 const tiles = useTilesStore();
 const files = useFiles();
@@ -191,7 +253,7 @@ function onAIRewrite() {
     picked = getPlainSelection();
   }
   if (!picked) {
-    const jChord = isMacOS() ? '⌘J' : 'Ctrl+J';
+    const jChord = shortcutLabel('editor.aiRewrite', settings.keybindings, isMacOS()) || '—';
     toasts.info(`Select some text first, then click AI rewrite (or press ${jChord}).`);
     return;
   }
@@ -371,24 +433,25 @@ type MenubarEntry = { id: string; label: string; shortcut?: string } | { sep: tr
 // is the quick switcher, so Print shows Ctrl+Alt+Shift+P).
 const menubarMenus = computed<Record<MenubarName, MenubarEntry[]>>(() => ({
   file: [
-    { id: 'file.new', label: t('menubar.newMd'), shortcut: 'Ctrl+N' },
-    { id: 'file.newText', label: t('menubar.newText'), shortcut: 'Ctrl+Alt+N' },
+    { id: 'file.new', label: t('menubar.newMd'), shortcut: shortcutLabel('file.new', settings.keybindings, macChord) },
+    { id: 'file.newText', label: t('menubar.newText'), shortcut: shortcutLabel('file.newText', settings.keybindings, macChord) },
     { sep: true },
-    { id: 'file.open', label: t('menubar.openFile'), shortcut: 'Ctrl+O' },
+    { id: 'file.open', label: t('menubar.openFile'), shortcut: shortcutLabel('file.open', settings.keybindings, macChord) },
     { id: 'file.openFolder', label: t('menubar.openFolder') },
+    { id: 'file.import', label: t('menubar.importDocs'), shortcut: shortcutLabel('file.import', settings.keybindings, macChord) },
     { sep: true },
-    { id: 'file.save', label: t('menubar.save'), shortcut: 'Ctrl+S' },
-    { id: 'file.saveAs', label: t('menubar.saveAs'), shortcut: 'Ctrl+Shift+S' },
+    { id: 'file.save', label: t('menubar.save'), shortcut: shortcutLabel('file.save', settings.keybindings, macChord) },
+    { id: 'file.saveAs', label: t('menubar.saveAs'), shortcut: shortcutLabel('file.saveAs', settings.keybindings, macChord) },
     { sep: true },
-    { id: 'file.openExternal', label: t('menubar.openExternal'), shortcut: 'Ctrl+Shift+E' },
+    { id: 'file.openExternal', label: t('menubar.openExternal'), shortcut: shortcutLabel('file.openExternal', settings.keybindings, macChord) },
     { sep: true },
-    { id: 'file.print', label: t('menubar.print'), shortcut: 'Ctrl+Alt+Shift+P' },
+    { id: 'file.print', label: t('menubar.print'), shortcut: shortcutLabel('export.pdfPrint', settings.keybindings, macChord) },
     { sep: true },
-    { id: 'window.new', label: t('menubar.newWindow'), shortcut: 'Ctrl+Shift+N' },
-    { id: 'file.closeTab', label: t('menubar.closeTab'), shortcut: 'Ctrl+W' },
+    { id: 'window.new', label: t('menubar.newWindow'), shortcut: shortcutLabel('window.new', settings.keybindings, macChord) },
+    { id: 'file.closeTab', label: t('menubar.closeTab'), shortcut: shortcutLabel('file.closeTab', settings.keybindings, macChord) },
     { sep: true },
-    // #221 — parity with the removed native menu's quit item.
-    { id: 'file.exit', label: t('menubar.exit'), shortcut: 'Alt+F4' },
+    // #221 — parity with the removed native menu's quit item. Now rebindable via Settings (#ctrlq).
+    { id: 'file.exit', label: t('menubar.exit'), shortcut: shortcutLabel('file.exit', settings.keybindings, macChord) || 'Alt+F4' },
   ],
   edit: [
     { id: 'edit.undo', label: t('menubar.undo'), shortcut: 'Ctrl+Z' },
@@ -403,9 +466,9 @@ const menubarMenus = computed<Record<MenubarName, MenubarEntry[]>>(() => ({
   view: [
     { id: 'view.toggleTheme', label: t('menubar.toggleTheme') },
     { sep: true },
-    { id: 'view.toggleFileTree', label: t('menubar.toggleFileTree'), shortcut: 'Ctrl+B' },
-    { id: 'view.toggleOutline', label: t('menubar.toggleOutline'), shortcut: 'Ctrl+Shift+O' },
-    { id: 'view.cycleView', label: t('menubar.cycleView'), shortcut: 'Ctrl+Shift+P' },
+    { id: 'view.toggleFileTree', label: t('menubar.toggleFileTree'), shortcut: shortcutLabel('view.toggleFileTree', settings.keybindings, macChord) },
+    { id: 'view.toggleOutline', label: t('menubar.toggleOutline'), shortcut: shortcutLabel('view.toggleOutline', settings.keybindings, macChord) },
+    { id: 'view.cycleView', label: t('menubar.cycleView'), shortcut: shortcutLabel('view.cycleView', settings.keybindings, macChord) },
     { sep: true },
     { id: 'view.zoomUiIn', label: t('menubar.uiZoomIn'), shortcut: 'Ctrl+=' },
     { id: 'view.zoomUiOut', label: t('menubar.uiZoomOut'), shortcut: 'Ctrl+-' },
@@ -419,13 +482,13 @@ const menubarMenus = computed<Record<MenubarName, MenubarEntry[]>>(() => ({
     { id: 'view.zoomPreviewOut', label: t('menubar.previewZoomOut') },
     { id: 'view.zoomPreviewReset', label: t('menubar.previewZoomReset') },
     { sep: true },
-    { id: 'view.cmdPalette', label: t('menubar.palette'), shortcut: 'Ctrl+Shift+K' },
-    { id: 'search.global', label: t('menubar.globalSearch'), shortcut: 'Ctrl+Shift+F' },
+    { id: 'view.cmdPalette', label: t('menubar.palette'), shortcut: shortcutLabel('palette.open', settings.keybindings, macChord) },
+    { id: 'search.global', label: t('menubar.globalSearch'), shortcut: shortcutLabel('search.global', settings.keybindings, macChord) },
     { sep: true },
     { id: 'view.settings', label: t('menubar.settings'), shortcut: 'Ctrl+,' },
   ],
   help: [
-    { id: 'help.markdown', label: t('menubar.mdHelp'), shortcut: 'F1' },
+    { id: 'help.markdown', label: t('menubar.mdHelp'), shortcut: shortcutLabel('help.markdown', settings.keybindings, macChord) },
     { sep: true },
     { id: 'help.about', label: t('menubar.about') },
   ],
@@ -435,6 +498,21 @@ const menubarNames: MenubarName[] = ['file', 'edit', 'view', 'help'];
 // Root element — used by onScrollAnywhere to tell "a scroll that moves the
 // menu anchors" (toolbar's own overflow scroll) from pane scrolls.
 const toolbarRef = ref<HTMLElement | null>(null);
+let barResizeObserver: ResizeObserver | null = null;
+onMounted(() => {
+  measureOverflow();
+  if (typeof ResizeObserver === 'undefined' || !toolbarRef.value) return;
+  barResizeObserver = new ResizeObserver(() => measureOverflow());
+  barResizeObserver.observe(toolbarRef.value);
+});
+onBeforeUnmount(() => {
+  barResizeObserver?.disconnect();
+  barResizeObserver = null;
+});
+// The bar's *contents* change too — a markdown tab adds two groups, a locale
+// switch re-widths every label. ResizeObserver never fires for those, because
+// the strip scrolls instead of growing.
+onUpdated(() => measureOverflow());
 
 // ── Windows caption buttons (min / max / close) ─────────────────────────────
 const isMaximized = ref(false);
@@ -563,10 +641,16 @@ onBeforeUnmount(() => {
   <div
     ref="toolbarRef"
     class="toolbar"
-    :class="{ 'toolbar--mac': macTitleBar, 'toolbar--win': winTitleBar }"
+    :class="{
+      'toolbar--mac': macTitleBar,
+      'toolbar--win': winTitleBar,
+      'toolbar--phone-open': isNarrow && sheetOpen,
+      'toolbar--sheet': sheetOpen,
+    }"
     @mousedown.capture="onTitleBarMouseDown"
     @dblclick="onTitleBarDblClick"
     @wheel="onToolbarWheel"
+    @click="onToolbarActivate"
   >
     <BrandMark class="toolbar__brand" :size="22" />
 
@@ -630,7 +714,7 @@ onBeforeUnmount(() => {
           </div>
         </Teleport>
       </div>
-      <button class="icon-btn" @click="files.openFile" :title="t('toolbar.openFileTooltip')">
+      <button class="icon-btn" @click="files.openFile" :title="tip('toolbar.openFileTooltip', 'file.open')">
         <Icon name="open" />
       </button>
       <div class="dropdown">
@@ -676,10 +760,10 @@ onBeforeUnmount(() => {
       <button class="icon-btn" @click="files.openFolder" v-bind:title="t('toolbar.openFolder')">
         <Icon name="folder" />
       </button>
-      <button class="icon-btn" @click="files.saveActive" v-bind:title="t('toolbar.save') + ' (Ctrl+S)'">
+      <button class="icon-btn" data-phone-primary @click="files.saveActive" v-bind:title="tip('toolbar.save', 'file.save')">
         <Icon name="save" />
       </button>
-      <button class="icon-btn" @click="files.saveActiveAs" :title="t('toolbar.saveAsTooltip')">
+      <button class="icon-btn" @click="files.saveActiveAs" :title="tip('toolbar.saveAsTooltip', 'file.saveAs')">
         <Icon name="save-as" />
       </button>
       <button class="icon-btn" @click="onOpenExternal" :title="t('toolbar.openExternalTooltip')">
@@ -690,7 +774,7 @@ onBeforeUnmount(() => {
           ref="exportBtnRef"
           class="icon-btn"
           @click="toggleDropdown('export')"
-          :title="t('toolbar.exportTooltip')"
+          :title="tip('toolbar.exportTooltip', 'export.pdfPrint')"
         >
           <Icon name="export" />
           <Icon name="chevron-down" :size="10" />
@@ -745,9 +829,10 @@ onBeforeUnmount(() => {
     <div class="toolbar__group">
       <button
         class="icon-btn"
+        data-phone-primary
         @click="settings.toggleFileTree"
         :class="{ active: settings.showFileTree }"
-        :title="t('toolbar.fileTreeTooltip')"
+        :title="tip('toolbar.fileTreeTooltip', 'view.toggleFileTree')"
       >
         <Icon name="sidebar" />
       </button>
@@ -755,7 +840,7 @@ onBeforeUnmount(() => {
         class="icon-btn"
         @click="settings.toggleRightSidebar"
         :class="{ active: !settings.rightSidebarHidden }"
-        :title="t('toolbar.rightSidebarTooltip')"
+        :title="tip('toolbar.rightSidebarTooltip', 'view.toggleRightSidebar')"
       >
         <Icon name="sidebar-right" />
       </button>
@@ -829,7 +914,7 @@ onBeforeUnmount(() => {
         class="icon-btn ai-rewrite-btn"
         @mousedown.prevent
         @click="onAIRewrite"
-        :title="t('toolbar.aiRewriteTooltip')"
+        :title="tip('toolbar.aiRewriteTooltip', 'editor.aiRewrite')"
       >
         <span class="ai-rewrite-label">AI</span>
         <span class="ai-rewrite-spark">✨</span>
@@ -841,6 +926,7 @@ onBeforeUnmount(() => {
     <div class="toolbar__group" v-if="isMarkdown">
       <button
         class="icon-btn"
+        data-phone-primary
         @click="() => { settings.setViewMode('edit'); track('view_mode', { mode: 'edit' }); }"
         :class="{ active: settings.viewMode === 'edit' }"
         :title="t('toolbar.editOnly')"
@@ -851,12 +937,13 @@ onBeforeUnmount(() => {
         class="icon-btn"
         @click="() => { settings.setViewMode('split'); track('view_mode', { mode: 'split' }); }"
         :class="{ active: settings.viewMode === 'split' }"
-        :title="t('toolbar.splitPane')"
+        :title="tip('toolbar.splitPane', 'view.cycleView')"
       >
         <Icon name="view-split" />
       </button>
       <button
         class="icon-btn"
+        data-phone-primary
         @click="() => { settings.setViewMode('liveEdit'); track('view_mode', { mode: 'liveEdit' }); }"
         :class="{ active: settings.viewMode === 'liveEdit' }"
         :title="t('toolbar.liveEditMode')"
@@ -865,6 +952,7 @@ onBeforeUnmount(() => {
       </button>
       <button
         class="icon-btn"
+        data-phone-primary
         @click="() => { settings.setViewMode('preview'); track('view_mode', { mode: 'preview' }); }"
         :class="{ active: settings.viewMode === 'preview' }"
         :title="t('toolbar.previewOnly')"
@@ -875,7 +963,7 @@ onBeforeUnmount(() => {
         class="icon-btn"
         @click="() => { settings.setViewMode('reading'); track('view_mode', { mode: 'reading' }); }"
         :class="{ active: settings.viewMode === 'reading' }"
-        :title="t('toolbar.readingMode')"
+        :title="tip('toolbar.readingMode', 'view.toggleReading')"
       >
         <Icon name="view-reading" />
       </button>
@@ -950,21 +1038,21 @@ onBeforeUnmount(() => {
         class="icon-btn cjk-proof-btn"
         :disabled="settings.viewMode === 'preview'"
         @click="onOpenCjkProofread"
-        :title="t('toolbar.cjkProofreadTooltip')"
+        :title="tip('toolbar.cjkProofreadTooltip', 'proofread.cjk')"
       >
         <span class="cjk-proof-glyph">中</span>
       </button>
       <span class="toolbar__divider"></span>
-      <button class="icon-btn" @click="$emit('open-search')" :title="t('toolbar.searchTooltip')">
+      <button class="icon-btn" data-phone-primary @click="$emit('open-search')" :title="tip('toolbar.searchTooltip', 'search.global')">
         <Icon name="search" />
       </button>
-      <button class="icon-btn" @click="$emit('open-palette')" :title="t('toolbar.paletteTooltip')">
+      <button class="icon-btn" @click="$emit('open-palette')" :title="tip('toolbar.paletteTooltip', 'palette.open')">
         <Icon name="palette" />
       </button>
-      <button class="icon-btn" @click="$emit('open-help')" :title="t('toolbar.helpTooltip')">
+      <button class="icon-btn" @click="$emit('open-help')" :title="tip('toolbar.helpTooltip', 'help.markdown')">
         <Icon name="help" />
       </button>
-      <button class="icon-btn" @click="$emit('open-settings')" :title="t('toolbar.settingsTooltip')">
+      <button class="icon-btn" @click="$emit('open-settings')" :title="tip('toolbar.settingsTooltip', 'settings.open')">
         <Icon name="settings" />
       </button>
       <button
@@ -976,6 +1064,22 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
+    <!-- #168 / #282 — expand the strip into a labelled sheet. Always offered
+         on a phone; on wider windows only once the row actually overflows.
+         Rendered ahead of the Windows caption buttons so the two sticky
+         right-hand items don't land on top of each other. -->
+    <button
+      v-if="showMore"
+      class="icon-btn toolbar__more"
+      :class="{ active: sheetOpen, 'toolbar__more--pinned': !isNarrow }"
+      data-phone-primary
+      data-phone-more
+      :aria-expanded="sheetOpen"
+      :title="sheetOpen ? t('toolbar.phoneLess') : t('toolbar.phoneMore')"
+      @click="toggleSheet"
+    >
+      <span aria-hidden="true">{{ sheetOpen ? '✕' : '⋯' }}</span>
+    </button>
     <!-- Windows caption buttons. `position: sticky; right: 0` keeps them
          pinned even when the strip scrolls horizontally on narrow windows.
          The maximize button doubles as the Snap-Layouts target: on the real
@@ -1058,6 +1162,28 @@ onBeforeUnmount(() => {
   background: var(--bg-active);
   color: var(--text);
 }
+/* #282 — on a window too narrow for the whole strip, "more" stays pinned to
+   the right edge while the rest scrolls under it, so it can't itself be the
+   thing that scrolled out of reach. The fade tells you there IS more to the
+   left of it. On Windows it sits inboard of the three 46px caption buttons. */
+.toolbar__more--pinned {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  margin-left: auto;
+  background: var(--bg-elev);
+  box-shadow: -10px 0 10px -6px var(--bg-elev);
+}
+.toolbar--win .toolbar__more--pinned {
+  right: 138px;
+}
+/* Expanded, the bar wraps and nothing is scrolling, so un-pin it. */
+.toolbar--sheet .toolbar__more--pinned {
+  position: static;
+  margin-left: 0;
+  box-shadow: none;
+}
+
 .win-controls {
   display: flex;
   align-self: stretch;

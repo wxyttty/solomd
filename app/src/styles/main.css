@@ -99,6 +99,23 @@
   --statusbar-h: 24px;
 }
 
+/* #279 — the split view's preview surface, when "distinguish the two panes"
+   is on. Derived rather than hand-picked per theme: `var()` inside a custom
+   property resolves against whichever --bg / --text won the cascade, so this
+   one declaration follows all eight themes (and any future one) instead of
+   needing eight more constants that would drift. 6% toward the text colour is
+   the standard "clearly a different surface, still quiet" step — it darkens
+   on a light theme and lightens on a dark one, automatically. */
+:root {
+  --split-preview-bg: color-mix(in srgb, var(--bg) 94%, var(--text));
+}
+/* The `:root` prefix is what wins against Preview.vue's scoped `.preview-host`
+   (`.preview-host[data-v-...]`, 0,2,0, injected after this file) — same trap
+   as the toolbar sheet below. */
+:root .pane-content--distinct .preview-host {
+  background: var(--split-preview-bg);
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
   /* v4.6 warm-neutral dark surfaces (plan §2.4) — warm black, not pure #000 */
@@ -313,6 +330,12 @@ body {
   font-size: var(--ui-font-size, 13px);
   color: var(--text);
   background: var(--bg);
+  /* #drag-flicker: app shell is overflow:hidden and body never scrolls, so
+     `scroll` is visually identical to `fixed` but lets the browser reuse the
+     already-painted layer instead of re-rasterizing the whole viewport every
+     frame. `!important` beats any external theme that sets `fixed`, which
+     would flicker while dragging the splitter. */
+  background-attachment: scroll !important;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -352,6 +375,310 @@ button:disabled {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-faint);
 }
+
+/* ============================================================
+ * #168 — phone layout.
+ *
+ * "在手机上的操作逻辑是 pc 的…所有 UI 都挤到一块了": the desktop chrome is
+ * built for a 1440px window and at 390px every part of it competes for the
+ * same width. The shell (side panes → drawers) is handled in App.vue; the
+ * rules below thin out what's left.
+ *
+ * These live here rather than in each component's <style scoped> because a
+ * scoped block can't reach a class on the app root: Vue compiles
+ * `:global(.app--narrow) .pane-content` down to `.app--narrow`, silently
+ * dropping the descendant — verified in the browser.
+ *
+ * The hook is `.narrow-viewport` on <html>, not the app element, because
+ * modals and dropdowns are `<Teleport>`-ed to <body> and would otherwise be
+ * out of reach. `:root.narrow-viewport` also outranks the components' own
+ * `[data-v-…]` rules, which a bare class would only tie with (and lose on
+ * source order).
+ * ============================================================ */
+
+/* Split view side by side leaves each pane ~195px on a phone — neither
+   readable nor editable. Stack them: the user asked to see source and result
+   at once, and vertically that still works. */
+:root.narrow-viewport .pane-content {
+  flex-direction: column;
+}
+:root.narrow-viewport .pane {
+  height: auto;
+  min-height: 0;
+}
+:root.narrow-viewport .pane--editor {
+  border-bottom: 1px solid var(--border);
+}
+
+/* Toolbar: the strip already scrolls horizontally (#134), which is what keeps
+   30+ actions reachable. What hurt on a phone was density, not count — 12px
+   hit areas beside a brand mark and a filename that together ate a quarter of
+   a 390px bar, while the filename is already in the tab strip right below.
+   Reclaim that width and give every button a finger-sized target (~44px is
+   the Apple/Material floor; 40px plus the bar's padding lands there). */
+:root.narrow-viewport .toolbar {
+  /* The bar is 36px on desktop; 40px buttons inside it were clipped by
+     `overflow-y: hidden` — caught on an iOS simulator, where the button
+     measured 40px inside a 36px bar. Raise the bar to fit them. */
+  height: 44px;
+  gap: 2px;
+  padding: 0 4px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+/* A desktop window dragged under 600px is narrow too, and on macOS/Windows
+   this row IS the title bar. `.toolbar--mac`/`--win` are single-class rules,
+   so the padding above (three levels of specificity) silently won: measured
+   at 390px, the macOS traffic-light reserve dropped from 72px to 4px and the
+   lights would have sat on the first buttons. Restore both reserves. */
+:root.narrow-viewport .toolbar.toolbar--mac {
+  padding-left: 72px;
+}
+:root.narrow-viewport .toolbar.toolbar--win {
+  padding-right: 0;
+}
+:root.narrow-viewport .toolbar__brand,
+:root.narrow-viewport .toolbar__title {
+  display: none;
+}
+:root.narrow-viewport .toolbar__group {
+  gap: 2px;
+}
+:root.narrow-viewport .toolbar__group button,
+:root.narrow-viewport .toolbar .icon-btn {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 8px 10px !important;
+  justify-content: center;
+}
+
+/* Folded state: the strip carries the handful of controls a phone actually
+   needs at hand (file tree, save, the three view modes, search) plus "more".
+   The other ~23 are hidden, not removed — the same elements come back below
+   when the bar expands, so there is no second copy of any button. */
+:root.narrow-viewport .toolbar__group > *:not([data-phone-primary]),
+:root.narrow-viewport .toolbar__divider,
+:root.narrow-viewport .menubar {
+  display: none;
+}
+:root.narrow-viewport .toolbar__more {
+  margin-left: auto;
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* Expanded: the bar becomes a wrapping sheet with a label under each icon.
+   Labels come from each button's own `title`, so they stay in step with the
+   tooltips and need no second translation. It grows in flow rather than
+   floating: an overlay would need a stacking context above the drawers and
+   the modals, and pushing the document down for a moment reads fine here.
+
+   #282 — this is no longer phone-only. Any window too narrow for the whole
+   strip gets the same sheet, which is what "工具栏显示不完全" actually needs:
+   the row stops being silently clipped and every control shows up with a
+   label. The phone keeps its own extra rules below (bigger tap targets, and
+   the folded state that hides all but a handful of buttons); the sheet
+   itself is shared.
+
+   The `:root` prefix is load-bearing, not decoration: Toolbar.vue's scoped
+   `.toolbar` compiles to `.toolbar[data-v-…]` (0,2,0) and is injected after
+   this file, so a bare `.toolbar--sheet` (0,1,0) loses `height` and
+   `overflow-y` to it — the bar wraps but stays clipped to one row's height,
+   which looks like the feature half-works. The phone rules above already win
+   the same fight via `:root.narrow-viewport`. */
+:root .toolbar.toolbar--sheet {
+  height: auto;
+  max-height: 55vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: flex-start;
+  padding: 6px 4px 10px;
+  gap: 4px;
+  border-bottom-width: 2px;
+}
+:root .toolbar.toolbar--sheet .toolbar__group {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+:root .toolbar.toolbar--sheet .toolbar__group > * {
+  display: inline-flex;
+}
+:root .toolbar.toolbar--sheet .icon-btn {
+  flex-direction: column;
+  gap: 2px;
+  min-width: 84px;
+  min-height: 56px;
+  padding: 6px 4px !important;
+}
+:root .toolbar.toolbar--sheet .icon-btn::after {
+  /* The title carries the shortcut too ("Save (Ctrl+S)"), so give it room. */
+  content: attr(title);
+  font-size: 10px;
+  line-height: 1.1;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+/* The dropdown triggers keep their caret; don't let the label push it out. */
+:root .toolbar.toolbar--sheet .dropdown > .icon-btn {
+  min-width: 84px;
+}
+/* Folded, "more" sits at the far right of the strip; expanded, that same
+   auto margin would strand it alone on its own row. */
+:root .toolbar.toolbar--sheet .toolbar__more {
+  margin-left: 0;
+}
+/* Windows caption buttons. Two things go wrong in a wrapping sheet, both
+   confirmed on the real Win11 VM: they stretch to the sheet's full height
+   (`align-self: stretch` by design in the one-row bar), and — worse — they
+   wrap onto the LAST row, so a frameless window's min/max/close vanish from
+   the top-right corner exactly when the user opened a panel. Pin them back
+   into the corner and reserve that corner so row one can't slide under. */
+:root .toolbar.toolbar--sheet {
+  position: relative;
+}
+:root .toolbar.toolbar--sheet .win-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  align-self: flex-start;
+  height: var(--titlebar-h);
+  margin-left: 0;
+}
+:root .toolbar.toolbar--sheet.toolbar--win {
+  padding-right: 142px;
+}
+/* The phone's tap targets stay bigger than the desktop sheet's. */
+:root.narrow-viewport .toolbar--phone-open .icon-btn,
+:root.narrow-viewport .toolbar--phone-open .dropdown > .icon-btn {
+  min-width: 72px;
+}
+:root.narrow-viewport .toolbar--phone-open .icon-btn::after {
+  max-width: 68px;
+}
+
+/* Status bar: the full segment list wraps onto a second line at phone widths.
+   Keep the counters that move while you type and the live pills (sync,
+   pomodoro, inbox); hide the reference values you'd only consult on a
+   desktop. Nothing is removed on wider viewports. */
+:root.narrow-viewport .statusbar {
+  white-space: nowrap;
+  overflow: hidden;
+}
+:root.narrow-viewport .statusbar .seg--wide,
+:root.narrow-viewport .statusbar .sep--wide {
+  display: none;
+}
+
+/* First-run telemetry notice: four lines of small print plus two buttons is
+   ~90px of a 780px screen. Clamp it to two lines (the full text stays in
+   Settings, where the toggle lives) and keep the buttons finger-sized. */
+:root.narrow-viewport .telemetry-banner {
+  padding: 6px 8px;
+  gap: 8px;
+}
+:root.narrow-viewport .telemetry-banner__text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+}
+:root.narrow-viewport .telemetry-banner__btn {
+  min-height: 34px;
+  white-space: nowrap;
+}
+
+/* Dialogs: a desktop modal is a card floating over the document. On a phone
+   that card is the task — give it the screen instead of centring a 298px box
+   in a 390px viewport with the width going to margins. Kept as a sheet with
+   a small inset rather than literally full-bleed so it still reads as a
+   layer you can dismiss. */
+:root.narrow-viewport .ds-modal {
+  /* The backdrop centres the panel with a flat 20px pad. On a phone that has
+     to become the safe area instead, or a full-height panel puts its close
+     button under the notch and its footer under the home indicator — measured
+     on an iOS simulator: panel top 16 against a 62px inset, bottom 940 against
+     a 956px viewport with a 34px inset. */
+  padding: calc(env(safe-area-inset-top) + 8px) calc(env(safe-area-inset-right) + 8px)
+    calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 8px);
+}
+:root.narrow-viewport .ds-modal__panel {
+  width: 100% !important;
+  max-width: 100%;
+  /* dvh, not vh: the visual viewport shrinks when the keyboard opens. */
+  max-height: 100%;
+  min-height: 0;
+}
+
+/* Settings: the desktop dialog is a 160px nav rail beside the settings
+   themselves. On a 390px screen that leaves the actual settings ~145px —
+   every select truncates ("Light (Defa…") and hint text breaks one word per
+   line. Turn the rail into a scrolling row of chips above the content, and
+   let the dialog use the whole screen: a settings dialog is a destination on
+   a phone, not something you glance at beside your document. */
+:root.narrow-viewport .settings__layout {
+  flex-direction: column;
+  height: 100%;
+}
+:root.narrow-viewport .settings__nav {
+  width: 100%;
+  flex-direction: row;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 6px;
+  gap: 4px;
+  scrollbar-width: none;
+}
+:root.narrow-viewport .settings__nav-item {
+  flex: 0 0 auto;
+  min-height: 40px;
+  border-radius: 999px;
+  padding: 8px 14px;
+  white-space: nowrap;
+}
+/* The label reads fine next to the icon in a chip; keep both. */
+:root.narrow-viewport .settings__body {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+/* Reading mode is the *default* view on mobile, and its exit button floats at
+   the top right. On a desktop the reading column is centred with wide margins,
+   so the button sits in empty space; on a phone the column is the full width
+   and the button lands on the first heading — measured on an iOS simulator,
+   the button (386–422 × 124–160) overlapping the H1 (18–422 × 94–140).
+   Move it to the bottom right, which on a 6.9" phone is also the half of the
+   screen a thumb can actually reach. */
+:root.narrow-viewport .reading-view__controls {
+  top: auto;
+  bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+  right: max(16px, calc(env(safe-area-inset-right, 0px) + 8px));
+}
+/* Both the window buttons and the plain close button — the latter is the one
+   that actually renders on mobile. */
+:root.narrow-viewport .reading-view__winbtn,
+:root.narrow-viewport .reading-view__close {
+  width: 44px;
+  height: 44px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
+/* Tabs: one row that scrolls, never a second row that eats editor height. */
+:root.narrow-viewport .tabbar {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+}
+:root.narrow-viewport .tabbar::-webkit-scrollbar { height: 0; }
 
 /* ============================================================
  * iPad / touch-device responsive overrides.
@@ -509,6 +836,12 @@ mark {
     display: block !important;
     position: static !important;
   }
+  /* #293 — the same "paper can't scroll" argument for prose: a paragraph
+   * whose words are joined by NO-BREAK SPACE (Word / web / chat pastes) is
+   * one unbreakable run to the layout engine and runs off the page. */
+  body.solomd-printing .solomd-print-content {
+    overflow-wrap: break-word;
+  }
   /* #178: paper can't scroll — always wrap code lines in print/PDF so
    * anything wider than the page isn't silently cut off. Applies
    * regardless of the on-screen codeBlockWrap setting. */
@@ -527,10 +860,113 @@ body.solomd-printing {
   background: white !important;
   color: black !important;
 }
+/* Printing under a dark theme put a dark slab on paper: the overlay lives
+   outside #app but still inherits :root's theme tokens, so code blocks,
+   tables, quotes and syntax colors all came out dark even though the page
+   background was forced white. The print-style setting re-seeds the tokens
+   the rendered markdown actually consumes, scoped to the overlay so the app
+   itself never flashes a different palette on screen.
+
+   `follow` adds no class at all — that is the pre-#print-theme behaviour,
+   kept for anyone who deliberately prints in their theme. */
+#solomd-print-overlay.print-theme-light {
+  --bg: #ffffff;
+  --bg-elev: #f7f6f3;
+  --bg-elevated: #f7f6f3;
+  --bg-hover: #f0eee8;
+  --bg-active: #ebe9e2;
+  --border: #e9e9e7;
+  --text: #37352f;
+  --text-muted: #787774;
+  --text-faint: #b4b4b4;
+  --accent: #ff9f40;
+  --accent-fg: #1a1a1a;
+  --danger: #d64545;
+  --md-h1: #1a1a1a;
+  --md-h2: #232323;
+  --md-h3: #2f2f2f;
+  --md-h4: #3a3a3a;
+  --md-h5: #4a4a4a;
+  --md-h6: #6a6a6a;
+  --md-strong: #1a1a1a;
+  --md-em: #444444;
+  --md-link: #b45f06;
+  --md-url: #c97a20;
+  --md-code: #c0392b;
+  --md-code-bg: #f3efe7;
+  --md-quote: #6a6a6a;
+  --md-list: #c97a20;
+  --md-hr: #c0bdb3;
+  --syn-keyword: #a626a4;
+  --syn-string: #50a14f;
+  --syn-number: #986801;
+  --syn-comment: #a0a1a7;
+  --syn-function: #4078f2;
+  --syn-variable: #383a42;
+  --syn-type: #c18401;
+  --syn-property: #e45649;
+  --syn-operator: #0184bc;
+  background: #ffffff;
+  color: #37352f;
+}
+#solomd-print-overlay.print-theme-dark {
+  --bg: #1f1e1b;
+  --bg-elev: #23221f;
+  --bg-elevated: #23221f;
+  --bg-hover: #2a2a2a;
+  --bg-active: #333333;
+  --border: #34322d;
+  --text: #e6e1d8;
+  --text-muted: #b8b1a6;
+  --text-faint: #7f776d;
+  --accent: #ffa54d;
+  --accent-fg: #1a1a1a;
+  --danger: #e86d6d;
+  --md-h1: #ffffff;
+  --md-h2: #f0f0ed;
+  --md-h3: #e2e2dc;
+  --md-h4: #cccccc;
+  --md-h5: #a8a8a8;
+  --md-h6: #888888;
+  --md-strong: #ffffff;
+  --md-em: #d8d8d8;
+  --md-link: #ff9f40;
+  --md-url: #ffb874;
+  --md-code: #ff9f9f;
+  --md-code-bg: #2a2a2a;
+  --md-quote: #888888;
+  --md-list: #ff9f40;
+  --md-hr: #444444;
+  --syn-keyword: #c678dd;
+  --syn-string: #98c379;
+  --syn-number: #d19a66;
+  --syn-comment: #5c6370;
+  --syn-function: #61afef;
+  --syn-variable: #e06c75;
+  --syn-type: #e5c07b;
+  --syn-property: #e06c75;
+  --syn-operator: #56b6c2;
+  background: #1f1e1b;
+  color: #e6e1d8;
+}
+/* Browsers drop backgrounds when printing unless told otherwise, which
+   would print dark text on white paper — unreadable. Only the dark option
+   needs it; light matches the paper anyway. */
+#solomd-print-overlay.print-theme-dark,
+body.solomd-printing--dark {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+body.solomd-printing--dark {
+  background: #1f1e1b !important;
+  color: #e6e1d8 !important;
+}
 .solomd-print-content {
   max-width: none !important;
   padding: 0 !important;
-  color: black !important;
+  /* Inherit from the overlay so the print palette above decides; without a
+     palette class this lands on body's black, i.e. the old behaviour. */
+  color: inherit !important;
   font-family: var(--font-ui, sans-serif);
 }
 

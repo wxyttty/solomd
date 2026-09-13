@@ -294,7 +294,9 @@ ai_client_path() {
                 Linux)  echo "$HOME/.config/Claude/claude_desktop_config.json" ;;
                 *)      echo "${APPDATA:-$HOME/AppData/Roaming}/Claude/claude_desktop_config.json" ;;
             esac ;;
-        claude-code) echo "$HOME/.claude/mcp.json" ;;
+        # User-scope MCP servers live in ~/.claude.json — the single
+        # dotfile. ~/.claude/mcp.json is never read by Claude Code.
+        claude-code) echo "$HOME/.claude.json" ;;
         cursor)      echo "$HOME/.cursor/mcp.json" ;;
         cline)
             case "$os" in
@@ -312,6 +314,16 @@ ai_client_path() {
     esac
 }
 
+# "Is this client installed?" probe. Usually the config file's directory,
+# but Claude Code's config sits directly in $HOME (which always exists), so
+# probe ~/.claude instead.
+ai_client_probe_dir() {
+    case "$1" in
+        claude-code) echo "$HOME/.claude" ;;
+        *)           dirname "$(ai_client_path "$1")" ;;
+    esac
+}
+
 ai_clients=(claude-desktop claude-code cursor cline continue zed)
 ai_client_label() {
     case "$1" in
@@ -324,6 +336,24 @@ ai_client_label() {
     esac
 }
 
+# Does this client's config already declare a solomd server? Checks the key
+# the client actually uses when jq is available — a bare substring match
+# false-positives on ~/.claude.json, which also stores per-project history
+# (any folder with "solomd" in its path would look "configured").
+client_has_solomd() {
+    local client="$1" path="$2" filter
+    if ! command -v jq >/dev/null 2>&1; then
+        grep -q '"solomd"\|"name": "solomd"' "$path" 2>/dev/null
+        return
+    fi
+    case "$client" in
+        continue) filter='(.mcp // []) | map(select(.name == "solomd")) | length > 0' ;;
+        zed)      filter='(.context_servers // {}) | has("solomd")' ;;
+        *)        filter='(.mcpServers // {}) | has("solomd")' ;;
+    esac
+    [[ "$(jq -r "$filter" "$path" 2>/dev/null)" == "true" ]]
+}
+
 cmd_mcp_list() {
     printf "${BLUE}AI clients on this machine${NC}\n\n"
     printf "  %-18s %-4s %-13s %s\n" "CLIENT" "DIR" "HAS SOLOMD" "PATH"
@@ -331,12 +361,12 @@ cmd_mcp_list() {
     local client path dir_color dir_text entry_color entry_text
     for client in "${ai_clients[@]}"; do
         path="$(ai_client_path "$client")"
-        if [[ -d "$(dirname "$path")" ]]; then
+        if [[ -d "$(ai_client_probe_dir "$client")" ]]; then
             dir_color="$GREEN"; dir_text="yes"
         else
             dir_color="$DIM"; dir_text="no"
         fi
-        if [[ -f "$path" ]] && grep -q '"solomd"\|"name": "solomd"' "$path" 2>/dev/null; then
+        if [[ -f "$path" ]] && client_has_solomd "$client" "$path"; then
             entry_color="$GREEN"; entry_text="configured"
         else
             entry_color="$DIM"; entry_text="—"
@@ -365,6 +395,22 @@ inject_one_client() {
     local client="$1" mcp_bin="$2" workspace="$3" allow_write="$4"
     local path
     path="$(ai_client_path "$client")"
+
+    # Claude Code: let its own CLI write ~/.claude.json when it's on PATH.
+    # That file also holds session state a running Claude Code rewrites, so
+    # a jq round-trip here can lose whatever it flushes meanwhile.
+    if [[ "$client" == "claude-code" ]] && command -v claude >/dev/null 2>&1; then
+        local cli_args=("--workspace" "$workspace")
+        [[ "$allow_write" == "true" ]] && cli_args+=("--allow-write")
+        claude mcp remove solomd -s user >/dev/null 2>&1 || true
+        if claude mcp add --scope user solomd -- "$mcp_bin" "${cli_args[@]}" >/dev/null; then
+            printf "  ${GREEN}✓${NC} %s — %s ${DIM}(via claude mcp add)${NC}\n" \
+                "$(ai_client_label "$client")" "$path"
+            return
+        fi
+        printf "  ${YELLOW}!${NC} claude mcp add failed — patching %s directly\n" "$path"
+    fi
+
     mkdir -p "$(dirname "$path")"
     # Backup any existing file before touching it.
     if [[ -f "$path" ]]; then
@@ -408,6 +454,13 @@ inject_one_client() {
 remove_one_client() {
     local client="$1" path
     path="$(ai_client_path "$client")"
+    if [[ "$client" == "claude-code" ]] && command -v claude >/dev/null 2>&1; then
+        if claude mcp remove solomd -s user >/dev/null 2>&1; then
+            printf "  ${GREEN}✓${NC} %s — solomd entry removed ${DIM}(via claude mcp remove)${NC}\n" \
+                "$(ai_client_label "$client")"
+            return
+        fi
+    fi
     if [[ ! -f "$path" ]]; then
         printf "  ${DIM}–${NC} %s — no config to clean\n" "$(ai_client_label "$client")"
         return
@@ -453,7 +506,7 @@ cmd_mcp_install() {
     if [[ ${#targets[@]} -eq 0 ]]; then
         # Default: install into every client whose config DIR already exists.
         for c in "${ai_clients[@]}"; do
-            [[ -d "$(dirname "$(ai_client_path "$c")")" ]] && targets+=("$c")
+            [[ -d "$(ai_client_probe_dir "$c")" ]] && targets+=("$c")
         done
     fi
     if [[ ${#targets[@]} -eq 0 ]]; then
@@ -488,7 +541,7 @@ cmd_mcp_uninstall() {
         for c in "${ai_clients[@]}"; do
             local p
             p="$(ai_client_path "$c")"
-            [[ -f "$p" ]] && grep -q '"solomd"\|"name": "solomd"' "$p" 2>/dev/null && targets+=("$c")
+            [[ -f "$p" ]] && client_has_solomd "$c" "$p" && targets+=("$c")
         done
     fi
     if [[ ${#targets[@]} -eq 0 ]]; then

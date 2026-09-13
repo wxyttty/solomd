@@ -1,0 +1,17 @@
+Comprimi un titolo e tutto ciò che contiene. Fai clic sulla freccia nel margine oppure usa i comandi di piegatura per chiudere una sezione, tutte le sezioni o tutto ciò che sta sotto un livello.
+
+La stampa non segue più il tema dell'app. Un tema scuro veniva stampato scuro: inchiostro sulla carta, o un PDF illeggibile. Stampa e PDF usano ora una tavolozza chiara propria, con un'opzione scura esplicita se era proprio quello che volevi.
+
+Eliminare un file lascia otto secondi per annullare. Nulla viene spostato altrove: il file resta esattamente dov'è finché il tempo non scade.
+
+Cattura rapida, da qualsiasi punto. Una scorciatoia di sistema apre un riquadro sopra ciò che stai facendo. Scrivi una riga, premi Invio e finisce nella tua Posta in arrivo senza che SoloMD venga mai in primo piano.
+
+Un pannello Attività. Ogni «- [ ]» dello spazio di lavoro in un unico elenco, con priorità e scadenze lette sia dalle emoji di Obsidian Tasks sia da una notazione in solo ASCII. Fai clic su un'attività per andare alla sua riga; spuntala per scrivere il file.
+
+Importa Word, PDF, HTML e fogli di calcolo. I convertitori c'erano già, ma non c'era modo di raggiungerli. Un nome già esistente non viene più sovrascritto: viene scelto il primo libero.
+
+Modifica una tabella come una griglia. Aggiungi e togli righe e colonne senza contare le barre verticali. Il testo CJK viene allineato in base alla larghezza di visualizzazione, così il sorgente Markdown resta ordinato.
+
+Modelli DOCX: copertina, indice, intestazione, numeri di pagina. Equazioni numerate, con collegamenti \eqref che ci saltano.
+
+Correzioni: una cartella dello spazio di lavoro eliminata non sembra più un archivio vuoto, e quattro voci del menu dell'albero dei file che mostravano il nome della chiave in tutte e quattordici le lingue ora hanno un'etichetta vera.

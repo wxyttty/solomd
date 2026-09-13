@@ -1,0 +1,126 @@
+# Everything the iOS Xcode project needs that `tauri ios init` does not
+# generate. Applied by scripts/lib/ios_project_overlay.py, which build-ios.sh
+# runs before every build.
+#
+# This file exists because all of it used to live only in
+# gen/apple/project.yml, which is generated and gitignored. One
+# `tauri ios init` regenerates that file and drops the lot — file
+# associations, Files-app support, the #139 fix — with nothing said. Edit here;
+# never edit gen/apple/project.yml, it is overwritten.
+#
+# ${VAR} is read from the environment, which build-ios.sh has already loaded
+# from .env.local.
+
+merge:
+  settingGroups:
+    app:
+      base:
+        # Xcode-managed profiles fight with the Distribution certificate and
+        # produce CODE_SIGN_STYLE conflicts, so signing is manual. Note that
+        # DEVELOPMENT_TEAM is set here rather than assumed: a freshly
+        # generated project.yml has no such key at all, which is why the sed
+        # that used to anchor on it did nothing on a regenerated project.
+        DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: Apple Distribution
+        PROVISIONING_PROFILE_SPECIFIER: ${IOS_SIGNING_PROFILE_NAME}
+
+  targets:
+    solomd_iOS:
+      info:
+        properties:
+          # Expose Documents in the Files app under "On My iPhone › SoloMD".
+          # The iOS save flow writes there: Tauri's saveDialog hands back
+          # file:// URLs that Rust's std::fs::write cannot write to, and
+          # deep-link "Open With" paths are security-scoped. Users move and
+          # iCloud-sync from the Files app.
+          UIFileSharingEnabled: true
+
+          # Live-reload from the dev server on the Mac.
+          NSLocalNetworkUsageDescription: >-
+            SoloMD connects to the Tauri development server running on your Mac
+            to live-reload the editor UI.
+          NSBonjourServices:
+            - _http._tcp
+          NSAppTransportSecurity:
+            NSAllowsLocalNetworking: true
+            NSAllowsArbitraryLoads: true
+
+          # ★ #139. BOTH of these must be false to stop iOS opening documents
+          # from the Files app (iCloud Drive, other apps, other "On My iPhone"
+          # locations) *in place* as security-scoped URLs. Rust's std::fs
+          # cannot read those without startAccessingSecurityScopedResource(),
+          # which neither tauri-plugin-deep-link nor read_file calls, so an
+          # in-place open fails with ENOENT.
+          #
+          # UISupportsDocumentBrowser: true IMPLIES open-in-place and OVERRIDES
+          # LSSupportsOpeningDocumentsInPlace: false — Apple's documented
+          # behaviour for UIDocumentBrowserViewController apps. SoloMD is a
+          # webview app that never uses a document browser, and leaving this
+          # true is why the first attempt at the fix (4.8.2, which set only
+          # LSSupportsOpeningDocumentsInPlace) did nothing on device.
+          #
+          # With both false, iOS copies the tapped document into our sandbox
+          # and hands us a plain readable path. We never edit in place on iOS
+          # anyway — saveTab routes through documentDir() — so nothing is lost.
+          LSSupportsOpeningDocumentsInPlace: false
+          UISupportsDocumentBrowser: false
+
+          # Declare SoloMD as an editor for .md / .markdown / .mdown / .mkd /
+          # .txt so the Files app offers it under "Open With".
+          CFBundleDocumentTypes:
+            - CFBundleTypeName: Markdown Document
+              CFBundleTypeRole: Editor
+              LSHandlerRank: Owner
+              LSItemContentTypes:
+                - public.markdown            # system UTI, iOS 17+
+                - net.daringfireball.markdown
+                - com.solomd.markdown        # our fallback, below
+            - CFBundleTypeName: Plain Text
+              CFBundleTypeRole: Editor
+              LSHandlerRank: Alternate
+              LSItemContentTypes:
+                - public.plain-text
+
+          # Our own UTI, as a fallback for the system public.markdown that
+          # only exists from iOS 17. Conforms to public.plain-text so other
+          # Markdown tools still recognise the files as text.
+          UTExportedTypeDeclarations:
+            - UTTypeIdentifier: com.solomd.markdown
+              UTTypeDescription: Markdown Document
+              UTTypeConformsTo:
+                - public.plain-text
+                - public.text
+                - public.data
+              UTTypeTagSpecification:
+                public.filename-extension: [md, markdown, mdown, mkd]
+                public.mime-type: [text/markdown, text/x-markdown]
+
+      settings:
+        base:
+          # Xcode 15's script sandbox blocks the Rust build script.
+          ENABLE_USER_SCRIPT_SANDBOXING: false
+          CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: true
+          # Device-only build; keep the simulator slice from being demanded.
+          EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+          # libgit2 needs libz and libiconv on iOS and neither is linked
+          # automatically. The whole setting is ours — a freshly generated
+          # project.yml has no OTHER_LDFLAGS at all, which is why the sed that
+          # used to anchor on this line quietly did nothing on a regenerated
+          # project. $(inherited) is what keeps setting it outright safe.
+          OTHER_LDFLAGS: $(inherited) -lswiftCompatibility56 -lswiftCompatibilityConcurrency -lz -liconv
+
+prepend:
+  # Xcode's build phase runs with a minimal PATH and cannot find pnpm or
+  # cargo, so the Rust build phase fails with "command not found" long before
+  # anything interesting happens. Prepended, so the command itself stays
+  # whatever the generator wrote.
+  targets.solomd_iOS.preBuildScripts.0.script: |
+    export PATH="$HOME/.npm-global/bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+
+remove:
+  # Externals arrives both as a source path and as a build-phase output plus a
+  # framework dependency, which Xcode reports as "Multiple commands produce
+  # libapp.a".
+  - path: targets.solomd_iOS.sources
+    match: {path: Externals}

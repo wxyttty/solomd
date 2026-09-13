@@ -1,0 +1,17 @@
+Recolha um título e tudo o que está abaixo dele. Clique na seta da margem ou use os comandos de dobra para fechar uma seção, todas as seções ou tudo abaixo de um nível.
+
+A impressão não segue mais o tema do aplicativo. Um tema escuro era impresso escuro — tinta no papel, ou um PDF que ninguém conseguia ler. Impressão e PDF agora usam a própria paleta clara, com uma opção escura explícita se era isso que você queria.
+
+Excluir um arquivo dá oito segundos para desfazer. Nada é movido para outro lugar: o arquivo fica exatamente onde está até o tempo acabar.
+
+Captura rápida, de qualquer lugar. Um atalho global abre uma caixinha por cima do que você estiver fazendo. Escreva uma linha, pressione Enter, e ela cai na sua Caixa de entrada sem que o SoloMD apareça na frente.
+
+Um painel de Tarefas. Cada "- [ ]" do espaço de trabalho em uma única lista, com prioridades e prazos lidos tanto dos emoji do Obsidian Tasks quanto de uma notação em ASCII puro. Clique numa tarefa para ir até a linha; marque-a para gravar o arquivo.
+
+Importar Word, PDF, HTML e planilhas. Os conversores já estavam aqui, sem nenhum caminho até eles. Um nome que já existe não é mais sobrescrito: escolhe-se o próximo livre.
+
+Edite uma tabela como uma grade. Adicione e remova linhas e colunas sem contar barras. O texto CJK é alinhado pela largura de exibição, então o Markdown de origem não sai do lugar.
+
+Modelos DOCX — capa, sumário, cabeçalho, números de página. Equações numeradas, com links \eqref que saltam até elas.
+
+Correções: uma pasta de espaço de trabalho excluída não parece mais um cofre vazio, e quatro itens do menu da árvore de arquivos que mostravam o nome da chave nos quatorze idiomas agora têm rótulos de verdade.

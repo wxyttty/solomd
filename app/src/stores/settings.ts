@@ -149,6 +149,8 @@ interface Settings {
   dailyNotesFormat: string;
   dailyNotesTemplate: string;
   showTagsPanel: boolean;
+  // Workspace-wide task panel: every `- [ ]` in the vault, grouped by file.
+  showTasksPanel: boolean;
   // v4.6 F4: Neighborhood — per-note relationship explorer pane (frontmatter
   // wikilink groups + inverse scan + body backlinks).
   showNeighborhood: boolean;
@@ -258,6 +260,27 @@ interface Settings {
   // preview (and Pandoc/PDF/PNG exports — they all share the preview HTML).
   // Default off so existing exports don't surprise anyone. Issue #65.
   codeBlockLineNumbers: boolean;
+  // Quick capture: a system-wide hotkey that opens a small box, takes a line
+  // of text and files it in the Inbox without bringing the app forward. The
+  // chord is an OS-level accelerator (Tauri's spelling, e.g.
+  // `CmdOrCtrl+Alt+M`), not one of the rebindable in-app shortcuts, because
+  // it has to work while another application is focused.
+  quickCaptureEnabled: boolean;
+  quickCaptureShortcut: string;
+  // DOCX export template: which of the built-in presets (plain / report /
+  // academic) a Word export starts from. A per-document `docx:` front-matter
+  // block overrides individual keys, the same way `pdf:` does.
+  docxPreset: 'plain' | 'report' | 'academic';
+  // Print / system-PDF palette, independent of the app theme. Printing in a
+  // dark theme put a dark slab on paper and wasted ink; `light` (the default)
+  // always prints on white, `dark` prints the dark palette on purpose, and
+  // `follow` keeps whatever theme the app is in.
+  printTheme: 'light' | 'dark' | 'follow';
+  // Heading folding in the editor: fold arrows in the gutter, the fold
+  // keymap, and the "fold to level N" commands. On by default — a long
+  // document is barely navigable without it — but it adds a gutter column, so
+  // it can be switched off.
+  foldingEnabled: boolean;
   // #178: soft-wrap long lines inside fenced code blocks in the preview
   // instead of a horizontal scrollbar. Default off (scroll preserves exact
   // code layout); print/PDF always wraps regardless — paper can't scroll.
@@ -265,6 +288,19 @@ interface Settings {
   // #182: show full file names in the Explorer tree (wrapped across lines)
   // instead of the default middle-ellipsis truncation.
   explorerFullNames: boolean;
+  // Show dot-files / dot-folders in the Explorer tree. Off by default: a
+  // vault's `.git`, `.obsidian` and friends are noise for most people. On,
+  // they're reachable from inside the app instead of only from Finder.
+  explorerShowHidden: boolean;
+  // #279: in split view, tint the preview pane a shade apart from the editor
+  // so the two panels aren't identical surfaces. Off by default — it changes
+  // how the app looks, which is not something to do to everyone in a patch.
+  distinctSplitPanes: boolean;
+  // #282: show only these file extensions in the Explorer tree (lower-case,
+  // no dot; '' is the no-extension bucket). Empty = show everything. It
+  // persists, so the tree carries a permanent banner whenever it is set —
+  // a filter you can't see is indistinguishable from missing files.
+  explorerExtFilter: string[];
   // #141 (4.8.10): render a single newline as a real line break (Typora-like)
   // in preview / live editor / every export. Default ON — CJK users write
   // one-sentence-per-line and expect it to hold; standard blank-line
@@ -281,6 +317,9 @@ interface Settings {
   // routinely run an English interface while writing Spanish.
   spellcheckLang: string;
   smartQuotes: boolean;
+  /** #180 — per-action shortcut overrides. Only what the user changed is
+   *  stored; a `null` value means they unbound the action entirely. */
+  keybindings: Record<string, string | null>;
   // #251 — `c4ca303` (#216) flipped the *default* to false, but `load()` does
   // `{...defaults(), ...parsed}`, so every install that already had `true`
   // saved kept it. Those users went on seeing U+2019 drawn fullwidth by a CJK
@@ -506,6 +545,7 @@ function defaults(): Settings {
     dailyNotesFormat: 'YYYY-MM-DD.md',
     dailyNotesTemplate: '',
     showTagsPanel: true,
+    showTasksPanel: false,
     showNeighborhood: false,
     showTypesPanel: false,
     showAgentPanel: true,
@@ -548,15 +588,24 @@ function defaults(): Settings {
     imageExportBranding: true,
     globalZoom: 1,
     wheelZoomEnabled: true,
+    quickCaptureEnabled: true,
+    quickCaptureShortcut: 'CmdOrCtrl+Alt+M',
+    docxPreset: 'plain',
+    printTheme: 'light',
+    foldingEnabled: true,
     codeBlockLineNumbers: false,
     codeBlockWrap: false,
     explorerFullNames: false,
+    explorerShowHidden: false,
+    explorerExtFilter: [] as string[],
+    distinctSplitPanes: false,
     markdownHardBreaks: true,
     spellcheckLang: 'en_US',
     smartQuotes: false,
+    keybindings: {},
     smartQuotesOptInMigrated: true,
     markdownAutoNumberHeadings: false,
-    rsPaneOrder: ['search', 'outline', 'backlinks', 'relationships', 'tags', 'neighborhood', 'types', 'history', 'inspector', 'agent'],
+    rsPaneOrder: ['search', 'outline', 'backlinks', 'relationships', 'tags', 'tasks', 'neighborhood', 'types', 'history', 'inspector', 'agent'],
     previewFontSize: 15,
     attachmentMode: 'shared',
     assetsDirName: '_assets',
@@ -629,6 +678,14 @@ function load(): Settings {
       // sub-key (older settings blob) doesn't yield `undefined` and a
       // tampered numeric stays in range.
       merged.pdfDefaults = mergePdfDefaults(parsed.pdfDefaults);
+      // #180 — keybindings is a free-form map, so a tampered or older blob
+      // could put anything here; keep only string/null values.
+      merged.keybindings = {};
+      if (parsed.keybindings && typeof parsed.keybindings === 'object') {
+        for (const [k, v] of Object.entries(parsed.keybindings)) {
+          if (v === null || typeof v === 'string') merged.keybindings[k] = v;
+        }
+      }
       // One-time v4.0 upgrade: any saved settings blob written before
       // v4.0 release (or by a v4 beta where the panel defaulted off)
       // will not have the `v4AgentPanelMigrated` marker. Force-enable
@@ -803,6 +860,18 @@ export const useSettingsStore = defineStore('settings', {
       this.outlineMarker = marker;
       this.persist();
     },
+    /** #180 — `combo` sets an override, `null` unbinds, `undefined` restores
+     *  the default (we delete the key so future default changes reach the
+     *  user instead of being pinned to whatever shipped today). */
+    setKeybinding(actionId: string, combo: string | null | undefined) {
+      if (combo === undefined) delete this.keybindings[actionId];
+      else this.keybindings[actionId] = combo;
+      this.persist();
+    },
+    resetKeybindings() {
+      this.keybindings = {};
+      this.persist();
+    },
     toggleFileTree() {
       this.showFileTree = !this.showFileTree;
       this.persist();
@@ -960,6 +1029,10 @@ export const useSettingsStore = defineStore('settings', {
     toggleTagsPanel() {
       this.showTagsPanel = !this.showTagsPanel;
       if (this.showTagsPanel) this.ensureRightSidebarVisible();
+      this.persist();
+    },
+    toggleTasksPanel() {
+      this.showTasksPanel = !this.showTasksPanel;
       this.persist();
     },
     toggleNeighborhood() {
@@ -1159,6 +1232,27 @@ export const useSettingsStore = defineStore('settings', {
       this.wheelZoomEnabled = !this.wheelZoomEnabled;
       this.persist();
     },
+    toggleQuickCapture() {
+      this.quickCaptureEnabled = !this.quickCaptureEnabled;
+      this.persist();
+    },
+    setQuickCaptureShortcut(accel: string) {
+      this.quickCaptureShortcut = accel.trim();
+      this.persist();
+    },
+    setDocxPreset(preset: 'plain' | 'report' | 'academic') {
+      this.docxPreset = preset;
+      this.persist();
+    },
+    setPrintTheme(mode: 'light' | 'dark' | 'follow') {
+      this.printTheme = mode;
+      this.persist();
+    },
+    toggleFolding() {
+      this.foldingEnabled = !this.foldingEnabled;
+      this.persist();
+    },
+
     toggleCodeBlockLineNumbers() {
       this.codeBlockLineNumbers = !this.codeBlockLineNumbers;
       this.persist();
@@ -1169,6 +1263,25 @@ export const useSettingsStore = defineStore('settings', {
     },
     toggleExplorerFullNames() {
       this.explorerFullNames = !this.explorerFullNames;
+      this.persist();
+    },
+    toggleExplorerShowHidden() {
+      this.explorerShowHidden = !this.explorerShowHidden;
+      this.persist();
+    },
+    toggleExplorerExt(ext: string) {
+      const next = new Set(this.explorerExtFilter);
+      if (next.has(ext)) next.delete(ext);
+      else next.add(ext);
+      this.explorerExtFilter = [...next].sort();
+      this.persist();
+    },
+    clearExplorerExtFilter() {
+      this.explorerExtFilter = [];
+      this.persist();
+    },
+    toggleDistinctSplitPanes() {
+      this.distinctSplitPanes = !this.distinctSplitPanes;
       this.persist();
     },
     toggleMarkdownHardBreaks() {
@@ -1201,7 +1314,7 @@ export const useSettingsStore = defineStore('settings', {
       this.persist();
     },
     resetRsPaneOrder() {
-      this.rsPaneOrder = ['search', 'outline', 'backlinks', 'relationships', 'tags', 'neighborhood', 'types', 'history', 'inspector', 'agent'];
+      this.rsPaneOrder = ['search', 'outline', 'backlinks', 'relationships', 'tags', 'tasks', 'neighborhood', 'types', 'history', 'inspector', 'agent'];
       this.persist();
     },
     /** v4.3.0 PR #74 — preview-only font size. Editor font is the existing

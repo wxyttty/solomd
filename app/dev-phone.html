@@ -1,0 +1,45 @@
+<!doctype html>
+<!-- Dev-only QA harness for the #168 phone layout: renders the app in
+     device-sized iframes so its CSS evaluates against real phone widths
+     (a screenshot at a phone size only downscales the 1920px layout).
+     Lives at the app root, not in public/, so vite serves it in dev but
+     never copies it into dist. Open http://localhost:<port>/dev-phone.html
+     while `npx vite` is running. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>SoloMD phone harness</title>
+    <style>
+      body { margin: 0; background: #222; display: flex; gap: 16px; padding: 12px; font: 12px system-ui; color: #ccc; }
+      figure { margin: 0; }
+      figcaption { text-align: center; padding: 4px; }
+      iframe { border: 1px solid #555; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <figure>
+      <iframe id="phone" src="/" width="390" height="780"></iframe>
+      <figcaption>iPhone 390×780</figcaption>
+    </figure>
+    <figure>
+      <iframe id="android" src="/" width="360" height="740"></iframe>
+      <figcaption>Android 360×740</figcaption>
+    </figure>
+    <figure>
+      <iframe id="narrow" src="/" width="560" height="700"></iframe>
+      <figcaption>narrow window 560 (phone layout)</figcaption>
+    </figure>
+    <figure>
+      <iframe id="tablet" src="/" width="820" height="700"></iframe>
+      <figcaption>tablet 820 (desktop layout)</figcaption>
+    </figure>
+    <figure>
+      <iframe id="ipadPortrait" src="/" width="820" height="1180"></iframe>
+      <figcaption>iPad portrait 820×1180 (desktop layout)</figcaption>
+    </figure>
+    <figure>
+      <iframe id="phoneLandscape" src="/" width="844" height="390"></iframe>
+      <figcaption>phone landscape 844×390 (needs pointer:coarse)</figcaption>
+    </figure>
+  </body>
+</html>

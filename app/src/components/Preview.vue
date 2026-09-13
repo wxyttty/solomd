@@ -674,6 +674,16 @@ defineExpose({ scrollToLine, openSearch });
      via the `--content-font-size` CSS custom property set in App.vue. */
   font-size: var(--content-font-size, 15px);
   line-height: 1.7;
+  /* #293 — prose must never push past the column. Text pasted out of Word, a
+     web page or a chat transcript often joins its words with NO-BREAK SPACE
+     (U+00A0) instead of U+0020; the reporter's file had 119 of them against 23
+     real spaces. A run glued together that way is one unbreakable "word" to the
+     layout engine, so without this the paragraph simply overflows to the right
+     and is clipped (on paper) or needs horizontal scrolling (on screen). Live
+     edit looked fine throughout because CodeMirror's line-wrapping already
+     carries its own overflow-wrap. `break-word` only splits runs that cannot
+     fit on a line of their own, so ordinary text still breaks at its spaces. */
+  overflow-wrap: break-word;
 }
 .preview-content--fit {
   max-width: none;
@@ -937,7 +947,12 @@ defineExpose({ scrollToLine, openSearch });
   background: var(--bg);
 }
 .preview-content--reading {
-  --font-reading:
+  /* Gitee IK9BBG — a face the user chose wins over the built-in serif stack.
+     It has to be var()'s fallback argument, not a comma-separated sibling:
+     an undefined `var(--x)` makes the whole declaration invalid, which would
+     drop reading mode's serif for everyone who hasn't set a font. */
+  --font-reading: var(
+    --content-font-user,
     Charter,
     "Iowan Old Style",
     "Source Serif Pro",
@@ -947,7 +962,8 @@ defineExpose({ scrollToLine, openSearch });
     "Liberation Serif",
     "Noto Serif",
     Georgia,
-    serif;
+    serif
+  );
   /* v4.10 #165 — reading column follows the same width setting as the
      preview pane (720px was the old hardcoded serif column). */
   max-width: var(--preview-max-width, 720px);

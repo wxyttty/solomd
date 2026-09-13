@@ -50,8 +50,8 @@ Speaks JSON-RPC over stdio. Logs to stderr.
 ## Register with Claude Code
 
 ```bash
-claude mcp add --scope user solomd-dev \
-  /Users/alexlee/code/notebook/dev-mcp/target/debug/solomd-dev-mcp
+claude mcp add --scope user solomd-dev -- \
+  /Volumes/Dev/code/notebook/dev-mcp/target/debug/solomd-dev-mcp
 ```
 
 After restarting Claude Code, the tools show up as `mcp__solomd-dev__solomd_*`.

@@ -88,7 +88,8 @@ jobs:
             xdg-utils \
             file \
             fuse \
-            libfuse2
+            libfuse2 \
+            squashfs-tools
 
       - name: Install frontend dependencies
         run: cd app && pnpm install --frozen-lockfile
@@ -121,12 +122,9 @@ jobs:
           releaseBody: |
             ## SoloMD ${{ github.ref_name }}
 
-            ### Windows installer hotfix
+            ### What's new / 更新内容
 
-            - MSI is now the only installed Windows channel and uses `C:\Program Files\SoloMD`.
-            - Portable ZIP remains available for users who do not want an installation.
-            - On first MSI launch, SoloMD safely removes a verified legacy `%LOCALAPPDATA%\SoloMD` NSIS install, its stale shortcuts, and its old taskbar pin.
-            - `%APPDATA%\app.solomd`, settings, and user documents are preserved.
+            https://solomd.app/whats-new · [中文](https://solomd.app/zh/whats-new)
 
             ### Install / 安装
 
@@ -134,10 +132,87 @@ jobs:
             - **Windows**: download `.msi`. On first launch you may see "Windows protected your PC" → click **More info** → **Run anyway** (one-time, until SmartScreen reputation builds). 首次运行点 "更多信息" → "仍要运行" 即可
             - **Linux**: download `.AppImage` (`chmod +x` and run) or `.deb` / `.rpm`
 
+            ### Verify / 校验
+
+            The Windows builds are not code-signed yet, so Chrome's Enhanced
+            Protection scans each new release and reports "No viruses detected"
+            — that is a pass, not a warning. `SHA256SUMS.txt` is attached below
+            if you want to verify the download yourself.
+
+            Windows 版尚未代码签名，Chrome「增强保护」会扫描每个新版本并提示
+            "未检测到病毒" —— 这是通过，不是警告。附件 `SHA256SUMS.txt` 可用于自行校验。
+
             🤖 Auto-built by GitHub Actions
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # ----------------------------------------------------------------------
+      # Defender gate.
+      #
+      # v4.11.20's x64 MSI shipped tripping `Trojan:Script/Sabsik.EN.A!ml` — a
+      # machine-learning false positive that hits only the MSI (the identical
+      # SoloMD.exe scans clean on its own, as does the arm64 MSI). Windows
+      # deleted the download mid-flight and the first we heard of it was a
+      # user asking why Chrome said "virus detected". Scan what we just built,
+      # here, so the next one fails in CI instead of in front of users.
+      #
+      # The release is a draft, so a failure lands before anything is public.
+      # `-DisableRemediation` stops Defender eating the artifact mid-job.
+      # A runner without a usable Defender warns rather than fails — this gate
+      # must never block a release for infrastructure reasons.
+      #
+      # The maintainer's macOS box can't run this; that's the point of putting
+      # it on the Windows runner. For the hand-uploaded .dmg / .apk, use
+      # VirusTotal instead — it's cross-platform and covers Microsoft's engine.
+      # ----------------------------------------------------------------------
+      - name: Scan Windows bundles with Defender
+        if: matrix.platform == 'windows-latest' || matrix.platform == 'windows-11-arm'
+        shell: pwsh
+        run: |
+          $plat = Get-ChildItem "$env:ProgramData\Microsoft\Windows Defender\Platform" -Directory -ErrorAction SilentlyContinue |
+                  Sort-Object Name -Descending | Select-Object -First 1
+          $mp = if ($plat) { Join-Path $plat.FullName 'MpCmdRun.exe' }
+                else { Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe' }
+          if (-Not (Test-Path $mp)) {
+            Write-Warning "MpCmdRun.exe not found on this runner — skipping the Defender gate"
+            exit 0
+          }
+          # Stale signatures would test a model nobody is actually running.
+          # Non-fatal: a failed update still leaves the shipped definitions.
+          try { & $mp -SignatureUpdate | Out-Null } catch { Write-Warning "signature update failed: $_" }
+          Write-Host ("engine   : " + (Get-MpComputerStatus).AMProductVersion)
+          Write-Host ("signature: " + (Get-MpComputerStatus).AntivirusSignatureVersion)
+
+          $targets = @()
+          $targets += Get-ChildItem "app/src-tauri/target/release/bundle/msi" -Filter *.msi -ErrorAction SilentlyContinue
+          $targets += Get-ChildItem "app/src-tauri/target/release/SoloMD.exe" -ErrorAction SilentlyContinue
+          $targets += Get-ChildItem "mcp-server/target" -Recurse -Filter "solomd-mcp.exe" -ErrorAction SilentlyContinue |
+                      Where-Object { $_.FullName -match "\\release\\" } | Select-Object -First 1
+          if (-Not $targets) {
+            Write-Error "Nothing to scan — the bundle layout moved and this gate is now blind"
+            exit 1
+          }
+
+          $hits = @()
+          foreach ($t in $targets) {
+            $out = (& $mp -Scan -ScanType 3 -File $t.FullName -DisableRemediation 2>&1 | Out-String)
+            if ($out -match 'found no threats') {
+              Write-Host "clean  $($t.Name)"
+            } else {
+              $threat = (($out -split "`n") | Where-Object { $_ -match 'Threat\s+:' }) -join ' '
+              Write-Host "FLAG   $($t.Name)  $threat"
+              $hits += "$($t.Name) -> $threat"
+            }
+          }
+
+          if ($hits) {
+            Write-Host "::error::Defender flagged $($hits.Count) artifact(s): $($hits -join '; ')"
+            Write-Host "The release stays a draft. Rebuilding often shifts enough bytes to clear an !ml verdict;"
+            Write-Host "either way report it at https://www.microsoft.com/en-us/wdsi/filesubmission (Software developer)."
+            exit 1
+          }
+          Write-Host "Defender gate passed."
 
       # ----------------------------------------------------------------------
       # v2.4: solomd-mcp standalone tarballs.
@@ -155,6 +230,41 @@ jobs:
       # macOS:        produced locally via scripts/build-mac.sh, since
       #               macOS isn't in this matrix anymore.
       # ----------------------------------------------------------------------
+      # ----------------------------------------------------------------------
+      # #291 — tauri-bundler writes the AppImage's `.DirIcon` as an ABSOLUTE
+      # symlink into the build directory it happened to run in:
+      #
+      #   .DirIcon -> /home/runner/work/solomd/solomd/app/src-tauri/target/\
+      #               release/bundle/appimage/SoloMD.AppDir/SoloMD.png
+      #
+      # Launching the AppImage never touches it, so this shipped unnoticed for
+      # every Linux release so far — but installers that unpack the AppDir
+      # (AppManager, Gear Lever) reject the package outright: "Symlink target
+      # not found". Repair it here, on the artifact tauri-action just built and
+      # uploaded, and put the fixed image back on the draft release.
+      #
+      # Idempotent by design: the day tauri-bundler emits a relative link, this
+      # step reports it and repacks nothing.
+      # ----------------------------------------------------------------------
+      - name: Repair AppImage .DirIcon (Linux)
+        if: startsWith(matrix.platform, 'ubuntu-')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          IMAGES=(app/src-tauri/target/release/bundle/appimage/*.AppImage)
+          if [ ${#IMAGES[@]} -eq 0 ]; then
+            echo "::error::No AppImage was produced — the bundle layout moved and this repair is now blind"
+            ls -la app/src-tauri/target/release/bundle || true
+            exit 1
+          fi
+          bash scripts/fix-appimage-diricon.sh "${IMAGES[@]}"
+          for img in "${IMAGES[@]}"; do
+            gh release upload "${{ github.ref_name }}" "$img" --clobber
+          done
+
       - name: Pack solomd-mcp tarball (Linux)
         if: startsWith(matrix.platform, 'ubuntu-')
         shell: bash
@@ -324,3 +434,30 @@ jobs:
             web-clipper/dist/solomd-clipper-firefox.zip \
             web-clipper/dist/solomd-clipper-source.zip \
             --clobber
+
+  # ---------------------------------------------------------------------------
+  # SHA256SUMS.txt over every asset on the draft release.
+  #
+  # The Windows builds are unsigned, so Chrome and SmartScreen treat each new
+  # version as an unknown binary with zero download reputation. A published
+  # checksum manifest at least lets users verify what they downloaded until a
+  # code-signing certificate is in place.
+  #
+  # Runs last so it covers the desktop matrix and the web-clipper zips. The
+  # macOS .dmg and the Android .apk are uploaded by hand afterwards — re-run
+  # `./scripts/checksums.sh <tag>` locally once those land to refresh the
+  # manifest.
+  # ---------------------------------------------------------------------------
+  checksums:
+    needs: [publish, web-clipper]
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate and upload SHA256SUMS.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/checksums.sh "${{ github.ref_name }}"

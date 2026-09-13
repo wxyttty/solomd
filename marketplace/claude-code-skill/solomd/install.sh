@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Installer for the SoloMD Claude Code skill.
 #
-# Detects OS + arch, downloads or builds the solomd-mcp binary, and patches
-# ~/.claude/mcp.json with a `solomd` entry pointing at a workspace path the
-# user is prompted for (or one passed via $SOLOMD_WORKSPACE).
+# Detects OS + arch, downloads or builds the solomd-mcp binary, and registers
+# a user-scope `solomd` MCP server pointing at a workspace path the user is
+# prompted for (or one passed via $SOLOMD_WORKSPACE).
+#
+# User-scope MCP config lives in ~/.claude.json — NOT ~/.claude/mcp.json,
+# which Claude Code never reads. We prefer the `claude mcp add` CLI and only
+# fall back to patching ~/.claude.json ourselves when it isn't installed.
 #
 # Idempotent — re-running upgrades the binary and leaves the config alone
 # (won't clobber an existing `solomd` MCP entry).
@@ -15,7 +19,7 @@ set -euo pipefail
 
 LATEST=https://github.com/zhitongblog/solomd/releases/latest/download
 BIN_DIR="${HOME}/.claude/bin"
-MCP_JSON="${HOME}/.claude/mcp.json"
+MCP_JSON="${HOME}/.claude.json"
 
 mkdir -p "$BIN_DIR"
 
@@ -96,14 +100,33 @@ fi
 SOLOMD_WORKSPACE=$(cd "$SOLOMD_WORKSPACE" && pwd)
 echo "Workspace: $SOLOMD_WORKSPACE"
 
-# ---- Patch ~/.claude/mcp.json ----
-mkdir -p "$(dirname "$MCP_JSON")"
-if [ ! -f "$MCP_JSON" ]; then
-  echo '{"mcpServers":{}}' > "$MCP_JSON"
+# ---- Register the server (user scope) ----
+# Preferred: let Claude Code write its own config. `claude mcp get` exits
+# non-zero when the server isn't registered yet, which makes this idempotent.
+registered=0
+if command -v claude >/dev/null 2>&1; then
+  if claude mcp get solomd >/dev/null 2>&1; then
+    echo "Existing 'solomd' MCP server kept — run 'claude mcp remove solomd -s user' to redo it."
+    registered=1
+  elif claude mcp add --scope user solomd -- \
+        "$BIN_DIR/solomd-mcp" --workspace "$SOLOMD_WORKSPACE"; then
+    registered=1
+  else
+    echo "'claude mcp add' failed — falling back to patching $MCP_JSON." >&2
+  fi
 fi
 
-# Use Python because every macOS / Linux box has it; avoids a jq dep.
-python3 - "$MCP_JSON" "$BIN_DIR/solomd-mcp" "$SOLOMD_WORKSPACE" <<'PY'
+if [ "$registered" -eq 0 ]; then
+  # Fallback for boxes without the `claude` CLI. Same file Claude Code reads
+  # for user scope; back it up first because it also holds unrelated state.
+  if [ ! -f "$MCP_JSON" ]; then
+    echo '{"mcpServers":{}}' > "$MCP_JSON"
+  else
+    cp "$MCP_JSON" "$MCP_JSON.bak.$(date +%s)"
+  fi
+
+  # Use Python because every macOS / Linux box has it; avoids a jq dep.
+  python3 - "$MCP_JSON" "$BIN_DIR/solomd-mcp" "$SOLOMD_WORKSPACE" <<'PY'
 import json, sys, pathlib
 path, bin_, ws = sys.argv[1], sys.argv[2], sys.argv[3]
 p = pathlib.Path(path)
@@ -113,20 +136,24 @@ if "solomd" in servers:
     print(f"Existing 'solomd' entry kept — edit {path} by hand to change it.")
 else:
     servers["solomd"] = {
+        "type": "stdio",
         "command": bin_,
         "args": ["--workspace", ws]
     }
     p.write_text(json.dumps(cfg, indent=2) + "\n")
     print(f"Added 'solomd' MCP entry to {path}")
 PY
+fi
 
 cat <<EOF
 
 Done. Start a new Claude Code session in any folder and run \`/mcp\`. You
 should see "solomd" with 13 tools.
 
-To enable writes (write_note / append_to_note / autogit_rollback), edit
-$MCP_JSON and append "--allow-write" to the args array.
+To enable writes (write_note / append_to_note / autogit_rollback), re-register
+with --allow-write:
+  claude mcp remove solomd -s user
+  claude mcp add --scope user solomd -- $BIN_DIR/solomd-mcp --workspace $SOLOMD_WORKSPACE --allow-write
 
 Pair with the SoloMD desktop app for the Agent panel UI:
   https://github.com/zhitongblog/solomd/releases/latest

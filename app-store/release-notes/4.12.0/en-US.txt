@@ -1,0 +1,17 @@
+Fold a heading and everything under it. Click the arrow in the gutter, or use the Fold commands to collapse one section, every section, or everything below a level.
+
+Printing no longer follows your app theme. A dark theme used to print dark — ink on paper, or a PDF nobody could read. Print and PDF now use their own light palette, with an explicit dark option if that is what you wanted.
+
+Deleting a file gives you eight seconds to undo. Nothing is moved somewhere clever: the file stays exactly where it is until the timer runs out.
+
+Quick capture, from anywhere. A system-wide chord opens a small box over whatever you are doing. Type a line, press Enter, and it lands in your Inbox without SoloMD ever coming forward.
+
+A Tasks panel. Every "- [ ]" in the workspace, in one list, with priorities and due dates read from either the Obsidian Tasks emoji or a plain-ASCII form. Click a task to jump to its line; tick it to write the file.
+
+Import Word, PDF, HTML and spreadsheets. The converters were already here with no way to reach them, and importing a name that already exists now picks the next free one instead of overwriting.
+
+Edit a table as a grid. Add and remove rows and columns without counting pipes. CJK text is padded by display width, so the Markdown source stays aligned instead of drifting a column per character.
+
+DOCX templates — cover page, contents, running header, page numbers. Numbered equations, with \eqref links that jump to them.
+
+Fixes: a deleted workspace folder no longer looks like an empty vault, and four file-tree menu entries that printed their key names in all fourteen languages now read as labels.
