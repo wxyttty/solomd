@@ -1,0 +1,3 @@
+La version App Store de SoloMD n'envoie plus aucune donnée d'utilisation.
+
+Les notes ne sont demandées qu'avec la fenêtre d'évaluation d'Apple — rarement, et jamais au premier lancement.

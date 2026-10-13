@@ -1,0 +1,11 @@
+Välj vilken mapp som helst i appen Filer som arbetsmapp – iCloud Drive, På min iPhone eller en annan apps mapp. SoloMD kommer ihåg den mellan starter.
+
+SoloMD:s egen mapp syns nu i appen Filer under På min iPhone › SoloMD.
+
+Anteckningar som öppnas från Filer redigeras på plats: när du sparar uppdateras originalet i stället för att en kopia skapas.
+
+Byt namn på, flytta och radera filer i filträdet: håll in en fil eller tryck på ⋯.
+
+Mappar du öppnade före en uppdatering öppnas igen i stället för att rapporteras som flyttade.
+
+SoloMD från App Store skickar ingen användningsdata och ber om betyg endast med Apples egen betygsruta.

@@ -1,0 +1,9 @@
+“Open in default app” works again. A misplaced permission rule refused every attempt to open a file with another app — the toolbar button, linked PDF and Office files, the dictionaries folder. Any document opens now; programs and scripts are still refused.
+
+Printed PDFs contain every page. The text PDF stopped after the first page, and long tables now repeat their header row on each page. The image PDF no longer cuts through a line of text or a table row at a page break.
+
+Exported HTML stands on its own. Mermaid diagrams are embedded as drawings instead of showing their source, math fonts and local images are embedded too, and the file no longer waits on a download to open. Word export includes Mermaid diagrams as images.
+
+The file tree: deleting asks first (and still goes to the Trash), folders have icons and indent guides, the selected item is highlighted and decides where a new file goes, folders can open on double-click (Settings), a new shortcut creates a note in the selected folder, and “Reveal in File Tree” scrolls to the file.
+
+Smaller things: Esc closes the image viewer, and typing ``` suggests code-block languages.

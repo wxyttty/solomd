@@ -1,0 +1,5 @@
+# The desktop and mobile apps read the sponsor list at runtime (About dialog),
+# from a tauri:// or http://tauri.localhost origin, so it needs CORS.
+/sponsors.json
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600

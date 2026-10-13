@@ -1,0 +1,9 @@
+Las imágenes pegadas se muestran aunque la ruta de su carpeta tenga espacios. Esas rutas invalidaban el enlace; las notas antiguas con estos enlaces ahora se ven en la vista previa y al exportar.
+
+El árbol de archivos sigue al archivo actual: al cambiar de nota se despliegan sus carpetas y queda seleccionada (se puede desactivar).
+
+Exportación: HTML independiente en papel blanco; el PDF de texto puede empezar con una página de índice (Ajustes → PDF).
+
+Pantalla más limpia: oculta los botones de la barra con ⌘⌥⇧T; el botón de IA solo aparece con la IA activada; los temas de la comunidad se aplican por completo.
+
+La pantalla Acerca de agradece ahora a los patrocinadores del proyecto.

@@ -1,0 +1,3 @@
+The App Store version of SoloMD no longer sends any usage data.
+
+Ratings are requested only with Apple's own rating sheet — occasionally, and never on first use.

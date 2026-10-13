@@ -30,11 +30,23 @@ merge:
       info:
         properties:
           # Expose Documents in the Files app under "On My iPhone › SoloMD".
-          # The iOS save flow writes there: Tauri's saveDialog hands back
-          # file:// URLs that Rust's std::fs::write cannot write to, and
-          # deep-link "Open With" paths are security-scoped. Users move and
-          # iCloud-sync from the Files app.
+          # Files only lists an app's folder when BOTH this and
+          # LSSupportsOpeningDocumentsInPlace (below) are true — with only this
+          # one the folder silently never appears, which is why reviewers
+          # "couldn't find" it.
           UIFileSharingEnabled: true
+
+          # iOS 27 SDK: apps linked against it are killed at launch unless
+          # they adopt the scene lifecycle, and declaring this manifest is how
+          # tao 0.37 (Tauri 2.12) knows to run on it. One scene only — SoloMD
+          # has no multi-window support on iPad, and allowing more would let
+          # iPadOS open an empty second window. Documents opened from Files
+          # then arrive at the scene delegate; ios_folder::hook_scene_delegate
+          # keeps their security scope (and handles the cold-launch case tao
+          # does not).
+          UIApplicationSceneManifest:
+            UIApplicationSupportsMultipleScenes: false
+            UISceneConfigurations: {}
 
           # Live-reload from the dev server on the Mac.
           NSLocalNetworkUsageDescription: >-
@@ -46,24 +58,22 @@ merge:
             NSAllowsLocalNetworking: true
             NSAllowsArbitraryLoads: true
 
-          # ★ #139. BOTH of these must be false to stop iOS opening documents
-          # from the Files app (iCloud Drive, other apps, other "On My iPhone"
-          # locations) *in place* as security-scoped URLs. Rust's std::fs
-          # cannot read those without startAccessingSecurityScopedResource(),
-          # which neither tauri-plugin-deep-link nor read_file calls, so an
-          # in-place open fails with ENOENT.
+          # ★ #139 / Files visibility. Opening documents in place is what
+          # makes "On My iPhone › SoloMD" show up in the Files app. The cost is
+          # that a document opened from Files (iCloud Drive, another app's
+          # folder) now arrives as the ORIGINAL file behind a security scope,
+          # not as a copy in our Inbox — and Rust's std::fs cannot touch it
+          # until startAccessingSecurityScopedResource() is called on the very
+          # NSURL iOS handed us. ios_folder::hook_open_url wraps the app
+          # delegate's application:openURL:options: to do exactly that before
+          # tao turns the URL into a string, so read_file (and saving back to
+          # the original) work. Shared / AirDropped files still arrive as
+          # copies in the Inbox.
           #
-          # UISupportsDocumentBrowser: true IMPLIES open-in-place and OVERRIDES
-          # LSSupportsOpeningDocumentsInPlace: false — Apple's documented
-          # behaviour for UIDocumentBrowserViewController apps. SoloMD is a
-          # webview app that never uses a document browser, and leaving this
-          # true is why the first attempt at the fix (4.8.2, which set only
-          # LSSupportsOpeningDocumentsInPlace) did nothing on device.
-          #
-          # With both false, iOS copies the tapped document into our sandbox
-          # and hands us a plain readable path. We never edit in place on iOS
-          # anyway — saveTab routes through documentDir() — so nothing is lost.
-          LSSupportsOpeningDocumentsInPlace: false
+          # UISupportsDocumentBrowser stays false: SoloMD never uses a
+          # UIDocumentBrowserViewController, and true would make iOS treat us
+          # as a document-browser app.
+          LSSupportsOpeningDocumentsInPlace: true
           UISupportsDocumentBrowser: false
 
           # Declare SoloMD as an editor for .md / .markdown / .mdown / .mkd /

@@ -1,0 +1,11 @@
+L’editor di tabelle scrive in avanti. Il testo digitato in una cella usciva al contrario — «abc» diventava «cba» — perché ogni tasto riscriveva la cella e riportava il cursore all’inizio. Aggiungendo, spostando o eliminando righe e colonne il testo di ogni cella resta al suo posto.
+
+I riquadri divisi si possono chiudere. Trascinare una scheda sull’editor crea una seconda vista della stessa nota, e quel riquadro in più non aveva alcuna uscita visibile; tornava persino dopo il riavvio. Ora ogni riquadro ha un proprio pulsante di chiusura quando ce n’è più di uno.
+
+Ogni file aperto a un tocco. Quando le schede non entrano più, un pulsante ⌄ le elenca tutte, con quelle non salvate segnalate.
+
+Albero dei file: un nuovo file o cartella si rinomina dove comparirà davvero, nella sua cartella, non in cima all’albero. I nomi lunghi usano tutta la larghezza del pannello invece di 30 caratteri fissi. Le cartelle degli allegati immagine (_assets e nome.assets) sono nascoste finché «Mostra i file nascosti» è disattivato, così non si rinominano o spostano per sbaglio.
+
+Tabelle: le celle brevi non vengono più schiacciate in una colonna larga un carattere accanto a una lunga, nell’app e nell’esportazione PDF, HTML e immagine.
+
+Su iPhone la barra degli strumenti espansa va a capo dentro lo schermo, quindi Impostazioni e gli altri pulsanti finali sono raggiungibili in verticale. I menu usano l’altezza della finestra invece di scorrere oltre i 360 punti.

@@ -5,6 +5,7 @@
 [![Latest release](https://img.shields.io/github/v/release/zhitongblog/solomd)](https://github.com/zhitongblog/solomd/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/zhitongblog/solomd?color=orange)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/zhitongblog/solomd/total)](https://github.com/zhitongblog/solomd/releases)
+[![GitHub stars](https://img.shields.io/github/stars/zhitongblog/solomd?style=flat&logo=github&color=yellow)](https://github.com/zhitongblog/solomd/stargazers)
 [![Website](https://img.shields.io/badge/website-solomd.app-ff9f40.svg)](https://solomd.app)
 
 🌐 **[English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · [Português](README.pt.md) · [Italiano](README.it.md) · [Polski](README.pl.md) · [Nederlands](README.nl.md) · [Türkçe](README.tr.md) · [Українська](README.uk.md)**
@@ -12,6 +13,17 @@
 [**Ladda ner v4.0**](https://github.com/zhitongblog/solomd/releases/latest) · [**Lanseringsinlägg**](https://solomd.app/blog/v4-0-0-agent-native-author/) · [**Webbplats**](https://solomd.app) · [**Säkerhet**](https://solomd.app/security)
 
 ![SoloMD Editor](web/public/demo/solomd-demo.svg)
+
+> ### 🤖 Byggd och underhållen av Claude
+>
+> SoloMD skrivs, testas och släpps nästan helt av **Claude Code**, Anthropics kodagent,
+> under en mänsklig underhållare som sätter riktningen och avgör vad som släpps. **Issues
+> och pull requests hanteras och besvaras också av Claude** — svaren du får här är skrivna
+> av en AI, inte knappade av en människa.
+>
+> Vi säger det av två skäl. Du bör veta vad du anförtror dina anteckningar: koden är MIT och
+> helt offentlig, läs den. Och när ett svar är självsäkert fel — det händer — säg det i
+> tråden. Den rättelsen är hela mekanismen.
 
 Dina anteckningar bor i en mapp. **SoloMD är editorn ovanpå — med en förstklassig agent-yta i editorn och MCP-slutpunkten som Claude Code / Cursor kan styra utifrån.** Samma `.md`-filer. Chatta med ditt valv. Schemalägg recipes som körs när du inte sitter vid tangentbordet. Lämna över samma valv till vilken MCP-klient som helst.
 
@@ -60,7 +72,7 @@ solomd mcp-config
 {
   "mcpServers": {
     "solomd": {
-      "command": "/Applications/SoloMD.app/Contents/Resources/solomd-mcp",
+      "command": "/Applications/SoloMD.app/Contents/MacOS/solomd-mcp",
       "args": ["--workspace", "/Users/me/Documents/SoloMD"]
     }
   }

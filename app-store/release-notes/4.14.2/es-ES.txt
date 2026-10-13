@@ -1,0 +1,9 @@
+«Abrir con la app predeterminada» vuelve a funcionar. Una regla de permisos mal ubicada bloqueaba toda apertura con otra app: botón de la barra, PDF y archivos de Office enlazados, carpeta de diccionarios. Ahora se abre cualquier documento; los programas y scripts siguen bloqueados.
+
+Los PDF impresos incluyen todas las páginas. El PDF de texto se detenía tras la primera; las tablas largas repiten su encabezado. El PDF de imagen ya no corta líneas ni filas de tabla.
+
+El HTML exportado es autónomo: diagramas Mermaid, fuentes matemáticas e imágenes locales van incrustados, sin esperar descargas. La exportación a Word incluye los diagramas Mermaid como imágenes.
+
+Árbol de archivos: confirma antes de borrar (sigue yendo a la Papelera), iconos de carpeta y guías de sangría, la selección resaltada decide dónde se crea un archivo, doble clic opcional para carpetas, nuevo atajo para crear una nota en la carpeta seleccionada, y «Mostrar en el árbol» desplaza hasta el archivo.
+
+Además: Esc cierra el visor de imágenes y ``` sugiere lenguajes.

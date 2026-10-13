@@ -1,0 +1,11 @@
+„Eksportuj do PDF (tekst)” na Macu zapisuje teraz prosto do pliku: bez okna drukowania i bez drukarki.
+
+Eksport do Worda zachowuje wszystkie obrazy, także z sieci oraz wstawione w zdanie, tabelę lub listę. Diagramy PlantUML pojawiają się w Wordzie i PDF, a PDF obrazkowy zachowuje obrazy z sieci.
+
+PDF tekstowy: znaki całki w formułach drukują się poprawnie, a kod nie jest już wyblakły.
+
+Wyszukiwanie w ustawieniach przechodzi między wynikami i ukrywa puste kategorie. W drzewie plików ⌘⌫ usuwa, F2 zmienia nazwę, a przeciąganie pokazuje, co zrobi upuszczenie.
+
+Okno niezapisanych zmian reaguje na ⌘S, ⌘D i Esc. ⌘1 działa w pustym pierwszym wierszu.
+
+Widok podzielony może nie synchronizować się: podgląd odświeża się wtedy przy zapisie. Wybór A4 włącza numery stron w spisie treści PDF.

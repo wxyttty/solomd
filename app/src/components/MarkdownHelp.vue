@@ -1,111 +1,83 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { combosFor, formatCombo } from '../lib/keybindings';
-import { isMacOS } from '../lib/platform';
+import { useAppMenu } from '../composables/useAppMenu';
+import { computed, ref, watch } from 'vue';
+import { activeKeyActions, combosFor, KEY_CATEGORIES, filterKeyActions, formatCombo, type KeyActionDef } from '../lib/keybindings';
+import { useI18n } from '../i18n';
+import { usesCommandKey } from '../lib/platform';
 import { useSettingsStore } from '../stores/settings';
 import { DsModal, DsTabs, DsInput } from '../ui';
 
-const props = defineProps<{ open: boolean }>();
+type Tab = 'syntax' | 'shortcuts' | 'cli';
+// `tab` picks the tab each time the panel opens (Help menu: one row per tab).
+const props = defineProps<{ open: boolean; tab?: Tab }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
-type Tab = 'syntax' | 'shortcuts' | 'cli';
-const activeTab = ref<Tab>('syntax');
-const helpTabs = [
-  { value: 'syntax', label: 'Markdown 语法' },
-  { value: 'shortcuts', label: '快捷键' },
-  { value: 'cli', label: 'CLI' },
-];
+const activeTab = ref<Tab>(props.tab ?? 'syntax');
+watch(
+  () => props.open,
+  (open) => {
+    if (open && props.tab) activeTab.value = props.tab;
+  },
+);
 const query = ref('');
 const today = new Date().toISOString().slice(0, 10);
 const cliExampleNew = `solomd new "daily-${today}" "今日待办："`;
 
 interface Shortcut {
-  /** #180 — when set, the chord is read from the user's bindings at render
-   *  time instead of being frozen into this table. */
-  action?: string;
-  /** A second action rendered as `A / B` (focus next / prev). */
-  action2?: string;
-  keys?: string;
+  keys: string;
   zh: string;
   en: string;
 }
-interface ShortcutGroup {
-  title: string;
-  items: Shortcut[];
-}
-const macChord = isMacOS();
+const macChord = usesCommandKey();
 const kbSettings = useSettingsStore();
-/** The chord to print for a row: live binding, else the literal in the table. */
-function rowKeys(item: Shortcut): string {
-  if (!item.action) return item.keys ?? '';
-  const render = (id: string) => {
-    const combos = combosFor(id, kbSettings.keybindings);
-    return combos.length ? combos.map((c) => formatCombo(c, macChord)).join(' / ') : '—';
-  };
-  return item.action2 ? `${render(item.action)} / ${render(item.action2)}` : render(item.action);
+
+/**
+ * The shortcuts tab is generated from the binding table, not written by hand.
+ * The hand-written list below went stale the way every such list does — it
+ * was missing a third of the commands, and the welcome note that mirrored it
+ * told new users the wrong key for the command palette. Only rows that are
+ * NOT bindable actions (⌘-click a wikilink, Tab in a table) still come from
+ * the literal list, because there is no table to read them from.
+ */
+const { t } = useI18n();
+const helpTabs = computed(() => [
+  { value: 'syntax', label: 'Markdown 语法' },
+  { value: 'shortcuts', label: t('menubar.helpShortcuts') },
+  { value: 'cli', label: 'CLI' },
+]);
+const appMenu = useAppMenu();
+const shortcutName = computed(() => appMenu.shortcutNamer());
+function actionName(a: KeyActionDef): string {
+  return shortcutName.value(a.id, a.label);
+}
+const CATEGORY_ORDER = KEY_CATEGORIES;
+const liveGroups = computed(() => {
+  const hits = filterKeyActions(activeKeyActions(), query.value, actionName, kbSettings.keybindings, macChord);
+  return CATEGORY_ORDER.map((cat) => ({
+    cat,
+    title: t('settings.keysCat' + cat.charAt(0).toUpperCase() + cat.slice(1)),
+    items: hits.filter((a) => a.category === cat),
+  })).filter((g) => g.items.length);
+});
+function liveKeys(a: KeyActionDef): string {
+  const combos = combosFor(a.id, kbSettings.keybindings);
+  return combos.length ? combos.map((c) => formatCombo(c, macChord)).join(' / ') : '—';
+}
+const builtinRows = computed(() => {
+  const q = query.value.trim().toLowerCase();
+  return BUILTIN_KEYS
+    .filter((it) => !q || `${it.keys} ${it.zh} ${it.en}`.toLowerCase().includes(q));
+});
+function changeShortcuts(): void {
+  emit('close');
+  window.dispatchEvent(new CustomEvent('solomd:open-settings', { detail: { section: 'keys' } }));
 }
 
-const shortcutGroups: ShortcutGroup[] = [
-  {
-    title: '文件 / Files',
-    items: [
-      { action: 'file.new', zh: '新建 Markdown 文件', en: 'New markdown file' },
-      { action: 'file.newText', zh: '新建纯文本文件', en: 'New plain text file' },
-      { action: 'window.new', zh: '新建窗口', en: 'New window' },
-      { action: 'file.open', zh: '打开文件', en: 'Open file' },
-      { action: 'file.save', zh: '保存', en: 'Save' },
-      { action: 'file.saveAs', zh: '另存为', en: 'Save As' },
-      { action: 'file.closeTab', zh: '关闭标签页', en: 'Close tab' },
-    ],
-  },
-  {
-    title: '视图 / View',
-    items: [
-      { action: 'view.cycleView', zh: '编辑 / 分栏 / 预览 三档循环', en: 'Cycle Edit / Split / Preview' },
-      { action: 'view.toggleFileTree', zh: '文件树显隐', en: 'Toggle file tree' },
-      { action: 'view.toggleOutline', zh: '大纲显隐', en: 'Toggle outline' },
-      { action: 'tile.splitRight', zh: '向右分屏', en: 'Split editor right' },
-      { action: 'tile.splitDown', zh: '向下分屏', en: 'Split editor down' },
-      { action: 'tile.focusNext', action2: 'tile.focusPrev', zh: '焦点切到下一/上一面板', en: 'Focus next / prev pane' },
-    ],
-  },
-  {
-    title: '搜索 & 跳转 / Search & Navigate',
-    items: [
-      { action: 'editor.find', zh: '编辑器内查找（预览模式则在预览中查找）', en: 'Find in editor (or preview when in Preview mode)' },
-      { action: 'search.global', zh: '跨文件夹搜索', en: 'Search across folder' },
-      { action: 'palette.open', zh: '命令面板', en: 'Command palette' },
-      { action: 'help.markdown', zh: '帮助（这个对话框）', en: 'Help (this dialog)' },
-      { action: 'settings.open', zh: '设置', en: 'Settings' },
-    ],
-  },
-  {
-    title: '编辑 & 格式化 / Editing',
-    items: [
-      { action: 'format.markdown', zh: '格式化 Markdown（Prettier）', en: 'Format Markdown (Prettier)' },
-      { action: 'editor.aiRewrite', zh: 'AI 改写所选文本（需在设置开启）', en: 'AI rewrite the selection (requires enabling in Settings)' },
-      { keys: 'Cmd/Ctrl + click [[link]]', zh: '跳转到双链目标', en: 'Open the target of a [[wikilink]]' },
-      { keys: 'Tab', zh: '增加缩进 / 跨表格列', en: 'Indent / table column nav' },
-      { keys: 'Shift+Tab', zh: '减少缩进', en: 'Outdent' },
-    ],
-  },
-  {
-    title: '工作区 / Workspace',
-    items: [
-      { action: 'quickSwitcher.open', zh: '快速切换最近文件（VSCode 风格）', en: 'Quick file switcher (VSCode-style)' },
-      { action: 'daily.openToday', zh: '打开今日的每日笔记', en: 'Open today\'s daily note' },
-      { keys: '(Command palette)', zh: 'Properties Table —— Bases 视图（按 Ctrl+Shift+K 找 "bases"）', en: 'Properties Table — Bases view (Ctrl+Shift+K → bases)' },
-    ],
-  },
-  {
-    title: '导出 & 演讲 / Export & Present',
-    items: [
-      { action: 'export.pdfPrint', zh: '导出 PDF（系统打印对话框）', en: 'Export PDF (system print)' },
-      { action: 'export.copyHtml', zh: '复制为 HTML', en: 'Copy as HTML' },
-      { action: 'export.copyMd', zh: '复制为 Markdown', en: 'Copy as Markdown' },
-      { action: 'view.slideshow', zh: '演讲模式（`---` 分页）', en: 'Slideshow mode (split on ---)' },
-    ],
-  },
+/** Keys that are not bindable actions, so no table knows about them. */
+const BUILTIN_KEYS: Shortcut[] = [
+  { keys: 'Cmd/Ctrl + click [[link]]', zh: '跳转到双链目标', en: 'Open the target of a [[wikilink]]' },
+  { keys: 'Tab', zh: '增加缩进 / 跨表格列', en: 'Indent / table column nav' },
+  { keys: 'Shift+Tab', zh: '减少缩进', en: 'Outdent' },
 ];
 
 interface Item {
@@ -400,11 +372,11 @@ async function copyExample(text: string) {
           @update:model-value="activeTab = ($event as Tab)"
         />
         <DsInput
-          v-if="activeTab === 'syntax'"
+          v-if="activeTab !== 'cli'"
           :model-value="query"
           size="sm"
           class="help__search"
-          placeholder="搜索语法 / Search syntax…"
+          :placeholder="activeTab === 'syntax' ? '搜索语法 / Search syntax…' : t('settings.keysSearch')"
           @update:model-value="query = $event"
         />
       </div>
@@ -421,24 +393,39 @@ async function copyExample(text: string) {
                 <pre
                   class="help__example"
                   @click="copyExample(it.example)"
-                  title="Click to copy / 点击复制"
+                  :title="t('help.clickToCopy')"
                 >{{ it.example }}</pre>
               </div>
             </div>
           </section>
-          <p v-if="!filtered.length" class="help__empty">No matching syntax</p>
+          <p v-if="!filtered.length" class="help__empty">{{ t('help.noMatchingSyntax') }}</p>
         </template>
 
         <template v-if="activeTab === 'shortcuts'">
           <p class="help__lead">
-            <code>Ctrl</code>（Linux/Windows）= <code>Cmd</code>（Mac）。完整命令清单按 <kbd>Ctrl+Shift+K</kbd> 打开命令面板。
+            {{ t('settings.keysHelpLead') }}
+            <button class="help__link" @click="changeShortcuts()">{{ t('settings.keysHelpChange') }}</button>
           </p>
-          <section v-for="g in shortcutGroups" :key="g.title" class="help__section">
+          <section v-for="g in liveGroups" :key="g.cat" class="help__section">
             <h3>{{ g.title }}</h3>
             <table class="help__keys">
               <tbody>
-              <tr v-for="(s, i) in g.items" :key="i">
-                <td class="help__keys-key"><kbd>{{ rowKeys(s) }}</kbd></td>
+              <tr v-for="a in g.items" :key="a.id">
+                <td class="help__keys-key"><kbd>{{ liveKeys(a) }}</kbd></td>
+                <td class="help__keys-desc">
+                  <div>{{ actionName(a) }}</div>
+                  <div v-if="actionName(a) !== a.label" class="help__keys-en">{{ a.label }}</div>
+                </td>
+              </tr>
+              </tbody>
+            </table>
+          </section>
+          <section v-if="builtinRows.length" class="help__section">
+            <h3>{{ t('settings.keysBuiltin') }}</h3>
+            <table class="help__keys">
+              <tbody>
+              <tr v-for="(s, i) in builtinRows" :key="i">
+                <td class="help__keys-key"><kbd>{{ s.keys }}</kbd></td>
                 <td class="help__keys-desc">
                   <div>{{ s.zh }}</div>
                   <div class="help__keys-en">{{ s.en }}</div>
@@ -447,6 +434,7 @@ async function copyExample(text: string) {
               </tbody>
             </table>
           </section>
+          <p v-if="!liveGroups.length && !builtinRows.length" class="help__lead">{{ t('settings.keysNoMatch') }}</p>
         </template>
 
         <template v-if="activeTab === 'cli'">
@@ -455,7 +443,7 @@ async function copyExample(text: string) {
           </p>
           <section class="help__section">
             <h3>安装 / Install</h3>
-            <pre class="help__code" @click="copyExample('curl -fsSL https://raw.githubusercontent.com/zhitongblog/solomd/main/scripts/install-cli.sh | bash')" title="Click to copy">curl -fsSL https://raw.githubusercontent.com/zhitongblog/solomd/main/scripts/install-cli.sh | bash</pre>
+            <pre class="help__code" @click="copyExample('curl -fsSL https://raw.githubusercontent.com/zhitongblog/solomd/main/scripts/install-cli.sh | bash')" :title="t('help.clickToCopy')">curl -fsSL https://raw.githubusercontent.com/zhitongblog/solomd/main/scripts/install-cli.sh | bash</pre>
             <p class="help__hint">
               脚本会装到 <code>/usr/local/bin/solomd</code>（或 <code>~/.local/bin</code>）。装完直接 <code>solomd help</code>。
             </p>
@@ -478,16 +466,16 @@ async function copyExample(text: string) {
             <p class="help__hint">
               默认 <code>~/Documents/SoloMD</code>。用环境变量 <code>SOLOMD_NOTES</code> 改：
             </p>
-            <pre class="help__code" @click="copyExample('export SOLOMD_NOTES=$HOME/Notes')" title="Click to copy">export SOLOMD_NOTES=$HOME/Notes</pre>
+            <pre class="help__code" @click="copyExample('export SOLOMD_NOTES=$HOME/Notes')" :title="t('help.clickToCopy')">export SOLOMD_NOTES=$HOME/Notes</pre>
             <p class="help__hint">
               <code>title</code> 参数会自动解析为 <code>$SOLOMD_NOTES/&lt;title&gt;.md</code>；如果带 <code>/</code> 或 <code>.md</code>/<code>.txt</code> 后缀，则按路径处理。
             </p>
           </section>
           <section class="help__section">
             <h3>常用范例 / Examples</h3>
-            <pre class="help__code" @click="copyExample(cliExampleNew)" title="Click to copy">{{ cliExampleNew }}</pre>
-            <pre class="help__code" @click="copyExample('solomd search 重要')" title="Click to copy">solomd search 重要</pre>
-            <pre class="help__code" @click="copyExample('solomd open ./my-doc.md')" title="Click to copy">solomd open ./my-doc.md</pre>
+            <pre class="help__code" @click="copyExample(cliExampleNew)" :title="t('help.clickToCopy')">{{ cliExampleNew }}</pre>
+            <pre class="help__code" @click="copyExample('solomd search 重要')" :title="t('help.clickToCopy')">solomd search 重要</pre>
+            <pre class="help__code" @click="copyExample('solomd open ./my-doc.md')" :title="t('help.clickToCopy')">solomd open ./my-doc.md</pre>
           </section>
         </template>
       </div>
@@ -535,12 +523,11 @@ async function copyExample(text: string) {
   margin-bottom: 22px;
 }
 .help__section h3 {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--accent);
+  letter-spacing: 0.02em;
+  color: var(--text-3);
 }
 .help__grid {
   display: grid;
@@ -548,9 +535,8 @@ async function copyExample(text: string) {
   gap: 10px;
 }
 .help__item {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: var(--bg-elev);
+  border-radius: var(--r-lg);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
@@ -559,56 +545,51 @@ async function copyExample(text: string) {
 .help__syntax {
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 .help__desc {
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.45;
 }
 .help__desc--zh {
   color: var(--text);
 }
 .help__desc--en {
-  color: var(--text-muted);
-  font-style: italic;
+  color: var(--text-3);
 }
 .help__example {
   font-family: var(--font-mono);
-  font-size: 11px;
-  background: var(--bg-hover);
-  border-radius: 4px;
+  font-size: 12px;
+  background: var(--fill-1);
+  border-radius: var(--r-sm);
   padding: 6px 8px;
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  cursor: pointer;
+  cursor: default;
   color: var(--text);
-  transition: background 0.12s;
+  transition: background-color var(--dur-fast) var(--ease);
 }
 .help__example:hover {
-  background: var(--bg-active);
+  background: var(--fill-2);
 }
 .help__empty {
   padding: 20px;
-  color: var(--text-faint);
+  color: var(--text-3);
   text-align: center;
   font-size: 13px;
 }
 .help__footer {
   padding: 10px 18px;
-  font-size: 11px;
-  color: var(--text-faint);
-  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-3);
+  border-top: var(--bd-hair);
   text-align: center;
 }
 .help__footer kbd {
-  background: var(--bg-active);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 5px;
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font: inherit;
+  color: var(--text-2);
 }
 
 .help__tabs {
@@ -637,17 +618,18 @@ async function copyExample(text: string) {
 }
 .help__lead {
   margin: 0 0 16px;
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.6;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.55;
 }
 .help__lead code,
 .help__hint code {
-  background: var(--bg-hover);
+  /* 5.0 inline code: --fill-1, radius 4, --text */
+  background: var(--fill-1);
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: var(--r-xs);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text);
 }
 .help__keys {
@@ -656,7 +638,7 @@ async function copyExample(text: string) {
   font-size: 12px;
 }
 .help__keys tr {
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--bd-hair);
 }
 .help__keys tr:last-child { border-bottom: 0; }
 .help__keys td {
@@ -668,21 +650,21 @@ async function copyExample(text: string) {
   width: 40%;
 }
 .help__keys-key kbd {
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+  background: var(--fill-1);
+  border-radius: var(--r-xs);
+  padding: 1px 6px;
 }
 .help__keys-key code {
-  background: var(--bg-hover);
+  background: var(--fill-1);
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--accent);
+  font-size: 12px;
+  color: var(--accent-text);
 }
 .help__keys-desc div {
   font-size: 12px;
@@ -690,30 +672,36 @@ async function copyExample(text: string) {
   line-height: 1.4;
 }
 .help__keys-en {
-  color: var(--text-muted) !important;
-  font-style: italic;
-  font-size: 11px !important;
+  color: var(--text-3) !important;
+  font-size: 12px !important;
 }
 .help__hint {
   margin: 6px 0;
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--text-3);
   line-height: 1.5;
 }
 .help__code {
   font-family: var(--font-mono);
-  font-size: 11px;
-  background: var(--bg-hover);
-  border-radius: 4px;
+  font-size: 12px;
+  background: var(--fill-1);
+  border-radius: var(--r-sm);
   padding: 8px 10px;
   margin: 6px 0;
   white-space: pre-wrap;
   word-break: break-word;
-  cursor: pointer;
+  cursor: default;
   color: var(--text);
-  transition: background 0.12s;
 }
 .help__code:hover {
-  background: var(--bg-active);
+  background: var(--fill-2);
+}
+.help__link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent-text);
+  cursor: default;
 }
 </style>

@@ -2,7 +2,9 @@
 import Layout from '../../layouts/Layout.astro';
 import Header from '../../components/Header.astro';
 import Hero from '../../components/Hero.astro';
+import V5Showcase from '../../components/V5Showcase.astro';
 import FactPack from '../../components/FactPack.astro';
+import BuiltByClaude from '../../components/BuiltByClaude.astro';
 import UseCases from '../../components/UseCases.astro';
 import Principles from '../../components/Principles.astro';
 import Features from '../../components/Features.astro';
@@ -18,13 +20,15 @@ const lang = 'zh' as const;
 
 <Layout
   title="SoloMD — 免费开源的 Markdown 编辑器 · Typora 的免费替代（Mac / Windows / Linux / iOS / Android）"
-  description="付费 Markdown 编辑器能做的，SoloMD 免费做到。开源的 Typora 替代：所见即所得实时预览、多标签、主题、PDF / Word 导出，还有 AI 改写、文件夹同步、本地 RAG 搜索、原生 iOS 与 Android 应用。约 15 MB，MIT 协议。无账号、无订阅、无广告，默认零遥测。"
+  description="付费 Markdown 编辑器能做的，SoloMD 免费做到。开源的 Typora 替代：所见即所得实时预览、多标签、主题、PDF / Word 导出，还有 AI 改写、文件夹同步、本地 RAG 搜索、原生 iOS 与 Android 应用。约 15 MB，MIT 协议。无账号、无订阅、无广告。"
   lang={lang}
 >
   <Header lang={lang} />
   <main id="main">
     <Hero lang={lang} />
+    <V5Showcase lang={lang} />
     <FactPack lang={lang} />
+    <BuiltByClaude lang={lang} />
     <UseCases lang={lang} />
     <Principles lang={lang} />
     <Features lang={lang} />

@@ -1,0 +1,9 @@
+Le immagini incollate si vedono anche se il percorso della cartella contiene spazi. Quei percorsi rendevano il link non valido; le note più vecchie con questi link ora si vedono in anteprima e nell’esportazione.
+
+L’albero dei file segue il file corrente: cambiando nota si aprono le cartelle superiori e il file viene selezionato (disattivabile).
+
+Esportazione: HTML autonomo su carta bianca; il PDF di testo può iniziare con una pagina di indice (Impostazioni → PDF).
+
+Schermo più pulito: nascondi i pulsanti della barra con ⌘⌥⇧T; il pulsante IA compare solo con l’IA attivata; i temi della community si applicano per intero.
+
+La schermata Informazioni ringrazia ora gli sponsor del progetto.

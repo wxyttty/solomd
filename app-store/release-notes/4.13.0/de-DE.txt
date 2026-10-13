@@ -1,0 +1,9 @@
+Dateien und Ordner verschieben, ohne die App zu verlassen. Ziehen Sie eine Notiz auf einen Ordner oder wählen Sie „Verschieben nach…" und tippen Sie ein paar Buchstaben, um das Ziel zu finden. Verschieben lässt sich rückgängig machen, offene Tabs folgen der Datei, und relative Links in einer verschobenen Notiz werden neu verankert, damit ihre Bilder weiter funktionieren.
+
+Versteckte Dateien anzeigen. Dateien und Ordner mit führendem Punkt waren in der App nicht erreichbar; eine neue Einstellung zeigt sie an, standardmäßig aus.
+
+Den Dateibaum nach Dateityp filtern. Angeboten werden die Endungen, die Ihr Tresor tatsächlich enthält, samt Anzahl; Ordner ohne Treffer verschwinden mit. Ein Hinweis nennt den aktiven Filter, damit er nie wie fehlende Dateien wirkt.
+
+Editor und Vorschau in der geteilten Ansicht unterscheiden. Ein optionaler eigener Ton für die Vorschau, aus Ihrem Thema abgeleitet, damit die Teilung nicht wie eine einzige breite Spalte wirkt.
+
+Ein zu schmales Fenster beschneidet die Werkzeugleiste nicht mehr stillschweigend. Bei Überlauf klappt eine Schaltfläche die ganze Leiste als zwei bis drei beschriftete Zeilen auf.

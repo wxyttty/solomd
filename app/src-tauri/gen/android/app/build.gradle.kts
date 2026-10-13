@@ -99,6 +99,22 @@ android {
             val cfg = signingConfigs.getByName("release")
             if (cfg.storeFile != null) {
                 signingConfig = cfg
+            } else if (gradle.startParameter.taskNames.any { it.contains("Release") } &&
+                       System.getenv("ANDROID_ALLOW_UNSIGNED_RELEASE") == null) {
+                // Gradle does not treat "release build with no signing config" as
+                // an error: it just emits an unsigned APK/AAB and says nothing.
+                // That cost us a day on 4.13.0 — the 16 KB rebuild ran gradle
+                // directly instead of scripts/build-android.sh, so none of the
+                // ANDROID_KEYSTORE_* vars were exported, and the only symptom was
+                // Play rejecting the upload with 「所有上传的软件包都必须签名」
+                // after a 39 MB upload. Refuse to build instead.
+                throw GradleException(
+                    "Release build requested but no signing credentials. Export " +
+                    "ANDROID_KEYSTORE_PATH / ANDROID_KEYSTORE_PASS / ANDROID_KEY_ALIAS / " +
+                    "ANDROID_KEY_PASS (scripts/build-android.sh sources .env.local and " +
+                    "does this for you), or set ANDROID_ALLOW_UNSIGNED_RELEASE=1 if you " +
+                    "really want an unsigned artifact."
+                )
             }
         }
     }

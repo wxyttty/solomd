@@ -1,0 +1,9 @@
+Mova arquivos e pastas sem sair do aplicativo. Arraste uma nota para uma pasta ou escolha "Mover para…" e digite algumas letras para encontrar o destino. O movimento pode ser desfeito, as abas abertas acompanham o arquivo e os links relativos dentro da nota movida são reancorados, para que as imagens continuem funcionando.
+
+Mostrar arquivos ocultos. Arquivos e pastas começando com ponto eram inacessíveis de dentro do aplicativo; uma nova opção os lista, desativada por padrão.
+
+Filtrar a árvore de arquivos por tipo. A lista traz as extensões que o seu cofre realmente tem, com a contagem, e as pastas sem correspondência somem junto. Um aviso indica o filtro ativo, para que nunca pareça que há arquivos faltando.
+
+Distinguir o editor da pré-visualização na vista dividida. Um tom próprio opcional para a pré-visualização, derivado do tema em uso, para a divisão não parecer uma única coluna larga.
+
+Uma janela estreita demais não corta mais a barra de ferramentas em silêncio. Quando a linha transborda, um botão abre a barra inteira em duas ou três linhas com rótulos.

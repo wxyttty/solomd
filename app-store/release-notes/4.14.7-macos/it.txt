@@ -1,0 +1,3 @@
+La versione App Store di SoloMD non invia più dati di utilizzo.
+
+Le valutazioni si chiedono solo con la finestra di Apple: di rado e mai al primo avvio.

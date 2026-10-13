@@ -2,7 +2,9 @@
 import Layout from '../layouts/Layout.astro';
 import Header from '../components/Header.astro';
 import Hero from '../components/Hero.astro';
+import V5Showcase from '../components/V5Showcase.astro';
 import FactPack from '../components/FactPack.astro';
+import BuiltByClaude from '../components/BuiltByClaude.astro';
 import UseCases from '../components/UseCases.astro';
 import Principles from '../components/Principles.astro';
 import Features from '../components/Features.astro';
@@ -18,13 +20,15 @@ const lang = 'en' as const;
 
 <Layout
   title="SoloMD — Free & open-source Markdown editor · a Typora alternative for Mac, Windows, Linux, iOS, Android"
-  description="Everything you'd pay a Markdown editor for — free. SoloMD is an open-source Typora alternative: live WYSIWYG preview, tabs, themes, PDF / Word export, plus AI rewrite, folder sync, local RAG search, and native iOS & Android apps. ~15 MB, MIT-licensed. No account, no subscription, no ads, zero telemetry by default."
+  description="Everything you'd pay a Markdown editor for — free. SoloMD is an open-source Typora alternative: live WYSIWYG preview, tabs, themes, PDF / Word export, plus AI rewrite, folder sync, local RAG search, and native iOS & Android apps. ~15 MB, MIT-licensed. No account, no subscription, no ads."
   lang={lang}
 >
   <Header lang={lang} />
   <main id="main">
     <Hero lang={lang} />
+    <V5Showcase lang={lang} />
     <FactPack lang={lang} />
+    <BuiltByClaude lang={lang} />
     <UseCases lang={lang} />
     <Principles lang={lang} />
     <Features lang={lang} />

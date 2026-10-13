@@ -1,0 +1,11 @@
+Dosya ağacını ada, oluşturma ya da değiştirme tarihine göre sıralayın veya sürükleyerek kendi sıranızı oluşturun; yeni dosyalar en sona eklenir.
+
+Ayarlarda ada ve açıklamaya göre arama.
+
+Daha sakin düzenleme: satırların zıplamaması için Markdown işaretlerini her zaman gösterme ve geçerli satırı vurgulama seçenekleri. Önizlemede ana hat atlamaları tam başlığa iner.
+
+Rusça artık bir arayüz dili; durum çubuğu da çevrildi.
+
+Dışa aktarma: PDF içindekiler sayfası başlık ve sayfa numaralı, tüm dışa aktarmalar nötr renkli.
+
+Yeni kısayol ⌘⌥/ canlı düzenleme ile yalnızca düzenleme arasında geçiş yapar.

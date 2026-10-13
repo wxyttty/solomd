@@ -1,0 +1,11 @@
+Sorteer de bestandsboom op naam, aanmaak- of wijzigingsdatum, of sleep bestanden in je eigen volgorde; nieuwe bestanden komen achteraan.
+
+Zoeken in de instellingen op naam en beschrijving.
+
+Rustiger bewerken: optie om Markdown-tekens zichtbaar te houden zodat geen regel verspringt, en om de huidige regel te markeren. In het voorbeeld landen sprongen vanuit de inhoudsopgave precies op de kop.
+
+Russisch is nu een interfacetaal en de statusbalk is vertaald.
+
+Export: PDF-inhoudsopgave met titel en paginanummers, neutrale kleuren.
+
+Nieuwe sneltoets ⌘⌥/ wisselt tussen live bewerken en alleen bewerken.

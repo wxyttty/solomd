@@ -121,9 +121,7 @@ async fn serve(app: AppHandle) -> Result<(), String> {
 /// Write `dev-bridge.port` and `dev-bridge.token` next to each other in the
 /// app's config dir. dev-mcp reads these.
 fn write_port_token(app: &AppHandle, port: u16, token: &str) -> Result<(), String> {
-    let dir = app
-        .path()
-        .app_config_dir()
+    let dir = super::portable::app_config_dir(app.path())
         .map_err(|e| format!("app_config_dir: {e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
 
@@ -507,7 +505,7 @@ async fn write_resp(
 /// not load-bearing — stale files are gracefully handled by dev-mcp.
 #[allow(dead_code)]
 pub fn cleanup_files(app: &AppHandle) {
-    if let Ok(dir) = app.path().app_config_dir() {
+    if let Ok(dir) = super::portable::app_config_dir(app.path()) {
         let _ = std::fs::remove_file(dir.join("dev-bridge.port"));
         let _ = std::fs::remove_file(dir.join("dev-bridge.token"));
     }

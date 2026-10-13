@@ -1,0 +1,9 @@
+Klasör yolunda boşluk olsa bile yapıştırılan görseller görünüyor. Bu tür yollar görsel bağlantısını geçersiz kılıyordu; bu bağlantıları içeren eski notlar artık önizlemede ve dışa aktarmada görünüyor.
+
+Dosya ağacı geçerli dosyayı takip ediyor: not değiştirdiğinizde üst klasörler açılıyor ve dosya seçiliyor (kapatılabilir).
+
+Dışa aktarma: bağımsız HTML beyaz kâğıt görünümünde; metin PDF'si içindekiler sayfasıyla başlayabiliyor (Ayarlar → PDF).
+
+Daha sade ekran: araç çubuğu düğmelerini ⌘⌥⇧T ile gizleyin; AI düğmesi yalnızca AI etkinken görünüyor; topluluk temaları tam olarak uygulanıyor.
+
+Hakkında ekranı artık projenin destekçilerine teşekkür ediyor.

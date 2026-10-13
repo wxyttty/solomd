@@ -44,6 +44,8 @@ export interface ResolvedPdfOptions {
   footer: boolean;
   /** Code-block syntax theme override. */
   codeTheme: 'preview' | 'light' | 'dark';
+  /** #347 — open the text PDF with a generated table-of-contents page. */
+  toc: boolean;
 }
 
 const PAGE_SIZES_MM: Record<string, { width: number; height: number }> = {
@@ -82,6 +84,7 @@ export function parsePdfFrontMatter(body: string): Partial<{
   fontFamily: string;
   fontSizePt: number;
   footer: boolean;
+  toc: boolean;
 }> {
   const fmMatch = body.replace(/^﻿/, '').match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!fmMatch) return {};
@@ -134,6 +137,7 @@ function parsePdfBody(lines: string[]): Partial<{
   fontFamily: string;
   fontSizePt: number;
   footer: boolean;
+  toc: boolean;
 }> {
   const out: Record<string, unknown> = {};
   for (const raw of lines) {
@@ -188,6 +192,10 @@ function parsePdfBody(lines: string[]): Partial<{
         if (/^(true|yes|on|1)$/i.test(val)) out.footer = true;
         else if (/^(false|no|off|0)$/i.test(val)) out.footer = false;
         break;
+      case 'toc':
+        if (/^(true|yes|on|1)$/i.test(val)) out.toc = true;
+        else if (/^(false|no|off|0)$/i.test(val)) out.toc = false;
+        break;
       default:
         break;
     }
@@ -204,6 +212,7 @@ function parsePdfBody(lines: string[]): Partial<{
     fontFamily: string;
     fontSizePt: number;
     footer: boolean;
+    toc: boolean;
   }>;
 }
 
@@ -240,7 +249,10 @@ export function resolvePdfOptions(
   userTouchedDefaults = true,
 ): ResolvedPdfOptions {
   const fm = parsePdfFrontMatter(source);
-  const fmHasAny = Object.keys(fm).length > 0;
+  // The TOC switch is independent of page setup: turning it on must not also
+  // move a user off the webview's default paper and margins.
+  const toc = typeof fm.toc === 'boolean' ? fm.toc : settingsDefaults.toc === true;
+  const fmHasAny = Object.keys(fm).some((k) => k !== 'toc');
   const apply = userTouchedDefaults || fmHasAny;
 
   if (!apply) {
@@ -255,6 +267,7 @@ export function resolvePdfOptions(
       fontSizePt: 11,
       footer: false,
       codeTheme: 'preview',
+      toc,
     };
   }
 
@@ -275,11 +288,11 @@ export function resolvePdfOptions(
     } else {
       // Unknown preset: fall back to settings.
       pageSizeMm = pageSizeFromSettings(settingsDefaults);
-      pageSizeLabel = settingsDefaults.pageSize;
+      pageSizeLabel = settingsDefaults.pageSize === 'Auto' ? 'A4' : settingsDefaults.pageSize;
     }
   } else {
     pageSizeMm = pageSizeFromSettings(settingsDefaults);
-    pageSizeLabel = settingsDefaults.pageSize;
+    pageSizeLabel = settingsDefaults.pageSize === 'Auto' ? 'A4' : settingsDefaults.pageSize;
   }
 
   // ---- Margins ----------------------------------------------------------
@@ -336,6 +349,7 @@ export function resolvePdfOptions(
     fontSizePt,
     footer,
     codeTheme: settingsDefaults.codeTheme,
+    toc,
   };
 }
 
@@ -346,6 +360,9 @@ function pageSizeFromSettings(s: PdfDefaults): { width: number; height: number }
       height: clampMm(s.customHeightMm, 50, 500, 297),
     };
   }
+  // `Auto` only reaches here when some other PDF setting (margins, font…) or
+  // the document's front matter asked for page setup; A4 is what the old
+  // default did in that case.
   return PAGE_SIZES_MM[s.pageSize] ?? PAGE_SIZES_MM.A4;
 }
 
@@ -406,7 +423,7 @@ export function buildPrintStyle(opts: ResolvedPdfOptions): string {
     : '';
   const fontSizeDecl = `body, .preview-content, .solomd-print-content { font-size: ${fontSizePt}pt !important; }`;
   const codeThemeDecl = codeTheme === 'light'
-    ? `pre, code { background: #f3efe7 !important; color: #1f1d1a !important; }`
+    ? `pre, code { background: #f6f8fa !important; color: #1f2328 !important; }`
     : codeTheme === 'dark'
     ? `pre, code { background: #1f1d1a !important; color: #eee !important; }`
     : '';
@@ -436,4 +453,47 @@ function quoteFontFamily(family: string): string {
   // Quote if it contains whitespace.
   if (/\s/.test(trimmed)) return `"${trimmed}"`;
   return trimmed;
+}
+
+/**
+ * #347 — the date / title / URL / page-number lines on a text PDF printed on
+ * Windows. Those are Chromium's print headers and footers: WebView2's
+ * `window.print()` opens Chromium's print preview with "Headers and footers"
+ * ticked, and it draws them inside the page margin. Chromium drops them when
+ * the page has no margin to draw in, so on Windows the page margin becomes 0
+ * and the same margins are put back as padding on the print overlay,
+ * repeated on every page by `box-decoration-break: clone` (Chromium supports
+ * it across page breaks). WebKit (macOS / Linux) does not print headers
+ * unless asked and does not clone padding across pages, so this is
+ * Windows-only.
+ *
+ * Trade-off: the optional page-number footer (`@page @bottom-center`) needs a
+ * bottom margin, so on Windows it is not drawn.
+ */
+export function buildWindowsPrintFrameStyle(opts: ResolvedPdfOptions): string {
+  const m = opts.marginMm ?? { top: 12, right: 12, bottom: 12, left: 12 };
+  return `
+@page { margin: 0 !important; @bottom-center { content: none; } }
+@media print {
+  body.solomd-printing #solomd-print-overlay {
+    padding: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm !important;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+}
+`.trim();
+}
+
+const TOC_LINE_RE = /^[ \t]*\[toc\][ \t]*$/im;
+
+/**
+ * #347 — the source the text PDF renders when a table of contents was asked
+ * for: a `[TOC]` marker (rendered by markdown.ts as `<nav class="md-toc">`)
+ * at the top, unless the note already places one itself. The print
+ * stylesheet starts the body on a new page after a leading TOC.
+ * Expects the front matter to be stripped already, as `exportPdfPrint` does.
+ */
+export function withPdfToc(source: string): string {
+  if (TOC_LINE_RE.test(source)) return source;
+  return `[TOC]\n\n${source}`;
 }

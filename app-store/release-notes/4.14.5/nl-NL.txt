@@ -1,0 +1,11 @@
+‘Exporteren als PDF (tekst)’ slaat op de Mac nu direct op in een bestand: geen afdrukvenster en geen printer nodig.
+
+Word-export behoudt alle afbeeldingen, ook webafbeeldingen en afbeeldingen in een zin, tabel of lijst. PlantUML-diagrammen verschijnen in Word en PDF, en de beeld-PDF behoudt webafbeeldingen.
+
+Tekst-PDF: integraaltekens in formules worden goed afgedrukt en code is niet meer vaag.
+
+Zoeken in instellingen loopt de resultaten langs en verbergt lege categorieën. In de bestandsboom verwijdert ⌘⌫, hernoemt F2 en laat slepen zien wat neerzetten doet.
+
+Het venster voor niet-opgeslagen wijzigingen reageert op ⌘S, ⌘D en Esc. ⌘1 werkt ook op een lege eerste regel.
+
+De gesplitste weergave kan zonder synchronisatie; het voorbeeld ververst dan bij opslaan. Met A4 krijgt de PDF-inhoudsopgave paginanummers.

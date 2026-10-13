@@ -1,0 +1,9 @@
+Las listas numeradas mantienen el orden: al añadir o borrar un elemento, el resto se renumera solo.
+
+Negrita, cursiva, tachado y código sobre varios párrafos ahora dan formato a cada párrafo por separado, en lugar de un único par de marcas que se veía como asteriscos literales.
+
+Menús: Buscar y reemplazar en el menú Edición, los comandos de zoom en el submenú Ver › Zoom, y el menú Ayuda muestra por separado la guía rápida de Markdown, los atajos de teclado y la línea de comandos. El menú Insertar añade encabezados 4–6.
+
+Los enlaces de las notas siempre se abren en el navegador, nunca dentro de SoloMD.
+
+Tras unos días de uso, SoloMD pregunta una vez —y solo una— si te gustaría darle una estrella en GitHub.

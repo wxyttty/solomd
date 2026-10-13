@@ -1,0 +1,9 @@
+”Öppna i standardapp” fungerar igen. En felplacerad behörighetsregel blockerade allt öppnande i en annan app: knappen i verktygsfältet, länkade PDF- och Office-filer, ordboksmappen. Alla dokument går att öppna nu; program och skript nekas fortfarande.
+
+Utskrivna PDF:er innehåller alla sidor. Text-PDF:en slutade efter första sidan; långa tabeller upprepar sin rubrikrad. Bild-PDF:en skär inte längre av textrader eller tabellrader.
+
+Exporterad HTML står på egna ben: Mermaid-diagram, matematiktypsnitt och lokala bilder bäddas in, utan väntan på nedladdningar. Word-exporten innehåller Mermaid-diagram som bilder.
+
+Filträdet: frågar innan borttagning (hamnar fortfarande i papperskorgen), mappikoner och indragslinjer, den markerade raden avgör var nya filer skapas, mappar kan öppnas med dubbelklick, nytt kortkommando för en anteckning i vald mapp, och ”Visa i filträdet” rullar till filen.
+
+Dessutom: Esc stänger bildvisaren och ``` föreslår språk.

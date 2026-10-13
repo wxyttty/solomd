@@ -1,0 +1,11 @@
+Triez l’arborescence par nom, date de création ou de modification, ou par glisser-déposer ; les nouveaux fichiers vont à la fin.
+
+Recherche dans les réglages par nom et description.
+
+Édition plus stable : option pour garder les marques Markdown visibles afin qu’aucune ligne ne saute, et pour surligner la ligne courante. En aperçu, les sauts du plan tombent pile sur le titre.
+
+Le russe rejoint les langues de l’interface ; la barre d’état est traduite.
+
+Export : sommaire PDF avec titre et numéros de page, couleurs neutres.
+
+Nouveau raccourci ⌘⌥/ pour basculer entre édition en direct et édition seule.

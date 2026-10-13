@@ -1,0 +1,9 @@
+Eine Notiz kann keinen Code mehr ausführen. Inline-HTML in einer Markdown-Datei wurde ungefiltert in die App gerendert, sodass ein in fremden Notizen verstecktes Skript im Editor lief. Gerendertes Markdown wird jetzt überall bereinigt — Vorschau, Live-Bearbeitung, Präsentation und jeder Export. Gewöhnliches Inline-HTML funktioniert weiter; Skripte, Event-Handler und javascript:-Links nicht. Wer Markdown geöffnet hat, das er nicht selbst geschrieben hat, sollte dieses Update einspielen.
+
+Mermaid-Diagramme werden beim Export als Text-PDF gerendert. Bisher druckte dieser Weg den Quelltext des Diagramms. Das Drucken lädt sein Mathe-Stylesheet auch nicht mehr aus dem Netz, Formeln behalten offline ihre Darstellung.
+
+Der Dokumentname verschwindet in schmalen Fenstern nicht mehr, und die übergelaufene Symbolleiste ist ein Drittel so hoch wie zuvor, ohne Lücke in der Mitte der zweiten Zeile.
+
+Ein Theme, das scheinbar nichts bewirkt, erklärt sich jetzt: Ein installiertes Marketplace-Theme, das helle und dunkle Farben zugleich definiert, überschreibt die eingebaute Umschaltung — sie nennt jetzt das Theme und schaltet es mit einem Klick ab.
+
+Die App startet schneller. Zuvor wurde alles vor dem ersten Bild kompiliert — Diagramm-Renderer, beide chinesischen Wörterbücher, PDF- und Word-Export, Präsentation. Sie laden nun bei Bedarf, das erste Bild erscheint rund 30 % früher.

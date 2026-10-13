@@ -1,0 +1,9 @@
+“Abrir no app padrão” voltou a funcionar. Uma regra de permissão no lugar errado bloqueava toda abertura com outro app: botão da barra, PDFs e arquivos do Office vinculados, pasta de dicionários. Agora qualquer documento abre; programas e scripts continuam bloqueados.
+
+PDFs impressos trazem todas as páginas. O PDF de texto parava na primeira página; tabelas longas repetem o cabeçalho. O PDF de imagem não corta mais linhas de texto nem de tabela.
+
+O HTML exportado é independente: diagramas Mermaid, fontes matemáticas e imagens locais ficam incorporados, sem esperar downloads. A exportação para Word inclui os diagramas Mermaid como imagens.
+
+Árvore de arquivos: pede confirmação antes de excluir (continua indo para a Lixeira), ícones de pasta e guias de recuo, a seleção destacada decide onde criar o arquivo, clique duplo opcional para pastas, novo atalho para criar uma nota na pasta selecionada, e “Mostrar na árvore” rola até o arquivo.
+
+Além disso: Esc fecha o visualizador de imagens e ``` sugere linguagens.

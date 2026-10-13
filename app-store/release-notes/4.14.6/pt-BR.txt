@@ -1,0 +1,9 @@
+Listas numeradas ficam em ordem: adicione ou exclua um item e os demais são renumerados sozinhos.
+
+Negrito, itálico, tachado e código em vários parágrafos agora formatam cada parágrafo separadamente, em vez de um único par de marcadores que aparecia como asteriscos.
+
+Menus: Localizar e substituir no menu Editar, os comandos de zoom no submenu Visualizar › Zoom, e o menu Ajuda lista separadamente o guia rápido de Markdown, os atalhos de teclado e a linha de comando. O menu Inserir ganha títulos 4–6.
+
+Links nas notas sempre abrem no navegador, nunca dentro do SoloMD.
+
+Depois de alguns dias de uso, o SoloMD pergunta uma vez — só uma — se você gostaria de dar uma estrela no GitHub.

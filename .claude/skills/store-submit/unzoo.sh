@@ -24,6 +24,7 @@
 #   UNZOO_TAB=$(unzoo.sh find-tab play.google.com/console)
 #   unzoo.sh nav https://play.google.com/console/...
 #   unzoo.sh text | head -60
+#   unzoo.sh dom-text | head -60      # use this one for unattended polling
 #   unzoo.sh eval 'document.title'
 #   unzoo.sh box 'button[aria-label="上传"]'      # center coords of an element
 #   unzoo.sh click 640 380
@@ -184,13 +185,47 @@ r=json.load(sys.stdin).get("data",{}).get("result",{})
 if isinstance(r,dict) and not r.get("found"): sys.exit("page had no text")
 print(r.get("text","") if isinstance(r,dict) else r)' ;;
 
+  # ★ Layout-independent read. `text` (and page innerText generally) goes nearly
+  # empty when the browser window is not actually on screen: Chrome skips layout
+  # for an unpainted window, so innerText collapses to the loading splash while
+  # the page is fully rendered — a screenshot proves the content is there. Any
+  # unattended poller must use this, not `text`. Trade-off: textContent also
+  # returns text from hidden and collapsed elements, so match on markers you
+  # expect rather than asserting something is absent from the page.
+  dom-text) need_tab || exit 1
+    post evaluate "$(eval_body "" <<'JS'
+return document.body ? document.body.textContent : "";
+JS
+)" | py '
+import json,sys
+print(json.load(sys.stdin).get("data",{}).get("result") or "")' ;;
+
   html) need_tab || exit 1; post get-html "$(jbody)" | py '
 import json,sys
 r=json.load(sys.stdin).get("data",{}).get("result",{})
 print(r.get("html","") if isinstance(r,dict) else r)' ;;
 
   # Result must be JSON-serializable — wrap objects in JSON.stringify yourself.
-  eval) need_tab || exit 1; post evaluate "$(jbody expression="${1:?usage: eval <js>}")" | py '
+  # ★ Every eval runs in the SAME top-level context, so a second `const x = ...`
+  # throws "Identifier 'x' has already been declared" — and the throw surfaces
+  # as a bare `null` result, not an error. Hours went into "why did this
+  # selector stop matching" that were really a redeclared `const`. Wrapping
+  # each expression in its own arrow scope makes that impossible.
+  eval) need_tab || exit 1
+    _js="${1:?usage: eval <js>}"
+    _js="${_js%;}"
+    case "$_js" in
+      *return*)
+        _js="(()=>{${_js}})()" ;;            # caller wrote its own return
+      *\;*)
+        # Multiple statements with no return: run all but the last, return the
+        # last. (A ';' inside a string literal would misfire here, but that
+        # fails loudly as a syntax error rather than silently.)
+        _js="(()=>{${_js%;*}; return ${_js##*;}})()" ;;
+      *)
+        _js="(()=>(${_js}))()" ;;            # a single expression
+    esac
+    post evaluate "$(jbody expression="$_js")" | py '
 import json,sys
 d=json.load(sys.stdin)
 if "error" in d: sys.exit("evaluate error: "+str(d["error"]))
@@ -277,12 +312,27 @@ print(b["x"], b["y"])' "$b") || exit 1
     post click "$(jbody x="${xy% *}" y="${xy#* }")" >/dev/null
     echo "clicked $sel at $xy" ;;
 
-  # Two-step on purpose. Setting files on the input does NOT start the upload:
-  # Angular/React consoles listen for `change`, which set_input_files does not
-  # fire. Without the dispatch the file sits in the input and nothing happens.
+  # Three steps, and the middle one is the whole point. `set_input_files` with
+  # trusted:true already fires a real `change` (isTrusted=true) itself — so the
+  # unconditional `dispatchEvent(new Event("change"))` this used to do handed
+  # the page a SECOND change for the same file. Uploaders that key their
+  # progress model off `change` then build a fresh model for the duplicate and
+  # render it, while the first upload is the one actually streaming bytes: the
+  # Play Console sat at "0 B of 39.4 MB" for a 39 MB AAB that was in fact
+  # uploading fine. So: arm a sentinel, set the files, and dispatch only if no
+  # native change arrived (older Unzoo builds, or an input swapped out by the
+  # framework).
   upload) need_tab || exit 1
     sel="${1:?usage: upload <input-selector> <file>}"; f="${2:?}"
     [ -f "$f" ] || { echo "no such file: $f" >&2; exit 1; }
+    post evaluate "$(eval_body "$sel" <<'JS'
+const e = document.querySelector(SEL);
+if (!e) return "no input";
+window.__unzooChangeSeen = false;
+e.addEventListener("change", () => { window.__unzooChangeSeen = true; }, {once: true});
+return "armed";
+JS
+)" > /dev/null
     post set_input_files "$(SEL="$sel" F="$f" TAB="$TAB" py '
 import json, os
 print(json.dumps({"selector": os.environ["SEL"],
@@ -294,10 +344,11 @@ d=json.load(sys.stdin)
 if not d.get("success"): sys.exit("set_input_files failed: "+json.dumps(d)[:300])
 print("files set")'
     post evaluate "$(eval_body "$sel" <<'JS'
+if (window.__unzooChangeSeen) return "native change fired (no dispatch)";
 const e = document.querySelector(SEL);
-if (!e) return "no input";
+if (!e) return "no input, and no native change — upload did not start";
 e.dispatchEvent(new Event("change", {bubbles: true}));
-return "change dispatched";
+return "no native change; dispatched one";
 JS
 )" | py '
 import json,sys

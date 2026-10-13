@@ -1,0 +1,11 @@
+Tabellredigeraren skriver framåt. Text i en cell kom ut baklänges – ”abc” blev ”cba” – eftersom varje tangenttryck skrev om cellen och flyttade markören till början. När rader och kolumner läggs till, flyttas eller tas bort stannar varje cells text på sin plats.
+
+Delade paneler går att stänga. Att dra en flik till redigeraren skapar en andra vy av samma anteckning, och den extra panelen hade ingen synlig väg ut; den kom till och med tillbaka efter en omstart. Nu har varje panel en egen stängknapp när det finns fler än en.
+
+Varje öppen fil ett tryck bort. När flikarna inte längre får plats visar en ⌄-knapp alla, med osparade markerade.
+
+Filträdet: en ny fil eller mapp namnges där den faktiskt hamnar, i sin mapp, inte högst upp i trädet. Långa filnamn använder sidopanelens hela bredd i stället för fasta 30 tecken. Mappar med bildbilagor (_assets och namn.assets) är dolda så länge ”Visa dolda filer” är avstängt, så att de inte döps om eller flyttas av misstag.
+
+Tabeller: korta celler kläms inte längre ihop till en kolumn ett tecken bred bredvid en lång, i appen och vid export till PDF, HTML och bild.
+
+På iPhone radbryts det utfällda verktygsfältet inom skärmen, så Inställningar och de andra knapparna i slutet går att nå i stående läge. Menyer använder fönstrets höjd i stället för att rulla efter 360 punkter.

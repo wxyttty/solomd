@@ -4,7 +4,7 @@ interface Props { lang: Lang }
 const { lang } = Astro.props;
 const tr = getT(lang);
 
-const VERSION = '4.12.1';
+const VERSION = '5.0.0';
 const REPO = 'zhitongblog/solomd';
 // The Store ships both x64 and arm64 and picks for the machine, and it keeps
 // the app updated — worth offering next to the MSI rather than only below it.
@@ -17,8 +17,9 @@ const MS_STORE = 'https://apps.microsoft.com/detail/9nxghk2ll1q4';
 //
 // The pin is the fallback, not the source of truth — a deploy must not fail
 // or block because Microsoft's catalogue is slow, so an unreachable endpoint
-// just leaves the last known-good value in place.
-const MS_STORE_VERSION_PIN = '4.12.0';
+// just leaves the last known-good value in place. Bump it with each store
+// submission; the live read above is what visitors normally see.
+const MS_STORE_VERSION_PIN = '4.14.11';
 
 async function readStoreVersion(): Promise<string> {
   const url =
@@ -53,6 +54,66 @@ async function readStoreVersion(): Promise<string> {
 }
 
 const msStoreVersion = await readStoreVersion();
+
+// iOS and macOS are one App Store listing (universal purchase), so one link
+// and one version serve both. Read at build time for the same reason as the
+// Microsoft Store: the store trails GitHub while a build sits in review.
+const APP_STORE = 'https://apps.apple.com/app/id6762498874';
+const GOOGLE_PLAY = 'https://play.google.com/store/apps/details?id=app.solomd';
+const GITEE_RELEASE = `https://gitee.com/zhitong45/solomd/releases/tag/v${VERSION}`;
+
+async function readAppStoreVersion(): Promise<string | null> {
+  try {
+    const res = await fetch('https://itunes.apple.com/lookup?id=6762498874&country=us', {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data: any = await res.json();
+    return data?.results?.[0]?.version ?? null;
+  } catch (err) {
+    console.warn(`[download] could not read the App Store version (${err instanceof Error ? err.message : err})`);
+    return null;
+  }
+}
+const appStoreVersion = await readAppStoreVersion();
+
+// Package managers. Each entry is shown only once the package really resolves
+// to a current build, so the site never advertises a command that installs
+// nothing (winget before its first merge) or something ancient (Scoop sat on
+// 4.11.6 for weeks when its autoupdate URL broke). Checked at build time;
+// an unreachable API hides the entry rather than guessing.
+async function ghJson(path: string): Promise<any | null> {
+  try {
+    const res = await fetch(`https://api.github.com/${path}`, {
+      signal: AbortSignal.timeout(8000),
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+const minor = (v: string) => v.split('.').slice(0, 2).join('.');
+async function wingetLive(): Promise<boolean> {
+  const dir = await ghJson('repos/microsoft/winget-pkgs/contents/manifests/z/zhitong/SoloMD');
+  return Array.isArray(dir) && dir.some((d: any) => minor(d?.name ?? '') === minor(VERSION));
+}
+async function scoopLive(): Promise<boolean> {
+  const f = await ghJson('repos/ScoopInstaller/Extras/contents/bucket/solomd.json');
+  try {
+    const v = JSON.parse(Buffer.from(f?.content ?? '', 'base64').toString('utf8'))?.version ?? '';
+    return minor(v) === minor(VERSION);
+  } catch {
+    return false;
+  }
+}
+const [hasWinget, hasScoop] = await Promise.all([wingetLive(), scoopLive()]);
+const packageManagers = [
+  { name: 'Homebrew', os: 'macOS', cmd: 'brew install --cask zhitongblog/solomd/solomd' },
+  hasWinget && { name: 'winget', os: 'Windows', cmd: 'winget install zhitong.SoloMD' },
+  hasScoop && { name: 'Scoop', os: 'Windows', cmd: 'scoop bucket add extras\nscoop install solomd' },
+  { name: 'AUR', os: 'Arch Linux', cmd: 'yay -S solomd-bin' },
+].filter(Boolean) as { name: string; os: string; cmd: string }[];
 const releaseUrl = (version: string) => `https://github.com/${REPO}/releases/download/v${version}`;
 
 const platforms = [
@@ -117,6 +178,24 @@ const platforms = [
       <p class="lead">{tr.download.lead}</p>
     </div>
 
+    <div class="download__stores">
+      <p class="download__stores-heading">{tr.download.stores.heading}</p>
+      <div class="store-row">
+        <a class="store-badge" href={APP_STORE} target="_blank" rel="noopener">
+          <span class="store-badge__name">{tr.download.stores.appStore}{appStoreVersion && <span class="store-badge__ver"> v{appStoreVersion}</span>}</span>
+          <span class="store-badge__note">{tr.download.stores.appStoreNote}</span>
+        </a>
+        <a class="store-badge" href={GOOGLE_PLAY} target="_blank" rel="noopener">
+          <span class="store-badge__name">{tr.download.stores.play}</span>
+          <span class="store-badge__note">{tr.download.stores.playNote}</span>
+        </a>
+        <a class="store-badge" href={MS_STORE} target="_blank" rel="noopener">
+          <span class="store-badge__name">{tr.download.stores.msStore}<span class="store-badge__ver"> v{msStoreVersion}</span></span>
+          <span class="store-badge__note">{tr.download.stores.msStoreNote}</span>
+        </a>
+      </div>
+    </div>
+
     <div class="download__grid">
       {platforms.map((p) => {
         const meta = tr.download.platforms[p.key];
@@ -154,18 +233,37 @@ const platforms = [
     <div class="download__notes">
       <div class="note"><strong>macOS</strong>: {tr.download.notes.macos}</div>
       <div class="note"><strong>Windows</strong>: {tr.download.notes.windows}</div>
-      <div class="note"><strong>Linux</strong>: {tr.download.notes.linux}</div>
+      <div class="note">
+        <strong>Linux</strong>: {tr.download.notes.linux}
+        {' '}
+        <a href={lang === 'zh' ? '/zh/docs/linux/' : '/docs/linux/'}>{lang === 'zh' ? '需要 Ubuntu 22.04 / Debian 12 或更新，不确定能不能装？→' : 'Needs Ubuntu 22.04 / Debian 12 or newer — will yours work? →'}</a>
+      </div>
       <div class="note">
         <strong>Chrome</strong>: {tr.download.notes.verify}
         {' '}
         <a href={`${releaseUrl(VERSION)}/SHA256SUMS.txt`} target="_blank" rel="noopener">SHA256SUMS.txt →</a>
       </div>
     </div>
+    <div class="download__pm">
+      <h3>{tr.download.packageManagers.heading}</h3>
+      <div class="pm-grid">
+        {packageManagers.map((m) => (
+          <div class="pm-item">
+            <div class="pm-item__head"><strong>{m.name}</strong> <span class="muted">{m.os}</span></div>
+            <button type="button" class="pm-copy" aria-label="Copy">⧉</button>
+            <pre class="pm-item__cmd"><code>{m.cmd}</code></pre>
+          </div>
+        ))}
+      </div>
+      <p class="pm-note">{tr.download.packageManagers.note}</p>
+    </div>
     <p class="download__all">
       {tr.download.allReleases}
       <a href={`https://github.com/${REPO}/releases`} target="_blank" rel="noopener">
         {tr.download.allReleasesLink}
       </a>
+      <br />
+      <a href={GITEE_RELEASE} target="_blank" rel="noopener">{tr.download.mirror}</a>
     </p>
   </div>
 </section>
@@ -279,146 +377,53 @@ const platforms = [
     gap: 4px;
     margin-bottom: 10px;
   }
-  .qi-tab {
-    padding: 6px 14px;
-    font-size: 12px;
-    font-weight: 500;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: all 0.15s;
+  .download__stores { text-align: center; margin: -24px 0 36px; }
+  .download__stores-heading { color: var(--text-faint); font-size: 14px; margin: 0 0 12px; }
+  .store-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+  .store-badge {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    min-width: 190px; padding: 10px 16px; border-radius: 12px;
+    border: 1px solid var(--border); background: var(--bg-elev, transparent);
+    color: var(--text); text-decoration: none;
+    transition: border-color .15s ease, transform .15s ease;
   }
-  .qi-tab:hover { color: var(--text); }
-  .qi-tab--active {
-    background: var(--bg);
-    border-color: var(--accent);
-    color: var(--accent);
+  .store-badge:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .store-badge__name { font-weight: 600; font-size: 15px; }
+  .store-badge__ver { font-weight: 400; color: var(--text-faint); font-size: 13px; }
+  .store-badge__note { font-size: 12px; color: var(--text-faint); }
+  .download__pm { margin-top: 40px; }
+  .download__pm h3 { font-size: 18px; margin: 0 0 14px; }
+  .pm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .pm-item { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  .pm-item__head { font-size: 14px; margin-bottom: 8px; }
+  .pm-item__cmd {
+    margin: 0; padding: 8px 10px; border-radius: 6px; overflow-x: auto;
+    background: var(--code-bg, rgba(127,127,127,.1)); font-size: 12.5px; line-height: 1.5;
   }
-  .qi-panel {
-    display: none;
-    position: relative;
+  .pm-note { font-size: 13px; color: var(--text-faint); margin: 10px 0 28px; }
+  @media (max-width: 520px) { .store-badge { min-width: 0; flex: 1 1 100%; } }
+  .pm-item { position: relative; }
+  .pm-copy {
+    position: absolute; top: 8px; right: 10px;
+    padding: 2px 10px; font-size: 11px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--text-faint);
   }
-  .qi-panel--active { display: block; }
-  .qi-code {
-    margin: 0;
-    padding: 14px 90px 14px 18px;
-    background: var(--ink, #0e0e0c);
-    color: #e8e6de;
-    border-radius: 8px;
-    font-family: var(--font-mono, 'SF Mono', Menlo, Consolas, monospace);
-    font-size: 13px;
-    overflow-x: auto;
-    white-space: nowrap;
-  }
-  .qi-code code {
-    background: transparent;
-    color: inherit;
-    padding: 0;
-  }
-  .qi-copy {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    padding: 5px 12px;
-    font-size: 11px;
-    font-weight: 500;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 5px;
-    color: #e8e6de;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .qi-copy:hover {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #000;
-  }
-  .qi-copy.copied {
-    background: #2ea043;
-    border-color: #2ea043;
-    color: white;
-  }
-  .quick-install__hint {
-    font-size: 11px;
-    color: var(--text-faint);
-    margin-top: 10px;
-    line-height: 1.6;
-  }
-  .quick-install__hint a {
-    color: var(--text-muted);
-    text-decoration: underline;
-  }
-  .quick-install__hint a:hover { color: var(--accent); }
-
-  .download__or {
-    text-align: center;
-    margin: 0 0 20px;
-    position: relative;
-  }
-  .download__or::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: var(--border);
-  }
-  .download__or span {
-    position: relative;
-    background: var(--bg);
-    padding: 0 18px;
-    font-size: 12px;
-    color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
+  .pm-copy:hover { color: var(--text); border-color: var(--accent); }
+  .pm-copy.copied { color: #2ea043; border-color: #2ea043; }
 </style>
 
 <script is:inline>
-  // Tab switching for quick-install block
-  (function () {
-    var tabs = document.querySelectorAll('.qi-tab');
-    var panels = document.querySelectorAll('.qi-panel');
-    tabs.forEach(function (tab) {
-      tab.addEventListener('click', function () {
-        var target = tab.getAttribute('data-tab');
-        tabs.forEach(function (t) { t.classList.remove('qi-tab--active'); });
-        tab.classList.add('qi-tab--active');
-        panels.forEach(function (p) {
-          if (p.getAttribute('data-panel') === target) {
-            p.classList.add('qi-panel--active');
-          } else {
-            p.classList.remove('qi-panel--active');
-          }
-        });
+  // Copy buttons on the package-manager commands.
+  document.querySelectorAll('.pm-copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var code = btn.parentElement.querySelector('code');
+      if (!code || !navigator.clipboard) return;
+      navigator.clipboard.writeText(code.textContent || '').then(function () {
+        var orig = btn.textContent;
+        btn.classList.add('copied');
+        btn.textContent = '✓';
+        setTimeout(function () { btn.classList.remove('copied'); btn.textContent = orig; }, 1500);
       });
     });
-
-    // Auto-select Windows tab for Windows visitors
-    if (/Windows/i.test(navigator.userAgent || '')) {
-      var winTab = document.querySelector('.qi-tab[data-tab="win"]');
-      if (winTab) winTab.click();
-    }
-
-    // Copy-to-clipboard buttons
-    var copyBtns = document.querySelectorAll('.qi-copy');
-    copyBtns.forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var text = btn.getAttribute('data-copy') || '';
-        navigator.clipboard.writeText(text).then(function () {
-          var orig = btn.textContent;
-          btn.classList.add('copied');
-          btn.textContent = '✓';
-          setTimeout(function () {
-            btn.classList.remove('copied');
-            btn.textContent = orig;
-          }, 1500);
-        });
-      });
-    });
-  })();
+  });
 </script>

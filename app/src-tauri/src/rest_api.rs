@@ -245,7 +245,7 @@ async fn serve(app: AppHandle) -> Result<(), String> {
 
 fn write_port_token(app: &AppHandle, port: u16) {
     let token = STATE.lock().expect("rest state lock").token.clone();
-    let dir = match app.path().app_config_dir() {
+    let dir = match super::portable::app_config_dir(app.path()) {
         Ok(d) => d,
         Err(_) => return,
     };
@@ -263,7 +263,7 @@ fn write_port_token(app: &AppHandle, port: u16) {
 }
 
 fn cleanup_port_token(app: &AppHandle) {
-    if let Ok(dir) = app.path().app_config_dir() {
+    if let Ok(dir) = super::portable::app_config_dir(app.path()) {
         let _ = std::fs::remove_file(dir.join("rest-api.port"));
         let _ = std::fs::remove_file(dir.join("rest-api.token"));
     }

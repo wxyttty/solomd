@@ -1,0 +1,9 @@
+Geplakte afbeeldingen verschijnen ook als het mappad een spatie bevat. Zulke paden maakten de afbeeldingslink ongeldig; oudere notities met deze links worden nu in voorbeeld en export getoond.
+
+De bestandsboom volgt het huidige bestand: bij het wisselen van notitie klappen de bovenliggende mappen open en wordt het bestand geselecteerd (uit te zetten).
+
+Export: losse HTML op wit papier; de tekst-PDF kan beginnen met een inhoudsopgave (Instellingen → PDF).
+
+Rustiger scherm: verberg de knoppen van de werkbalk met ⌘⌥⇧T; de AI-knop verschijnt pas als AI is ingeschakeld; communitythema’s worden volledig toegepast.
+
+Het scherm Over bedankt nu de sponsors van het project.

@@ -1,0 +1,11 @@
+Elige cualquier carpeta de la app Archivos como carpeta de trabajo: iCloud Drive, En mi iPhone o la carpeta de otra app. SoloMD la recuerda entre sesiones.
+
+La carpeta de SoloMD aparece ahora en la app Archivos, en En mi iPhone › SoloMD.
+
+Las notas abiertas desde Archivos se editan en su sitio: al guardar se actualiza el original en lugar de crear una copia.
+
+Renombra, mueve y elimina archivos en el árbol de archivos: mantén pulsado un archivo o toca ⋯.
+
+Las carpetas que abriste antes de una actualización vuelven a abrirse, en lugar de indicar que ya no están.
+
+SoloMD de la App Store no envía datos de uso y solo pide una valoración con la ventana de valoración de Apple.

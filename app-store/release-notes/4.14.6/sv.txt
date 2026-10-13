@@ -1,0 +1,9 @@
+Numrerade listor håller ordningen: lägg till eller ta bort en punkt så numreras resten om.
+
+Fetstil, kursiv, genomstruken och kod över flera stycken formaterar nu varje stycke för sig, i stället för ett enda par markeringar som syntes som asterisker.
+
+Menyer: Sök och ersätt i menyn Redigera, zoomkommandona i undermenyn Visa › Zooma, och Hjälp-menyn listar Markdown-lathunden, kortkommandona och kommandoraden var för sig. Menyn Infoga får rubriker 4–6.
+
+Länkar i anteckningar öppnas alltid i webbläsaren, aldrig inne i SoloMD.
+
+Efter några dagars användning frågar SoloMD en gång — och bara en gång — om du vill stjärnmärka den på GitHub.

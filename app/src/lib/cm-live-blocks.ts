@@ -46,9 +46,8 @@ import {
 import { renderMarkdown, extractImageRoot } from './markdown';
 import { findHtmlBlockEnd } from './html-live-render';
 import { plantumlSvgUrl } from './plantuml';
-import mermaid from 'mermaid';
-import 'katex/contrib/mhchem';
-import katex from 'katex';
+import { initMermaid } from './mermaid-lazy';
+import { getKatex, onRenderDepsChange, renderDepsVersion } from './render-deps';
 import {
   parseTldrawFence,
   TLDRAW_DEFAULT_HEIGHT,
@@ -58,21 +57,49 @@ import {
 // v4.3.0 issue #57a — live-render math + Mermaid blocks in the editor.
 // Mermaid is async; we render lazily into a counter-keyed cache so the
 // widget toDOM() can pull a ready SVG without re-rendering. The cache is
-// keyed on source text → SVG so the same diagram across multiple panes
-// renders once.
+// keyed on theme + source text → SVG so the same diagram across multiple panes
+// renders once per theme.
+//
+// #354: this used to render with theme 'default' always, so in a dark theme
+// the diagram's dark lines and labels sat on the dark editor background and
+// all but vanished. The theme now comes from the editor (same mapping as
+// preview), and it's part of the key, so switching theme renders fresh SVG
+// instead of reusing the light one.
+type MermaidTheme = 'dark' | 'default';
 const mermaidSvgCache = new Map<string, { svg: string | null; error: string | null }>();
 let mermaidIdSeq = 0;
-async function ensureMermaidRendered(source: string): Promise<void> {
-  if (mermaidSvgCache.has(source)) return;
+const mermaidKey = (source: string, theme: MermaidTheme) => `${theme}\u0000${source}`;
+// In-flight renders. A second caller has to wait for the same render, not
+// return straight away: the widget's toDOM relies on the promise resolving
+// only once the SVG is in the cache, to trigger the rebuild that swaps the
+// "Rendering…" placeholder for the diagram. Returning early made that rebuild
+// run before the render finished, and the placeholder stayed for good.
+const mermaidInflight = new Map<string, Promise<void>>();
+function ensureMermaidRendered(source: string, theme: MermaidTheme): Promise<void> {
+  const key = mermaidKey(source, theme);
+  const pending = mermaidInflight.get(key);
+  if (pending) return pending;
+  if (mermaidSvgCache.has(key)) return Promise.resolve();
   // Reserve the slot first so concurrent calls don't double-render.
-  mermaidSvgCache.set(source, { svg: null, error: null });
-  try {
-    const id = `cm-mmd-${++mermaidIdSeq}`;
-    const { svg } = await mermaid.render(id, source);
-    mermaidSvgCache.set(source, { svg, error: null });
-  } catch (e) {
-    mermaidSvgCache.set(source, { svg: null, error: (e as Error).message });
-  }
+  mermaidSvgCache.set(key, { svg: null, error: null });
+  const job = (async () => {
+    try {
+      const id = `cm-mmd-${++mermaidIdSeq}`;
+      const mermaid = await initMermaid({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme,
+      });
+      const { svg } = await mermaid.render(id, source);
+      mermaidSvgCache.set(key, { svg, error: null });
+    } catch (e) {
+      mermaidSvgCache.set(key, { svg: null, error: (e as Error).message });
+    } finally {
+      mermaidInflight.delete(key);
+    }
+  })();
+  mermaidInflight.set(key, job);
+  return job;
 }
 
 // `^\s*!\[<alt>\](<url>)\s*$` — whole-line image with no surrounding prose.
@@ -113,6 +140,14 @@ function isSeparatorRow(line: string): boolean {
 // pair behaving as an aspect-ratio hint, not a fixed size).
 const imageNaturalSizes = new Map<string, { w: number; h: number }>();
 let relayoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+// KaTeX / highlight.js finished loading: rebuild, so widgets rendered without
+// them (see the `deps` field on each) remount with the real output.
+onRenderDepsChange(() => {
+  try {
+    window.dispatchEvent(new CustomEvent('solomd:cm-relayout'));
+  } catch {}
+});
 
 function scheduleImageRelayout(): void {
   if (relayoutTimer) return;
@@ -191,12 +226,16 @@ class ImageWidget extends WidgetType {
 }
 
 class TableWidget extends WidgetType {
+  // Cells can hold math / code: a widget built before KaTeX or highlight.js
+  // arrived must not count as equal to the one built after (render-deps.ts).
+  private readonly deps = renderDepsVersion();
+
   constructor(private readonly source: string) {
     super();
   }
 
   eq(other: TableWidget): boolean {
-    return other.source === this.source;
+    return other.source === this.source && other.deps === this.deps;
   }
 
   toDOM(): HTMLElement {
@@ -218,6 +257,8 @@ class TableWidget extends WidgetType {
 
 /** Raw block HTML rendered with the same markdown-it pipeline as Preview.vue. */
 class HtmlBlockWidget extends WidgetType {
+  private readonly deps = renderDepsVersion();
+
   constructor(
     private readonly source: string,
     private readonly imageRoot: string | null,
@@ -230,7 +271,8 @@ class HtmlBlockWidget extends WidgetType {
     return (
       other.source === this.source &&
       other.imageRoot === this.imageRoot &&
-      other.filePath === this.filePath
+      other.filePath === this.filePath &&
+      other.deps === this.deps
     );
   }
 
@@ -257,12 +299,14 @@ class HtmlBlockWidget extends WidgetType {
 // the wrapping `$$\n…\n$$` literal so markdown-it-katex sees it as block
 // math and emits `<span class="katex-display">`.
 class MathWidget extends WidgetType {
+  private readonly deps = renderDepsVersion();
+
   constructor(private readonly source: string) {
     super();
   }
 
   eq(other: MathWidget): boolean {
-    return other.source === this.source;
+    return other.source === this.source && other.deps === this.deps;
   }
 
   toDOM(): HTMLElement {
@@ -287,17 +331,26 @@ class MathWidget extends WidgetType {
 // We detect spans with inlineMathSpans() below and replace each with a
 // KaTeX render while the caret is off the line (click in → source returns).
 class InlineMathWidget extends WidgetType {
+  private readonly deps = renderDepsVersion();
+
   constructor(private readonly tex: string) {
     super();
   }
 
   eq(other: InlineMathWidget): boolean {
-    return other.tex === this.tex;
+    return other.tex === this.tex && other.deps === this.deps;
   }
 
   toDOM(): HTMLElement {
     const span = document.createElement('span');
     span.className = 'cm-live-inline-math';
+    // KaTeX still loading (render-deps.ts): show the source, which is what
+    // the line reads without the widget; the load triggers a rebuild.
+    const katex = getKatex();
+    if (!katex) {
+      span.textContent = `$${this.tex}$`;
+      return span;
+    }
     try {
       span.innerHTML = katex.renderToString(this.tex, {
         throwOnError: false,
@@ -375,18 +428,33 @@ function inlineMathSpans(text: string): Array<{ start: number; end: number; tex:
 // back to a "rendering…" placeholder, then dispatches `solomd:cm-relayout`
 // to ask the editor to rebuild decorations once the cache fills.
 class MermaidWidget extends WidgetType {
-  constructor(private readonly source: string) {
+  /** Whether the cache held a finished result when this widget was built. */
+  private readonly settled: boolean;
+
+  constructor(
+    private readonly source: string,
+    private readonly theme: MermaidTheme,
+  ) {
     super();
+    const cached = mermaidSvgCache.get(mermaidKey(source, theme));
+    this.settled = !!(cached && (cached.svg || cached.error));
   }
 
   eq(other: MermaidWidget): boolean {
-    return other.source === this.source;
+    // A theme change must remount the widget with the other theme's SVG. So
+    // must the render finishing: if the placeholder and the finished widget
+    // compared equal, CodeMirror would keep the "Rendering…" DOM.
+    return (
+      other.source === this.source &&
+      other.theme === this.theme &&
+      other.settled === this.settled
+    );
   }
 
   toDOM(): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'cm-live-block cm-live-block--mermaid';
-    const cached = mermaidSvgCache.get(this.source);
+    const cached = mermaidSvgCache.get(mermaidKey(this.source, this.theme));
     if (cached?.svg) {
       wrap.innerHTML = cached.svg;
     } else if (cached?.error) {
@@ -394,7 +462,7 @@ class MermaidWidget extends WidgetType {
       wrap.textContent = `Mermaid: ${cached.error}`;
     } else {
       wrap.textContent = '⌛ Rendering Mermaid…';
-      ensureMermaidRendered(this.source).then(() => {
+      ensureMermaidRendered(this.source, this.theme).then(() => {
         // Ask the field to recompute now that the SVG cache is filled. We
         // can't hold an EditorView here (block decorations live in a state
         // field, built without a view), so signal via a window event that
@@ -645,8 +713,22 @@ interface BlockOptions {
    * English fallbacks are used when absent so the widget never shows a raw key.
    */
   getBoardStrings?: () => { loading: string; openFull: string; loadFailed: string };
+  /**
+   * #354 — Mermaid theme for the current app theme ('dark' for any dark
+   * theme). Absent → 'default'. A change takes effect on the next rebuild;
+   * the editor dispatches a relayout when the theme changes.
+   */
+  getMermaidTheme?: () => 'dark' | 'default';
   /** v4.10 #163 — PlantUML opt-in + server; absent/disabled → fences stay source. */
   getPlantuml?: () => { enabled: boolean; server: string };
+  /**
+   * #353 "Always show Markdown markers": the source stays visible whatever the
+   * caret does, so nothing collapses and nothing jumps when a line is clicked.
+   * Images still render, as a block below their own (visible) source line;
+   * tables, math, HTML blocks and diagrams keep their source. tldraw boards
+   * are unaffected — they never reveal source anyway.
+   */
+  keepSource?: () => boolean;
 }
 
 function buildBlockDecorations(state: EditorState, opts: BlockOptions): DecorationSet {
@@ -654,6 +736,7 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
         const sel = state.selection.main;
         const cursorLine = state.doc.lineAt(sel.from).number;
         const cursorLineEnd = state.doc.lineAt(sel.to).number;
+        const keepSource = opts.keepSource?.() === true;
 
         // Single pass over the whole doc — for each line, decide:
         //   * is it a standalone image line we should replace? (1 line)
@@ -680,6 +763,7 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
           if (htmlEndIndex !== null) {
             const endI = htmlEndIndex + 1;
             const cursorInside =
+              keepSource ||
               (cursorLine >= i && cursorLine <= endI) ||
               (cursorLineEnd >= i && cursorLineEnd <= endI);
             if (!cursorInside) {
@@ -706,6 +790,25 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
           // Image line.
           const imgMatch = IMAGE_LINE_RE.exec(line.text);
           if (imgMatch) {
+            if (keepSource) {
+              // Render below the source line and leave the line alone, so
+              // clicking into it changes nothing on screen.
+              const root = opts.getImageRoot?.() ?? null;
+              const filePath = opts.getFilePath?.();
+              const src = resolveImageSrc(imgMatch[2], root, filePath);
+              const localPath = resolveImagePath(imgMatch[2], root, filePath);
+              builder.add(
+                line.to,
+                line.to,
+                Decoration.widget({
+                  widget: new ImageWidget(src, imgMatch[1], isLocalSvgPath(localPath) ? localPath : null),
+                  block: true,
+                  side: 1,
+                }),
+              );
+              i += 1;
+              continue;
+            }
             const cursorInside = i >= cursorLine && i <= cursorLineEnd;
             if (!cursorInside) {
               const alt = imgMatch[1];
@@ -735,7 +838,7 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
           if (trimmedLine.startsWith('$$')) {
             // Single-line `$$ ... $$`?
             if (trimmedLine.endsWith('$$') && trimmedLine.length > 4) {
-              const cursorInside = cursorLine === i || cursorLineEnd === i;
+              const cursorInside = keepSource || cursorLine === i || cursorLineEnd === i;
               if (!cursorInside) {
                 builder.add(
                   line.from,
@@ -757,7 +860,7 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
               endI += 1;
             }
             if (endI <= lastLine) {
-              const cursorInside = cursorLine >= i && cursorLine <= endI;
+              const cursorInside = keepSource || (cursorLine >= i && cursorLine <= endI);
               const cursorInsideEnd = cursorLineEnd >= i && cursorLineEnd <= endI;
               if (!cursorInside && !cursorInsideEnd) {
                 const blockFrom = doc.line(i).from;
@@ -835,7 +938,7 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
               endI += 1;
             }
             if (endI <= lastLine) {
-              const cursorInside = cursorLine >= i && cursorLine <= endI;
+              const cursorInside = keepSource || (cursorLine >= i && cursorLine <= endI);
               const cursorInsideEnd = cursorLineEnd >= i && cursorLineEnd <= endI;
               if (!cursorInside && !cursorInsideEnd) {
                 // Body is between the opening and closing fence.
@@ -846,12 +949,13 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
                 const blockFrom = doc.line(i).from;
                 const blockTo = doc.line(endI).to;
                 // Kick off async render outside the build loop.
-                ensureMermaidRendered(body);
+                const mermaidTheme = opts.getMermaidTheme?.() ?? 'default';
+                ensureMermaidRendered(body, mermaidTheme);
                 builder.add(
                   blockFrom,
                   blockTo,
                   Decoration.replace({
-                    widget: new MermaidWidget(body),
+                    widget: new MermaidWidget(body, mermaidTheme),
                     block: true,
                   }),
                 );
@@ -875,7 +979,7 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
               endI += 1;
             }
             if (endI <= lastLine) {
-              const cursorInside = cursorLine >= i && cursorLine <= endI;
+              const cursorInside = keepSource || (cursorLine >= i && cursorLine <= endI);
               const cursorInsideEnd = cursorLineEnd >= i && cursorLineEnd <= endI;
               if (!cursorInside && !cursorInsideEnd) {
                 let body = '';
@@ -912,9 +1016,10 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
               const tableEnd = endI - 1; // last pipe row
               if (tableEnd >= i + 2) {
                 const cursorInside =
-                  cursorLine >= i && cursorLine <= tableEnd
+                  keepSource ||
+                  (cursorLine >= i && cursorLine <= tableEnd
                     ? true
-                    : cursorLineEnd >= i && cursorLineEnd <= tableEnd;
+                    : cursorLineEnd >= i && cursorLineEnd <= tableEnd);
                 if (!cursorInside) {
                   const blockFrom = doc.line(i).from;
                   const blockTo = doc.line(tableEnd).to;
@@ -941,7 +1046,7 @@ function buildBlockDecorations(state: EditorState, opts: BlockOptions): Decorati
           // pay for the inline-math regex + code-span mask. Plain prose lines
           // — the overwhelming majority in a large doc — short-circuit here, so
           // this whole-doc pass doesn't get measurably slower (#5 perf).
-          const inlineCursorHere = i >= cursorLine && i <= cursorLineEnd;
+          const inlineCursorHere = keepSource || (i >= cursorLine && i <= cursorLineEnd);
           if (!inlineCursorHere && line.text.indexOf('$') !== -1) {
             for (const span of inlineMathSpans(line.text)) {
               builder.add(
@@ -1139,6 +1244,8 @@ export const liveBlocksTheme = EditorView.theme({
     borderCollapse: 'collapse',
     margin: '0.4em 0',
     fontSize: '0.95em',
+    // Body text runs at 1.8; table rows read better tighter (as in preview).
+    lineHeight: '1.6',
   },
   '.cm-live-block--table th, .cm-live-block--table td': {
     border: '1px solid var(--border)',
@@ -1146,7 +1253,7 @@ export const liveBlocksTheme = EditorView.theme({
     textAlign: 'left',
   },
   '.cm-live-block--table thead th': {
-    background: 'var(--bg-soft)',
+    background: 'var(--bg-elev)',
     fontWeight: '600',
   },
   // v4.3.0 issue #57a — paddings fold in the 0.6em that used to come from the

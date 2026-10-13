@@ -1,0 +1,3 @@
+SoloMD'nin App Store sürümü artık kullanım verisi göndermiyor.
+
+Puan isteği yalnızca Apple'ın kendi penceresiyle, ara sıra ve asla ilk kullanımda değil.

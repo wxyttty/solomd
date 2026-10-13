@@ -32,9 +32,7 @@ use tauri::{AppHandle, Manager};
 
 /// Resolve `<config_dir>/themes`, creating the directory if needed.
 fn themes_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let base = app
-        .path()
-        .app_config_dir()
+    let base = super::portable::app_config_dir(app.path())
         .map_err(|e| format!("app_config_dir: {e}"))?;
     let dir = base.join("themes");
     if !dir.exists() {

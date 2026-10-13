@@ -2,33 +2,30 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>solomd</id>
-    <version>1.2.1</version>
+    <version>{{VERSION}}</version>
     <title>SoloMD</title>
     <authors>xiangdong li</authors>
     <owners>zhitongblog</owners>
     <licenseUrl>https://github.com/zhitongblog/solomd/blob/main/LICENSE</licenseUrl>
     <projectUrl>https://solomd.app</projectUrl>
-    <iconUrl>https://solomd.app/favicon.svg</iconUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/zhitongblog/solomd@main/app/src-tauri/icons/128x128.png</iconUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <description>
-SoloMD is a lightweight, cross-platform Markdown + plain text editor built with Tauri 2.
+SoloMD is a free, open-source (MIT) Markdown editor for Windows, macOS, Linux, iOS and Android, built with Tauri 2. About 15 MB.
 
 ## Features
-- Live preview (WYSIWYG-style editing)
-- KaTeX math rendering
-- Mermaid diagrams
-- Multi-encoding support (UTF-8, GBK, Big5)
-- Export to PDF, DOCX, HTML
-- Light &amp; dark themes
-- Clean AI artifacts (remove citations from ChatGPT/Claude)
-- Only 15MB installer
-
-## Why SoloMD?
-One file. One window. Just write.
+- Live preview: Markdown markers fade out as you type (Typora-style), plus split and source views
+- KaTeX math, Mermaid and PlantUML diagrams, tldraw whiteboards
+- Wiki links, backlinks, knowledge graph, tags and saved views
+- Export to PDF, Word (DOCX), standalone HTML and images
+- Reliable CJK input on Windows (native text boxes, no dropped characters with Sogou and other IMEs)
+- Optional local AI (Ollama or any OpenAI-compatible server) and a bundled MCP server for agents
+- Git sync, including self-hosted Gitea
+- 14 interface languages
     </description>
-    <summary>A lightweight Markdown editor with live preview</summary>
-    <releaseNotes>https://github.com/zhitongblog/solomd/releases/tag/v1.2.1</releaseNotes>
-    <copyright>Copyright 2024 xiangdong li</copyright>
+    <summary>Free, open-source Markdown editor with live preview, math, diagrams and export</summary>
+    <releaseNotes>https://github.com/zhitongblog/solomd/releases/tag/v{{VERSION}}</releaseNotes>
+    <copyright>Copyright 2026 xiangdong li</copyright>
     <tags>markdown editor text-editor tauri wysiwyg writing notes</tags>
     <projectSourceUrl>https://github.com/zhitongblog/solomd</projectSourceUrl>
     <packageSourceUrl>https://github.com/zhitongblog/solomd/tree/main/distribution/manifests/chocolatey</packageSourceUrl>

@@ -1,0 +1,3 @@
+App Store-versionen av SoloMD skickar inte längre någon användningsdata.
+
+Betyg efterfrågas bara med Apples egen betygsruta – ibland, och aldrig vid första användningen.

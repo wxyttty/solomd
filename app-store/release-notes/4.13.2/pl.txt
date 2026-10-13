@@ -1,0 +1,9 @@
+Notatka nie może już uruchomić kodu. Wbudowany HTML w pliku markdown trafiał prosto do aplikacji bez żadnego filtra, więc skrypt ukryty w cudzej notatce działał wewnątrz edytora. Renderowany markdown jest teraz oczyszczany wszędzie — podgląd, edycja na żywo, pokaz slajdów i każdy eksport. Zwykły HTML nadal działa; skrypty, procedury obsługi zdarzeń i odnośniki javascript: nie. Jeśli otwierałeś markdown, którego nie napisałeś, to jest aktualizacja do zainstalowania.
+
+Diagramy Mermaid renderują się przy eksporcie do tekstowego PDF-a. Wcześniej ta ścieżka drukowała źródło diagramu. Drukowanie nie pobiera już arkusza stylów dla wzorów z sieci, więc równania zachowują formatowanie offline.
+
+Nazwa dokumentu nie znika w wąskim oknie, a rozwinięty pasek narzędzi ma jedną trzecią dawnej wysokości i nie ma już przerwy pośrodku drugiego wiersza.
+
+Wybór motywu, po którym nic się nie zmienia, jest teraz wyjaśniany: motyw z marketplace definiujący jednocześnie kolory jasne i ciemne nadpisuje wbudowany przełącznik — ten wskazuje teraz ten motyw i wyłącza go jednym kliknięciem.
+
+Aplikacja uruchamia się szybciej. Wszystko kompilowało się przed pierwszą klatką: silnik diagramów, oba słowniki chińskie, eksport do PDF i Worda, pokaz slajdów. Teraz ładują się na żądanie, a pierwsze wyświetlenie jest około 30% szybsze.

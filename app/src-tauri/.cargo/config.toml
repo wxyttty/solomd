@@ -1,0 +1,28 @@
+# Android 16 KB page size (Play, 2026-09).
+#
+# Android 15 introduced 16 KB memory pages, and Play now REFUSES to save a
+# release whose native libraries are aligned to the old 4 KB — it stopped being
+# the "error you may ignore in this release" it was for 4.12.0 and became a
+# hard block on the review screen ("如需保存，请先修正错误").
+#
+# The NDK's own prebuilts are already aligned; ours were not, because Rust
+# links `libapp_lib.so` itself and never passes the flag. Verify with:
+#
+#   llvm-readelf -l target/aarch64-linux-android/release/libapp_lib.so
+#
+# every LOAD segment must show alignment 0x4000, not 0x1000.
+#
+# The 32-bit ABIs don't need it (16 KB pages are a 64-bit feature) but the flag
+# is harmless there and keeps every target on one rule.
+
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.armv7-linux-androideabi]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.i686-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]

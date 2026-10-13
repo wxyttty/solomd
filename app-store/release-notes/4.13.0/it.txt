@@ -1,0 +1,9 @@
+Sposta file e cartelle senza uscire dall'app. Trascina una nota su una cartella, oppure scegli «Sposta in…» e digita qualche lettera per trovare la destinazione. Lo spostamento è annullabile, le schede aperte seguono il file e i link relativi nella nota spostata vengono riancorati, così le immagini continuano a funzionare.
+
+Mostra i file nascosti. File e cartelle che iniziano con un punto erano irraggiungibili dall'app; una nuova impostazione li elenca, disattivata per impostazione predefinita.
+
+Filtra l'albero dei file per tipo. L'elenco propone le estensioni che l'archivio contiene davvero, con il conteggio, e le cartelle senza corrispondenze spariscono con esse. Un avviso indica il filtro attivo, così non sembra mai che manchino dei file.
+
+Distingui editor e anteprima nella vista divisa. Una tinta propria facoltativa per l'anteprima, derivata dal tema in uso, così la divisione non si legge più come un'unica colonna.
+
+Una finestra troppo stretta non taglia più la barra degli strumenti in silenzio. Quando la riga eccede, un pulsante apre l'intera barra su due o tre righe con etichette.

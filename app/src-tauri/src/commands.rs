@@ -214,16 +214,42 @@ fn extract_tags_for_dispatch(body: &str) -> Vec<String> {
     tags
 }
 
-pub fn write_file_inner(path: String, content: String, encoding: String) -> Result<(), String> {
+/// Encode `content` into the bytes that go on disk for `encoding`.
+///
+/// encoding_rs's `Encoding::encode` never produces UTF-16: per the WHATWG
+/// spec the *output encoding* of UTF-16LE/BE is UTF-8, so a UTF-16 file
+/// used to be silently rewritten as UTF-8. UTF-16 is therefore encoded by
+/// hand, always with a BOM — the reader only recognises UTF-16 by its BOM
+/// (chardetng never guesses UTF-16), so a BOM-less write would not reopen
+/// as UTF-16.
+pub fn encode_for_disk(content: &str, encoding: &str) -> Result<Vec<u8>, String> {
     let enc = Encoding::for_label(encoding.as_bytes()).unwrap_or(UTF_8);
-    let (cow, _, had_errors) = enc.encode(&content);
+    if enc == encoding_rs::UTF_16LE || enc == encoding_rs::UTF_16BE {
+        let le = enc == encoding_rs::UTF_16LE;
+        let mut out = Vec::with_capacity(2 + content.len() * 2);
+        out.extend_from_slice(if le { &[0xFF, 0xFE] } else { &[0xFE, 0xFF] });
+        for unit in content.encode_utf16() {
+            out.extend_from_slice(&if le {
+                unit.to_le_bytes()
+            } else {
+                unit.to_be_bytes()
+            });
+        }
+        return Ok(out);
+    }
+    let (cow, _, had_errors) = enc.encode(content);
     if had_errors {
         return Err(format!(
             "Some characters cannot be represented in {}",
             enc.name()
         ));
     }
-    fs::write(&path, cow.as_ref()).map_err(|e| format!("write failed: {e}"))?;
+    Ok(cow.into_owned())
+}
+
+pub fn write_file_inner(path: String, content: String, encoding: String) -> Result<(), String> {
+    let bytes = encode_for_disk(&content, &encoding)?;
+    fs::write(&path, &bytes).map_err(|e| format!("write failed: {e}"))?;
 
     super::watcher::mark_self_write(&path);
 
@@ -244,6 +270,53 @@ pub async fn read_binary_file(path: String) -> Result<Vec<u8>, String> {
     })
     .await
     .map_err(|e| format!("join: {e}"))?
+}
+
+/// Upper bound for `fetch_image_bytes`: an image bigger than this is not
+/// something anyone means to paste into a forum post, and it keeps a bad URL
+/// from streaming an arbitrary amount of data into memory.
+const FETCH_IMAGE_MAX_BYTES: usize = 50 * 1024 * 1024;
+
+/// #362 — fetch a remote (http/https) image's bytes for "Copy image".
+///
+/// The webview can display a remote `<img>` but can't read its pixels: a
+/// cross-origin image without CORS headers taints the canvas, and `fetch()`
+/// from the page is blocked by the same rule. Fetching from Rust has no such
+/// restriction. Only http(s) URLs are accepted; the body is capped at
+/// `FETCH_IMAGE_MAX_BYTES`.
+#[tauri::command]
+pub async fn fetch_image_bytes(url: String) -> Result<Vec<u8>, String> {
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err("only http(s) URLs can be fetched".into());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent(concat!("SoloMD/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| format!("client: {e}"))?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    if let Some(len) = resp.content_length() {
+        if len as usize > FETCH_IMAGE_MAX_BYTES {
+            return Err("image is too large".into());
+        }
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("read failed: {e}"))?;
+    if bytes.len() > FETCH_IMAGE_MAX_BYTES {
+        return Err("image is too large".into());
+    }
+    Ok(bytes.to_vec())
 }
 
 /// Write raw bytes to disk. Used for binary export targets like DOCX/PDF.
@@ -284,6 +357,143 @@ pub fn write_binary_file_inner(path: String, data: Vec<u8>) -> Result<(), String
 #[tauri::command]
 pub fn print_webview(window: tauri::WebviewWindow) -> Result<(), String> {
     window.print().map_err(|e| format!("print failed: {e}"))
+}
+
+/// macOS "Export PDF (text)": write the print layout straight to `path`.
+///
+/// `print_webview` opens the system print sheet, and on a Mac with no printer
+/// set up that sheet asks the user to add one before it shows "Save as PDF"
+/// — people read that as "exporting a PDF needs a printer". This runs the
+/// same WKWebView print operation (same @media print layout, real selectable
+/// text) as a save job: NSPrintSaveJob + NSPrintJobSavingURL, with the print
+/// and progress panels off, so no printer is ever involved.
+///
+/// `paper` / `margins` are in points (1/72 in) when the user chose a page
+/// size (Settings → PDF or `pdf:` front matter); otherwise the system default
+/// paper is used, as the print sheet would.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn print_webview_to_pdf(
+    window: tauri::WebviewWindow,
+    path: String,
+    paper: Option<(f64, f64)>,
+    margins: Option<(f64, f64, f64, f64)>,
+) -> Result<(), String> {
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use objc2_foundation::{NSSize, NSString, NSURL};
+
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {
+        static NSPrintSaveJob: &'static NSString;
+        static NSPrintJobSavingURL: &'static NSString;
+    }
+
+    let _ = std::fs::remove_file(&path);
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    let target = path.clone();
+    window
+        .with_webview(move |wv| unsafe {
+            let webview = wv.inner() as *mut AnyObject;
+            if webview.is_null() {
+                let _ = tx.send(Err("no webview".into()));
+                return;
+            }
+            let shared: *mut AnyObject = msg_send![class!(NSPrintInfo), sharedPrintInfo];
+            let info: *mut AnyObject = msg_send![shared, copy];
+            let _: () = msg_send![info, setJobDisposition: NSPrintSaveJob];
+            let url = NSURL::fileURLWithPath(&NSString::from_str(&target));
+            let dict: *mut AnyObject = msg_send![info, dictionary];
+            let _: () = msg_send![dict, setObject: &*url, forKey: NSPrintJobSavingURL];
+            if let Some((w, h)) = paper {
+                let _: () = msg_send![info, setPaperSize: NSSize::new(w, h)];
+            }
+            // Same as Tauri's own print (wry's print_with_options): margins
+            // default to 0 and the @page / overlay CSS does the spacing, so
+            // the file matches what the print sheet produced.
+            let (top, right, bottom, left) = margins.unwrap_or((0.0, 0.0, 0.0, 0.0));
+            let _: () = msg_send![info, setTopMargin: top];
+            let _: () = msg_send![info, setRightMargin: right];
+            let _: () = msg_send![info, setBottomMargin: bottom];
+            let _: () = msg_send![info, setLeftMargin: left];
+            let op: *mut AnyObject = msg_send![webview, printOperationWithPrintInfo: info];
+            let _: () = msg_send![info, release];
+            if op.is_null() {
+                let _ = tx.send(Err("WKWebView returned no print operation".into()));
+                return;
+            }
+            let _: () = msg_send![op, setShowsPrintPanel: false];
+            let _: () = msg_send![op, setShowsProgressPanel: false];
+            let _: () = msg_send![op, setCanSpawnSeparateThread: true];
+            // Window-modal, like wry. (A synchronous `runOperation` on a
+            // WKWebView print operation never finishes paginating: it kept
+            // appending pages until the file passed 400 MB.) It returns at
+            // once; completion is detected from the file below.
+            let nswindow: *mut AnyObject = msg_send![webview, window];
+            let nil: *mut AnyObject = std::ptr::null_mut();
+            let _: () = msg_send![
+                op,
+                runOperationModalForWindow: nswindow,
+                delegate: nil,
+                didRunSelector: None::<objc2::runtime::Sel>,
+                contextInfo: std::ptr::null_mut::<std::ffi::c_void>()
+            ];
+            let _ = tx.send(Ok(()));
+        })
+        .map_err(|e| format!("with_webview: {e}"))?;
+    rx.recv_timeout(std::time::Duration::from_secs(10))
+        .map_err(|_| "could not start the print operation".to_string())??;
+    // Done when the file is a complete PDF (ends with %%EOF) and has stopped
+    // growing. Bounded in time and size so a runaway job can't fill the disk.
+    let path2 = path.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        use std::io::{Read, Seek, SeekFrom};
+        const MAX_BYTES: u64 = 200 * 1024 * 1024;
+        let start = std::time::Instant::now();
+        let mut last = 0u64;
+        let mut stable = 0u32;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            if start.elapsed() > std::time::Duration::from_secs(120) {
+                return Err("PDF export timed out".into());
+            }
+            let Ok(meta) = std::fs::metadata(&path2) else { continue };
+            let len = meta.len();
+            if len > MAX_BYTES {
+                return Err("PDF export stopped: the file grew past 200 MB".into());
+            }
+            if len == 0 || len != last {
+                last = len;
+                stable = 0;
+                continue;
+            }
+            stable += 1;
+            if stable < 2 {
+                continue;
+            }
+            let mut f = std::fs::File::open(&path2).map_err(|e| e.to_string())?;
+            let tail = len.min(1024);
+            f.seek(SeekFrom::End(-(tail as i64))).map_err(|e| e.to_string())?;
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+            if buf.windows(5).any(|w| w == b"%%EOF") {
+                return Ok(());
+            }
+        }
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn print_webview_to_pdf(
+    _window: tauri::WebviewWindow,
+    _path: String,
+    _paper: Option<(f64, f64)>,
+    _margins: Option<(f64, f64, f64, f64)>,
+) -> Result<(), String> {
+    Err("direct PDF export is macOS-only; use print_webview".into())
 }
 
 #[cfg(mobile)]
@@ -371,6 +581,14 @@ pub fn fs_delete(path: String) -> Result<(), String> {
 /// empty tree under its own name, which reads as "my notes are gone".
 /// Matching on `read_dir`'s error string would be a guess: it is localized on
 /// Windows.
+/// Version of the system webview (WebView2 on Windows, e.g. "154.0.4258.48").
+/// The frontend picks the Windows editor engine from it: CodeMirror's
+/// input-method problems were WebView2-side and are gone from 154 on.
+#[tauri::command]
+pub fn webview_runtime_version() -> Option<String> {
+    tauri::webview_version().ok()
+}
+
 #[tauri::command]
 pub fn fs_dir_exists(path: String) -> bool {
     Path::new(&path).is_dir()
@@ -1087,6 +1305,30 @@ pub struct DirEntry {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
+    /// Milliseconds since the Unix epoch. Only filled when the caller asks for
+    /// times (the file tree sorted by date, #342); omitted otherwise so the
+    /// default listing stays the stat-free scan described below.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub modified: Option<u64>,
+    /// Creation (birth) time in ms since the epoch, where the platform and
+    /// filesystem record one; otherwise the modification time, so "newest
+    /// first" still orders sensibly on filesystems without birth times.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub created: Option<u64>,
+}
+
+fn epoch_ms(t: std::io::Result<std::time::SystemTime>) -> Option<u64> {
+    t.ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+}
+
+/// (modified, created) for one entry. `created` falls back to `modified`
+/// when the platform has no birth time (older Linux kernels / filesystems).
+pub fn entry_times(meta: &fs::Metadata) -> (Option<u64>, Option<u64>) {
+    let modified = epoch_ms(meta.modified());
+    let created = epoch_ms(meta.created()).or(modified);
+    (modified, created)
 }
 
 /// List immediate children of a directory. Sorted: dirs first, then files,
@@ -1107,6 +1349,13 @@ pub struct DirEntry {
 /// scanning". Reported by user 2026-04-26 as "Win 下打开一个文件比较多
 /// 的目录还是有些卡顿".
 pub fn list_dir_inner(path: String, show_hidden: bool) -> Result<Vec<DirEntry>, String> {
+    list_dir_with(path, show_hidden, false)
+}
+
+/// `with_times` stats every entry for its modified/created time. It is off
+/// for the normal listing (see above for why metadata() is avoided) and on
+/// only when the tree is sorted by date (#342).
+pub fn list_dir_with(path: String, show_hidden: bool, with_times: bool) -> Result<Vec<DirEntry>, String> {
     let read = fs::read_dir(&path).map_err(|e| format!("read_dir failed: {e}"))?;
     const HARD_CAP: usize = 10_000;
     let mut entries: Vec<DirEntry> = Vec::new();
@@ -1128,10 +1377,20 @@ pub fn list_dir_inner(path: String, show_hidden: bool) -> Result<Vec<DirEntry>, 
             Ok(t) => t.is_dir(),
             Err(_) => continue,
         };
+        let (modified, created) = if with_times {
+            match e.metadata() {
+                Ok(m) => entry_times(&m),
+                Err(_) => (None, None),
+            }
+        } else {
+            (None, None)
+        };
         entries.push(DirEntry {
             name,
             path: e.path().to_string_lossy().to_string(),
             is_dir,
+            modified,
+            created,
         });
     }
     entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
@@ -1148,6 +1407,8 @@ pub fn list_dir_inner(path: String, show_hidden: bool) -> Result<Vec<DirEntry>, 
             name: "__solomd_truncated__".into(),
             path: String::new(),
             is_dir: false,
+            modified: None,
+            created: None,
         });
     }
     Ok(entries)
@@ -1160,9 +1421,14 @@ pub fn list_dir_inner(path: String, show_hidden: bool) -> Result<Vec<DirEntry>, 
 /// (reproduced as "toggle file tree → app crashes" on Win11). Same fix as
 /// git_history: hand off to the blocking pool.
 #[tauri::command]
-pub async fn list_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<DirEntry>, String> {
+pub async fn list_dir(
+    path: String,
+    show_hidden: Option<bool>,
+    with_times: Option<bool>,
+) -> Result<Vec<DirEntry>, String> {
     let show_hidden = show_hidden.unwrap_or(false);
-    tauri::async_runtime::spawn_blocking(move || list_dir_inner(path, show_hidden))
+    let with_times = with_times.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || list_dir_with(path, show_hidden, with_times))
         .await
         .map_err(|e| format!("join: {e}"))?
 }
@@ -1557,4 +1823,121 @@ pub async fn delete_frontmatter_property(
     })
     .await
     .map_err(|e| format!("join: {e}"))?
+}
+
+#[cfg(test)]
+mod list_dir_times_tests {
+    use super::*;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    fn now_ms() -> u64 {
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+    }
+
+    #[test]
+    fn times_only_when_asked() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.md"), "a").unwrap();
+        let p = dir.path().to_string_lossy().to_string();
+
+        let plain = list_dir_with(p.clone(), false, false).unwrap();
+        assert_eq!(plain.len(), 1);
+        assert!(plain[0].modified.is_none() && plain[0].created.is_none());
+
+        let timed = list_dir_with(p, false, true).unwrap();
+        let m = timed[0].modified.expect("modified");
+        let c = timed[0].created.expect("created (or modified fallback)");
+        let now = now_ms();
+        assert!(m <= now + 1_000 && now - m < 60_000, "modified {m} vs now {now}");
+        assert!(c <= now + 1_000 && now - c < 60_000, "created {c} vs now {now}");
+    }
+
+    #[test]
+    fn modified_tracks_later_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("old.md");
+        let new = dir.path().join("new.md");
+        fs::write(&old, "o").unwrap();
+        fs::write(&new, "n").unwrap();
+        // Push old.md's mtime back an hour so the order can't be a tie.
+        let hour_ago = SystemTime::now() - Duration::from_secs(3600);
+        fs::File::options().write(true).open(&old).unwrap().set_modified(hour_ago).unwrap();
+        let entries = list_dir_with(dir.path().to_string_lossy().to_string(), false, true).unwrap();
+        let get = |n: &str| entries.iter().find(|e| e.name == n).unwrap().modified.unwrap();
+        assert!(get("new.md") > get("old.md") + 3_000_000);
+    }
+
+    #[test]
+    fn serialization_omits_absent_times() {
+        let e = DirEntry { name: "x".into(), path: "/x".into(), is_dir: false, modified: None, created: None };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(!json.contains("modified") && !json.contains("created"), "{json}");
+    }
+}
+
+#[cfg(test)]
+mod encoding_round_trip_tests {
+    use super::*;
+
+    /// Write `original`, open it, save it back unchanged, and return the
+    /// first read plus the bytes left on disk.
+    fn round_trip(encoding: &str, original: &[u8]) -> (FileReadResult, Vec<u8>) {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("f.txt");
+        fs::write(&p, original).unwrap();
+        let path = p.to_string_lossy().to_string();
+        let read = read_file_inner(path.clone()).unwrap();
+        assert_eq!(read.encoding, encoding);
+        write_file_inner(path.clone(), read.content.clone(), read.encoding.clone()).unwrap();
+        let reread = read_file_inner(path).unwrap();
+        assert_eq!(reread.encoding, encoding);
+        assert_eq!(reread.content, read.content);
+        (read, fs::read(&p).unwrap())
+    }
+
+    fn utf16(text: &str, le: bool) -> Vec<u8> {
+        let mut bytes = if le { vec![0xFF, 0xFE] } else { vec![0xFE, 0xFF] };
+        for u in text.encode_utf16() {
+            bytes.extend_from_slice(&if le { u.to_le_bytes() } else { u.to_be_bytes() });
+        }
+        bytes
+    }
+
+    #[test]
+    fn utf16le_with_bom_round_trips() {
+        let text = "UTF-16 文件\nline 2 😀";
+        let bytes = utf16(text, true);
+        let (read, disk) = round_trip("UTF-16LE", &bytes);
+        assert!(read.had_bom);
+        assert_eq!(read.content, text);
+        assert_eq!(disk, bytes);
+    }
+
+    #[test]
+    fn utf16be_with_bom_round_trips() {
+        let text = "UTF-16 文件\nline 2 😀";
+        let bytes = utf16(text, false);
+        let (read, disk) = round_trip("UTF-16BE", &bytes);
+        assert!(read.had_bom);
+        assert_eq!(read.content, text);
+        assert_eq!(disk, bytes);
+    }
+
+    #[test]
+    fn gbk_round_trips() {
+        let text = "这是一个中文文件，用来测试 GBK 编码的读取和保存。\n第二行内容也是中文。";
+        let (bytes, _, _) = encoding_rs::GBK.encode(text);
+        let (read, disk) = round_trip("GBK", &bytes);
+        assert_eq!(read.content, text);
+        assert_eq!(disk, bytes.as_ref());
+    }
+
+    #[test]
+    fn big5_round_trips() {
+        let text = "這是一個繁體中文檔案，用來測試大五碼的讀取與儲存。\n第二行內容也是繁體中文。";
+        let (bytes, _, _) = encoding_rs::BIG5.encode(text);
+        let (read, disk) = round_trip("Big5", &bytes);
+        assert_eq!(read.content, text);
+        assert_eq!(disk, bytes.as_ref());
+    }
 }

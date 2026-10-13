@@ -1,0 +1,128 @@
+{
+  "manifest_version": "0.3",
+  "name": "solomd-mcp",
+  "display_name": "SoloMD",
+  "version": "5.0.0",
+  "description": "Read and search a folder of Markdown notes from an MCP client: notes, full-text search, backlinks, tags, tasks, outlines and version history.",
+  "long_description": "The MCP server that ships with SoloMD, a free, open-source Markdown editor (solomd.app). It works on any plain folder of .md files, with or without the editor installed. Tools list and read notes, search them (literal or regex), follow wikilink backlinks, collect tags and checkbox tasks, return heading outlines, export a note to HTML, Markdown, text or Word, and read SoloMD's per-note AutoGit history and diffs. This bundle is read-only: writing, appending and rolling back need the server started with --allow-write, which you can add to the arguments yourself.",
+  "author": {
+    "name": "xiangdong li",
+    "url": "https://solomd.app"
+  },
+  "homepage": "https://solomd.app",
+  "documentation": "https://github.com/zhitongblog/solomd/tree/main/mcp-server#readme",
+  "support": "https://github.com/zhitongblog/solomd/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhitongblog/solomd"
+  },
+  "license": "MIT",
+  "icon": "icon.png",
+  "keywords": [
+    "markdown",
+    "notes",
+    "obsidian",
+    "knowledge-base",
+    "search",
+    "backlinks",
+    "wikilinks",
+    "zettelkasten"
+  ],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/solomd-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/solomd-mcp",
+      "args": [
+        "--workspace",
+        "${user_config.workspace}"
+      ],
+      "env": {},
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/server/solomd-mcp.exe"
+        },
+        "linux": {
+          "command": "${__dirname}/server/solomd-mcp-linux"
+        }
+      }
+    }
+  },
+  "user_config": {
+    "workspace": {
+      "type": "directory",
+      "title": "Notes folder",
+      "description": "The folder of Markdown notes the server may read.",
+      "required": true
+    }
+  },
+  "tools": [
+    {
+      "name": "append_to_note",
+      "description": "Append text to an existing note. Requires --allow-write. A newline is inserted between existing content and new text if needed. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "autogit_diff",
+      "description": "Show a unified diff for one note between two AutoGit commits. Defaults: sha=HEAD, base=parent of sha. Returns the diff as a string plus the resolved sha/base. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "autogit_log",
+      "description": "List the commit history for a single note from SoloMD's AutoGit repo (saves are auto-committed). Returns sha + short_sha + author + time (unix seconds) + summary, newest first. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "autogit_rollback",
+      "description": "Restore a note's content from a specific AutoGit commit by overwriting the working tree. Requires --allow-write. The rollback is itself a new save (and thus a new AutoGit commit), so the prior history is preserved. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "get_backlinks",
+      "description": "Return wikilink-style backlinks (`[[note_name]]`) to the given note. Match is case-insensitive on the file stem. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "get_outline",
+      "description": "Return the heading outline of a note, with level (1-6), text, and 1-based line number in the file (front matter counted, same as list_tasks and search). Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "list_notes",
+      "description": "List Markdown notes in a SoloMD workspace. Returns metadata only (path, name, title, mtime, size, summary). Use read_note to fetch full content. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "list_tags",
+      "description": "List every tag found in a workspace (body `#tag` and front-matter `tags:`), sorted by count desc. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "list_tasks",
+      "description": "Return every Markdown checkbox (`- [ ]` / `- [x]`) in the workspace, with its file, 1-based line number, done state, and text. Checkboxes inside fenced code blocks and front matter are skipped. Pass `done` to filter to open or completed tasks only, and `workspace` (alias or absolute path) to target a non-default workspace."
+    },
+    {
+      "name": "read_agent_trace",
+      "description": "Return the agent run trace as an array of step objects. Lines from `<workspace>/.solomd/agent-runs/<run_id>/trace.jsonl`; an unknown run id is an error. Each step has ts (unix ms), seq (1-based), kind, plus kind-specific fields (provider/model/tool/result/...). See SoloMD v4 contracts C2 for the schema."
+    },
+    {
+      "name": "read_note",
+      "description": "Read a single Markdown note. Returns full content plus parsed front matter, headings, tags, and outbound wikilinks. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "search",
+      "description": "Search notes for a query. Returns up to `limit` matches with 3-line context. mode defaults to \"literal\"; pass \"regex\" for a regular-expression search. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "share_url",
+      "description": "Return the public solomd.app/share/ URL for a note. Only resolves to a real page if the workspace's linked repo is public; for private repos the URL exists but raw.githubusercontent.com will 404. Use sync_status first to check `private`. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "sync_status",
+      "description": "Return SoloMD's GitHub-sync configuration for a workspace: linked remote, current branch, encryption flag, last push/pull timestamps. Reads .solomd/sync.json — does not require credentials. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    },
+    {
+      "name": "write_note",
+      "description": "Write a Markdown note to disk. Requires the server to be started with --allow-write. Only .md, .markdown and .txt paths inside the workspace are accepted; missing folders are created. Refuses to overwrite an existing file unless `allow_overwrite` is true. Pass `workspace` (alias or absolute path) to target a non-default workspace; omit it to use the first registered workspace."
+    }
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ]
+  }
+}

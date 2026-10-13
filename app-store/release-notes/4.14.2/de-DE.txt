@@ -1,0 +1,9 @@
+„Mit Standard-App öffnen“ funktioniert wieder. Eine falsch platzierte Berechtigungsregel blockierte jedes Öffnen mit einer anderen App – Symbolleiste, verlinkte PDF- und Office-Dateien, Wörterbuchordner. Jedes Dokument lässt sich jetzt öffnen; Programme und Skripte bleiben gesperrt.
+
+Gedruckte PDFs enthalten alle Seiten. Das Text-PDF brach nach Seite 1 ab; lange Tabellen wiederholen jetzt ihre Kopfzeile. Das Bild-PDF schneidet keine Textzeilen oder Tabellenzeilen mehr durch.
+
+Exportiertes HTML ist eigenständig: Mermaid-Diagramme, Mathe-Schriften und lokale Bilder sind eingebettet, kein Warten auf Downloads. Der Word-Export enthält Mermaid-Diagramme als Bilder.
+
+Dateibaum: Löschen fragt nach (landet weiterhin im Papierkorb), Ordnersymbole und Einrückungslinien, die markierte Auswahl bestimmt den Ort neuer Dateien, Ordner optional per Doppelklick, neues Kürzel für eine Notiz im gewählten Ordner, „Im Dateibaum anzeigen“ scrollt zur Datei.
+
+Außerdem: Esc schließt die Bildansicht, ``` schlägt Code-Sprachen vor.

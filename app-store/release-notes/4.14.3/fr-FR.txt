@@ -1,0 +1,9 @@
+Les images collées s’affichent même si le chemin de leur dossier contient une espace. Ces chemins rendaient le lien invalide ; les anciennes notes concernées s’affichent désormais en aperçu et à l’export.
+
+L’arborescence suit le fichier courant : changer de note déplie ses dossiers et le sélectionne (désactivable).
+
+Export : HTML autonome sur papier blanc ; le PDF texte peut commencer par une page de sommaire (Réglages → PDF).
+
+Écran plus sobre : masquez les boutons de la barre avec ⌘⌥⇧T ; le bouton IA n’apparaît qu’une fois l’IA activée ; les thèmes communautaires s’appliquent entièrement.
+
+L’écran À propos remercie désormais les sponsors du projet.

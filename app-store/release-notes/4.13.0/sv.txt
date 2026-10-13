@@ -1,0 +1,9 @@
+Flytta filer och mappar utan att lämna appen. Dra en anteckning till en mapp, eller välj ”Flytta till…" och skriv några bokstäver för att hitta målet. Flytten går att ångra, öppna flikar följer filen, och relativa länkar i den flyttade anteckningen förankras om så att bilderna fortsätter fungera.
+
+Visa dolda filer. Filer och mappar som börjar med punkt gick inte att nå inifrån appen; en ny inställning visar dem, avstängd som standard.
+
+Filtrera filträdet på filtyp. Listan erbjuder de filändelser valvet faktiskt innehåller, med antal, och mappar utan träffar försvinner med dem. En notis anger det aktiva filtret, så att det aldrig ser ut som saknade filer.
+
+Skilj redigeraren från förhandsvisningen i delad vy. En valfri egen nyans för förhandsvisningen, härledd ur det tema du använder, så att delningen inte läses som en enda bred kolumn.
+
+Ett för smalt fönster klipper inte längre verktygsfältet i tysthet. Vid överflöd fäller en knapp ut hela fältet som två eller tre märkta rader.

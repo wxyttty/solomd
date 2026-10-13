@@ -1,0 +1,9 @@
+„Otwórz w domyślnej aplikacji” znów działa. Źle umieszczona reguła uprawnień blokowała każde otwarcie w innej aplikacji: przycisk paska narzędzi, podlinkowane pliki PDF i Office, folder słowników. Teraz otwiera się każdy dokument; programy i skrypty nadal są blokowane.
+
+Drukowane PDF zawierają wszystkie strony. PDF tekstowy kończył się na pierwszej stronie; długie tabele powtarzają nagłówek. PDF obrazowy nie przecina już wierszy tekstu ani tabeli.
+
+Eksportowany HTML jest samodzielny: diagramy Mermaid, czcionki matematyczne i lokalne obrazy są osadzone, bez czekania na pobieranie. Eksport do Worda zawiera diagramy Mermaid jako obrazy.
+
+Drzewo plików: pytanie przed usunięciem (nadal do Kosza), ikony folderów i linie wcięć, podświetlone zaznaczenie decyduje, gdzie powstaje nowy plik, opcjonalne otwieranie folderów dwuklikiem, nowy skrót tworzący notatkę w zaznaczonym folderze, „Pokaż w drzewie plików” przewija do pliku.
+
+Poza tym: Esc zamyka przeglądarkę obrazów, a ``` podpowiada języki.

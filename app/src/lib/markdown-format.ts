@@ -5,8 +5,6 @@
  * Front matter is preserved verbatim — Prettier's markdown parser doesn't
  * understand YAML front matter, and ad-hoc rewrites would corrupt it.
  */
-import * as prettier from 'prettier/standalone';
-import * as markdownPlugin from 'prettier/plugins/markdown';
 
 const FRONT_MATTER_RE = /^(---\r?\n[\s\S]*?\r?\n---\r?\n)([\s\S]*)$/;
 
@@ -18,6 +16,13 @@ export async function formatMarkdown(
   const m = FRONT_MATTER_RE.exec(source);
   const fm = m ? m[1] : '';
   const body = m ? m[2] : source;
+
+  // Prettier's standalone build plus the markdown plugin is ~1 MB, and it is
+  // only ever needed when the user asks to format.
+  const [prettier, markdownPlugin] = await Promise.all([
+    import('prettier/standalone'),
+    import('prettier/plugins/markdown'),
+  ]);
 
   const formatted = await prettier.format(body, {
     parser: 'markdown',

@@ -1,0 +1,49 @@
+name: Download stats
+
+# Once a day: collect download counts from every channel and store them in
+# solomd.app's D1 (web/migrations/0003_downloads.sql) through
+# POST /api/admin/downloads. The homepage total (/api/stats) and the /admin
+# dashboard read from there. See scripts/collect-downloads.py for what each
+# channel counts.
+#
+# Secrets:
+#   SOLOMD_INGEST_TOKEN   must equal the INGEST_TOKEN secret of the Cloudflare
+#                         Pages project "solomd"
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   App Store Connect API key
+#   MSSTORE_TENANT_ID, MSSTORE_CLIENT_ID, MSSTORE_CLIENT_SECRET   (optional)
+#   PLAY_BUCKET, PLAY_SERVICE_ACCOUNT_JSON                        (optional)
+# A channel whose secrets are missing is skipped, not recorded as zero.
+
+on:
+  schedule:
+    # 03:17 UTC — after Apple's daily analytics files land, off the hour to
+    # dodge GitHub's top-of-the-hour cron congestion.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: download-stats
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect and send
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOLOMD_INGEST_TOKEN: ${{ secrets.SOLOMD_INGEST_TOKEN }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+          PLAY_BUCKET: ${{ secrets.PLAY_BUCKET }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: python3 scripts/collect-downloads.py

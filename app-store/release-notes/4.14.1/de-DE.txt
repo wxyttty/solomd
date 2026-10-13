@@ -1,0 +1,11 @@
+Der Tabelleneditor schreibt vorwärts. Eingaben in einer Zelle kamen rückwärts heraus – „abc“ wurde zu „cba“ –, weil jeder Tastendruck die Zelle neu schrieb und den Cursor an den Anfang setzte. Beim Einfügen, Verschieben oder Löschen von Zeilen und Spalten bleibt der Text jeder Zelle an seinem Platz.
+
+Geteilte Bereiche lassen sich schließen. Zieht man einen Tab in den Editor, entsteht eine zweite Ansicht derselben Notiz – und für den zusätzlichen Bereich gab es keinen sichtbaren Ausweg, er kam sogar nach einem Neustart wieder. Jetzt hat jeder Bereich eine eigene Schließen-Schaltfläche, sobald es mehr als einen gibt.
+
+Jede geöffnete Datei ist einen Tipp entfernt. Passen die Tabs nicht mehr, listet eine ⌄-Schaltfläche alle auf, ungespeicherte markiert.
+
+Dateibaum: Eine neue Datei oder ein neuer Ordner wird dort benannt, wo er tatsächlich erscheint, nicht ganz oben im Baum. Lange Dateinamen nutzen die ganze Breite der Seitenleiste statt fester 30 Zeichen. Ordner für Bildanhänge (_assets und name.assets) sind ausgeblendet, solange „Versteckte Dateien anzeigen“ aus ist, damit sie nicht versehentlich umbenannt oder verschoben werden.
+
+Tabellen: Kurze Zellen werden neben einer langen nicht mehr zu einer Spalte von einem Zeichen Breite zusammengedrückt – in der App und beim PDF-, HTML- und Bildexport.
+
+Auf dem iPhone bricht die erweiterte Werkzeugleiste jetzt innerhalb des Bildschirms um, sodass „Einstellungen“ und die übrigen Schaltflächen am Ende auch im Hochformat erreichbar sind. Menüs nutzen die Fensterhöhe, statt nach 360 Punkten zu scrollen.

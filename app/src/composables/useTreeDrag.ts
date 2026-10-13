@@ -28,6 +28,11 @@ export const dragIsDir = ref(false);
 /** Folder path currently highlighted as the drop target, or null. */
 export const dropTarget = ref<string | null>(null);
 
+/** #342 — in manual sort mode, dropping onto the top or bottom edge of a
+ *  sibling reorders instead of moving into a folder. This is the row the
+ *  insertion line is drawn on and which side of it. */
+export const reorderTarget = ref<{ path: string; pos: 'before' | 'after' } | null>(null);
+
 /** Set for one click after a real drag, so the trailing click doesn't also
  *  open the file / toggle the folder that was just dropped. Consumed by the
  *  click handler, the same way PaneTabBar does it. */
@@ -37,6 +42,7 @@ export function endDrag() {
   dragPath.value = null;
   dragIsDir.value = false;
   dropTarget.value = null;
+  reorderTarget.value = null;
 }
 
 /** The separator this path is written with — Windows paths keep backslashes. */

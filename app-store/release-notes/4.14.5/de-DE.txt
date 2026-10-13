@@ -1,0 +1,11 @@
+„Als PDF (Text) exportieren“ speichert auf dem Mac direkt in eine Datei: kein Druckdialog, kein Drucker nötig.
+
+Der Word-Export behält alle Bilder, auch Webbilder und Bilder im Fließtext, in Tabellen und Listen. PlantUML-Diagramme erscheinen in Word und PDF, und das Bild-PDF behält Webbilder.
+
+Text-PDF: Integralzeichen in Formeln werden korrekt gedruckt, Code wird nicht mehr blass.
+
+Die Einstellungssuche springt von Treffer zu Treffer und blendet leere Kategorien aus. Im Dateibaum löscht ⌘⌫ und F2 benennt um; beim Ziehen steht dabei, was das Ablegen bewirkt.
+
+Der Dialog für ungespeicherte Änderungen reagiert auf ⌘S, ⌘D und Esc. ⌘1 funktioniert auch in einer leeren ersten Zeile.
+
+Die geteilte Ansicht kann ohne Synchronisierung laufen; die Vorschau aktualisiert dann beim Speichern. Mit A4 erhält das PDF-Inhaltsverzeichnis Seitenzahlen.

@@ -1,0 +1,11 @@
+«Exportar a PDF (texto)» en Mac guarda ahora directamente en un archivo: sin diálogo de impresión ni impresora.
+
+La exportación a Word conserva todas las imágenes, incluidas las de la web y las que están en una frase, una tabla o una lista. Los diagramas PlantUML aparecen en Word y en los PDF, y el PDF de imagen conserva las imágenes web.
+
+PDF de texto: los signos de integral se imprimen bien y el código ya no sale desvaído.
+
+La búsqueda de ajustes recorre los resultados y oculta las categorías vacías. En el árbol de archivos, ⌘⌫ elimina, F2 renombra y al arrastrar se indica qué hará la suelta.
+
+El diálogo de cambios sin guardar responde a ⌘S, ⌘D y Esc. ⌘1 funciona en una primera línea vacía.
+
+La vista dividida puede dejar de sincronizarse: entonces la vista previa se actualiza al guardar. Al elegir A4, el índice del PDF muestra números de página.

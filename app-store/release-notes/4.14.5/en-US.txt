@@ -1,0 +1,11 @@
+Export PDF (text) on Mac now saves straight to a file: no print dialog, and no printer needed.
+
+Word export keeps every image, including web images and images inside a sentence, a table or a list. PlantUML diagrams now appear in Word and PDF exports, and the image PDF keeps web images.
+
+Text PDF: integral signs in formulas print correctly, and code is no longer faded.
+
+Settings search steps through matches and hides empty categories. In the file tree, ⌘⌫ deletes and F2 renames, and dragging shows what the drop will do.
+
+The unsaved-changes dialog answers to ⌘S, ⌘D and Esc. ⌘1 now works on an empty first line.
+
+Split view can stop syncing: the preview then refreshes when you save. Choosing A4 turns on page numbers in the PDF table of contents.

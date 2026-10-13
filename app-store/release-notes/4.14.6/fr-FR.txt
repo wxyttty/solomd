@@ -1,0 +1,9 @@
+Les listes numérotées restent dans l'ordre : ajoutez ou supprimez un élément, les suivants se renumérotent.
+
+Gras, italique, barré et code sur plusieurs paragraphes formatent désormais chaque paragraphe séparément, au lieu d'une seule paire de marques qui s'affichait en astérisques.
+
+Menus : Rechercher et remplacer dans le menu Édition, les commandes de zoom dans le sous-menu Présentation › Zoom, et le menu Aide liste séparément l'aide-mémoire Markdown, les raccourcis clavier et la ligne de commande. Le menu Insérer propose les titres 4 à 6.
+
+Les liens des notes s'ouvrent toujours dans le navigateur, jamais dans SoloMD.
+
+Après quelques jours d'utilisation, SoloMD demande une fois — une seule — si vous voulez lui mettre une étoile sur GitHub.

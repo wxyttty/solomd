@@ -1,0 +1,9 @@
+„Openen met standaardapp” werkt weer. Een verkeerd geplaatste machtigingsregel blokkeerde elk openen met een andere app: de knop in de werkbalk, gekoppelde PDF- en Office-bestanden, de woordenboekmap. Elk document opent nu; programma’s en scripts blijven geweigerd.
+
+Afgedrukte PDF’s bevatten alle pagina’s. De tekst-PDF stopte na de eerste pagina; lange tabellen herhalen hun kopregel. De afbeeldings-PDF snijdt geen tekstregels of tabelrijen meer door.
+
+Geëxporteerde HTML staat op zichzelf: Mermaid-diagrammen, wiskundelettertypen en lokale afbeeldingen zijn ingesloten, zonder wachten op downloads. Word-export bevat Mermaid-diagrammen als afbeeldingen.
+
+Bestandsboom: verwijderen vraagt eerst (gaat nog steeds naar de prullenmand), mappictogrammen en inspringlijnen, de gemarkeerde selectie bepaalt waar een nieuw bestand komt, mappen optioneel openen met dubbelklik, nieuwe sneltoets voor een notitie in de geselecteerde map, „Tonen in bestandsboom” scrolt naar het bestand.
+
+Verder: Esc sluit de afbeeldingsviewer en ``` stelt talen voor.

@@ -1,0 +1,9 @@
+Mueva archivos y carpetas sin salir de la aplicación. Arrastre una nota sobre una carpeta o elija «Mover a…» y escriba unas letras para encontrar el destino. El movimiento se puede deshacer, las pestañas abiertas siguen al archivo y los enlaces relativos de la nota movida se reanclan para que sus imágenes sigan funcionando.
+
+Mostrar archivos ocultos. Los archivos y carpetas que empiezan por punto eran inalcanzables desde la aplicación; una opción nueva los muestra, desactivada por defecto.
+
+Filtrar el árbol de archivos por tipo. La lista ofrece las extensiones que su bóveda realmente tiene, con su recuento, y las carpetas sin coincidencias desaparecen con ellas. Un aviso indica el filtro activo para que nunca parezca que faltan archivos.
+
+Distinguir el editor de la vista previa en vista dividida. Un tono propio opcional para la vista previa, derivado del tema que use, para que la división no se lea como una sola columna ancha.
+
+Una ventana demasiado estrecha ya no recorta la barra de herramientas en silencio. Cuando la fila se desborda, un botón despliega toda la barra en dos o tres filas con etiquetas.

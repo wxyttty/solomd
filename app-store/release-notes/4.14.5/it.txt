@@ -1,0 +1,11 @@
+«Esporta in PDF (testo)» su Mac ora salva direttamente in un file: niente finestra di stampa, niente stampante.
+
+L’esportazione in Word conserva tutte le immagini, comprese quelle dal web e quelle dentro una frase, una tabella o un elenco. I diagrammi PlantUML compaiono in Word e nei PDF, e il PDF immagine mantiene le immagini web.
+
+PDF testo: i segni di integrale si stampano correttamente e il codice non è più sbiadito.
+
+La ricerca nelle impostazioni scorre i risultati e nasconde le categorie vuote. Nell’albero dei file ⌘⌫ elimina, F2 rinomina e il trascinamento mostra cosa farà il rilascio.
+
+La finestra delle modifiche non salvate risponde a ⌘S, ⌘D ed Esc. ⌘1 funziona anche su una prima riga vuota.
+
+La vista divisa può smettere di sincronizzarsi: l’anteprima si aggiorna allora al salvataggio. Scegliendo A4 l’indice del PDF mostra i numeri di pagina.

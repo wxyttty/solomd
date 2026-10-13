@@ -54,9 +54,19 @@ if [ -z "$RID" ]; then
 fi
 echo "release id $RID for $TAG"
 
+# Only a finished asset counts. A killed upload can leave one in state
+# "starter" that already reports the full byte size but is hidden from the
+# release and never downloadable (4.14.2's universal APK) — so it has to be
+# deleted and sent again, not skipped.
 remote_size() {
   gh api "repos/$REPO/releases/$RID/assets" --paginate \
-    --jq ".[] | select(.name == \"$1\") | .size" 2>/dev/null | head -1
+    --jq ".[] | select(.name == \"$1\" and .state == \"uploaded\") | .size" 2>/dev/null | head -1
+}
+
+# id of a same-named asset stuck in any state other than "uploaded"
+stale_id() {
+  gh api "repos/$REPO/releases/$RID/assets" --paginate \
+    --jq ".[] | select(.name == \"$1\" and .state != \"uploaded\") | .id" 2>/dev/null | head -1
 }
 
 failed=0
@@ -73,6 +83,11 @@ for f in "$@"; do
 
   ok=0
   for try in $(seq 1 "$TRIES"); do
+    sid="$(stale_id "$name" || true)"
+    if [ -n "$sid" ]; then
+      gh api -X DELETE "repos/$REPO/releases/assets/$sid" >/dev/null 2>&1 || true
+      echo "         $name: removed unfinished asset $sid"
+    fi
     gh release upload "$TAG" "$f" --repo "$REPO" --clobber >/dev/null 2>&1 &
     pid=$!
     waited=0

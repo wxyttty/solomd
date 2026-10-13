@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { useAppMenu } from '../composables/useAppMenu';
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue';
 import { shortcutLabel } from '../lib/keybindings';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settings';
@@ -8,7 +9,7 @@ import { useToastsStore } from '../stores/toasts';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useRagStore } from '../stores/rag';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
-import { themeLabels } from '../lib/themes';
+import { themeOptions } from '../lib/themes';
 import { useI18n } from '../i18n';
 import { quickCaptureError } from '../lib/quick-capture-status';
 import {
@@ -17,11 +18,22 @@ import {
   conflictFor,
   eventToCombo,
   formatCombo,
+  normalizeCombo,
+  interceptedBindings,
+  filterKeyActions,
+  WRITER_PRESET,
+  writerPresetActive,
+  typoraPreset,
+  presetActive,
+  KEY_CATEGORIES,
+  planPreset,
   type KeyActionDef,
 } from '../lib/keybindings';
-import { isMacOS } from '../lib/platform';
-import { checkForUpdate, openReleaseUrl, isMasBuild } from '../lib/check-update';
+import { usesCommandKey } from '../lib/platform';
+import { isMasBuild } from '../lib/check-update';
+import { useUpdateCheck } from '../composables/useUpdateCheck';
 import { IS_APP_STORE_BUILD } from '../lib/app-build';
+import { useFiles } from '../composables/useFiles';
 import AISettings from './AISettings.vue';
 import CitationPickerSettings from './CitationPickerSettings.vue';
 import CaptureEndpointSettings from './CaptureEndpointSettings.vue';
@@ -37,10 +49,14 @@ import GithubSyncSettings from './GithubSyncSettings.vue';
 import CloudFolderBanner from './CloudFolderBanner.vue';
 import ProxySettings from './ProxySettings.vue';
 import ThemeMarketplace from './ThemeMarketplace.vue';
-import { isIOS, isMobile, hasGitBackend } from '../lib/platform';
+import { isIOS, isMobile, hasGitBackend, isWindowsEditorRuntime, resolveWindowsEditorEngine } from '../lib/platform';
+import type { WindowsEditorEngine } from '../lib/platform';
 import { loadCustomTheme } from '../lib/custom-theme';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { DsModal } from '../ui';
+import Icons from './Icons.vue';
+import { getDict } from '../i18n';
+import { flatten, englishFallbackNeedles, blockMatches, normalize, queryMatcher } from '../lib/settings-search';
 import type { Theme } from '../types';
 
 const isMobilePlatform = isIOS();
@@ -55,11 +71,17 @@ const masBuild = isMasBuild();
  * only produced `Command … not found` errors the moment the user touched them.
  */
 const gitBackend = hasGitBackend();
+// What "Automatic" resolves to on this machine's WebView2 (shown in its label).
+const autoEngineName = computed(() =>
+  resolveWindowsEditorEngine('auto') === 'codemirror'
+    ? t('settings.windowsEditorEngineNameCodeMirror')
+    : t('settings.windowsEditorEngineNameNative'),
+);
 
 const { t } = useI18n();
 // #180 — the chord in this sentence comes from the user's bindings, not from
 // a literal baked into the translation.
-const macChord = isMacOS();
+const macChord = usesCommandKey();
 const kbSettings = useSettingsStore();
 function withChord(key: string, actionId: string): string {
   return t(key, { key: shortcutLabel(actionId, kbSettings.keybindings, macChord) || '—' });
@@ -85,24 +107,26 @@ watch(activeCategory, () => {
 // ---------------------------------------------------------------------------
 const recordingAction = ref<string | null>(null);
 const recordError = ref<string | null>(null);
-const macKeys = isMacOS();
+const macKeys = usesCommandKey();
 
-const keyGroups = computed(() =>
-  (['file', 'edit', 'view', 'navigate', 'tools'] as const)
-    .map((key) => ({ key, items: activeKeyActions().filter((a) => a.category === key) }))
-    .filter((g) => g.items.length > 0),
-);
+/** Sixty rows is past what anyone scans — filter by name, id or chord. */
+const keyQuery = ref('');
+const keyGroups = computed(() => {
+  const hits = filterKeyActions(activeKeyActions(), keyQuery.value, actionLabel, settings.keybindings, macKeys);
+  return KEY_CATEGORIES
+    .map((key) => ({ key, items: hits.filter((a) => a.category === key) }))
+    .filter((g) => g.items.length > 0);
+});
 
 /**
- * Prefer the command palette's own translation (`cmd.<id>` — most action ids
- * *are* command ids), so the list reads in the user's language instead of
- * showing English names inside a translated panel. The table's English label
- * is the fallback for the handful of UI-only actions the palette has no
- * entry for.
+ * Each command under the name its menu item carries (useAppMenu
+ * `shortcutNamer`), else the palette's translation, else the table's English
+ * label for the handful of UI-only actions neither knows.
  */
+const appMenu = useAppMenu();
+const shortcutName = computed(() => appMenu.shortcutNamer());
 function actionLabel(action: KeyActionDef): string {
-  const translated = t(`cmd.${action.id}`);
-  return translated && translated !== `cmd.${action.id}` ? translated : action.label;
+  return shortcutName.value(action.id, action.label);
 }
 
 function actionCombos(action: KeyActionDef): string[] {
@@ -113,6 +137,81 @@ function isCustomised(action: KeyActionDef): boolean {
   // that doesn't exist yet), which would leave Reset disabled after a rebind.
   return action.id in settings.keybindings;
 }
+/**
+ * Shortcuts another program takes over before SoloMD sees them — AMD
+ * Software's global hotkeys own most of the Ctrl+Shift row, Microsoft Pinyin
+ * takes one more. Nothing can be detected at runtime (the chord never
+ * arrives), so the panel names them and offers somewhere else to put the
+ * commands. Empty on every platform but Windows, and empty once the user has
+ * moved them.
+ */
+const intercepted = computed(() => interceptedBindings(settings.keybindings));
+const interceptedIds = computed(() => new Set(intercepted.value.map((b) => b.action.id)));
+
+function interceptionFor(action: KeyActionDef) {
+  return intercepted.value.find((b) => b.action.id === action.id) ?? null;
+}
+
+function applyHotkeyCompatPreset(): void {
+  const moves = intercepted.value;
+  for (const b of moves) settings.setKeybinding(b.action.id, b.alternative);
+  toasts.success(t('settings.keysCompatApplied', { count: String(moves.length) }));
+}
+
+/**
+ * #296 — ⌘B for bold is opt-in, not the default: it has toggled the file tree
+ * since 1.0. The preset is a swap of two bindings, offered as one button so
+ * nobody has to work out that freeing ⌘B means rebinding something else first.
+ */
+const writerPresetOn = computed(() => writerPresetActive(settings.keybindings));
+const writerPresetKeys = computed(() => ({
+  bold: formatCombo(WRITER_PRESET['fmt.bold'], macKeys),
+  tree: formatCombo(WRITER_PRESET['view.toggleFileTree'], macKeys),
+}));
+function applyWriterPreset(): void {
+  for (const [id, combo] of Object.entries(WRITER_PRESET)) settings.setKeybinding(id, combo);
+  toasts.success(t('settings.keysWriterApplied', writerPresetKeys.value));
+}
+function undoWriterPreset(): void {
+  for (const id of Object.keys(WRITER_PRESET)) settings.setKeybinding(id, undefined);
+}
+
+/**
+ * B4 — the tester's full Typora / Word remap, as one button. Factory defaults
+ * stay as they are (most people never hit the AMD clash, and ⌘B / ⌘E / ⌘D
+ * have meant what they mean here for years); this is the opt-in.
+ */
+const typora = typoraPreset();
+const typoraOn = computed(() => presetActive(typora, settings.keybindings));
+const typoraKeys = computed(() => {
+  const k = (id: string) => {
+    const v = typora[id];
+    const first = Array.isArray(v) ? v[0] : v;
+    return first ? formatCombo(normalizeCombo(first), macKeys) : '—';
+  };
+  return {
+    bold: k('fmt.bold'),
+    up: k('heading.promote'),
+    down: k('heading.demote'),
+    para: k('heading.paragraph'),
+    word: k('editor.selectWord'),
+    live: k('view.toggleLiveEdit'),
+    count: String(Object.keys(typora).length),
+  };
+});
+function applyTyporaPreset(): void {
+  const { apply, skipped } = planPreset(typora, settings.keybindings);
+  for (const [id, value] of Object.entries(apply)) {
+    settings.setKeybinding(id, Array.isArray(value) ? [...value] : value);
+  }
+  let msg = t('settings.keysTyporaApplied', { count: String(Object.keys(apply).length) });
+  if (skipped.length) msg += ' ' + t('settings.keysTyporaSkipped', { count: String(skipped.length) });
+  toasts.success(msg);
+}
+function undoTyporaPreset(): void {
+  for (const id of Object.keys(typora)) settings.setKeybinding(id, undefined);
+}
+
 function startRecording(actionId: string): void {
   recordError.value = null;
   recordingAction.value = actionId;
@@ -126,7 +225,8 @@ function onRecordKey(e: KeyboardEvent): void {
   const id = recordingAction.value;
   if (!id) return;
   e.preventDefault();
-  e.stopPropagation();
+  // Immediate: no other window capture listener may act on the chord either.
+  e.stopImmediatePropagation();
   if (e.key === 'Escape') {
     stopRecording();
     return;
@@ -148,36 +248,20 @@ function onRecordKey(e: KeyboardEvent): void {
 onUnmounted(stopRecording);
 
 const categories: { id: SettingsCategory; icon: string; labelKey: string }[] = [
-  { id: 'basics', icon: '⚙️', labelKey: 'settings.catBasics' },
-  { id: 'writing', icon: '✍️', labelKey: 'settings.catWriting' },
-  { id: 'sync', icon: '☁️', labelKey: 'settings.catSync' },
-  { id: 'integrations', icon: '🔌', labelKey: 'settings.catIntegrations' },
-  { id: 'export', icon: '📤', labelKey: 'settings.catExport' },
-  { id: 'keys', icon: '⌨️', labelKey: 'settings.catKeys' },
-  { id: 'advanced', icon: '🛠️', labelKey: 'settings.catAdvanced' },
+  { id: 'basics', icon: 'settings', labelKey: 'settings.catBasics' },
+  { id: 'writing', icon: 'pencil', labelKey: 'settings.catWriting' },
+  { id: 'sync', icon: 'cloud', labelKey: 'settings.catSync' },
+  { id: 'integrations', icon: 'plug', labelKey: 'settings.catIntegrations' },
+  { id: 'export', icon: 'export', labelKey: 'settings.catExport' },
+  { id: 'keys', icon: 'keyboard', labelKey: 'settings.catKeys' },
+  { id: 'advanced', icon: 'wrench', labelKey: 'settings.catAdvanced' },
 ];
+const activeCategoryLabelKey = computed(
+  () => categories.find((c) => c.id === activeCategory.value)?.labelKey ?? 'settings.title',
+);
 
-const checkingUpdate = ref(false);
-async function manualCheckUpdate() {
-  checkingUpdate.value = true;
-  try {
-    const r = await checkForUpdate();
-    if (r.error) {
-      // Both solomd.app proxy + GitHub direct failed (offline / DNS / etc).
-      // Don't lie to the user with "up to date" — show a real error.
-      toasts.error(t('settings.updateCheckFailed'));
-    } else if (r.hasUpdate) {
-      toasts.success(t('settings.updateAvailable', { version: r.latest || '' }));
-      await openReleaseUrl(r.url);
-    } else {
-      toasts.info(t('settings.upToDate'));
-    }
-  } catch (e) {
-    toasts.error(String(e));
-  } finally {
-    checkingUpdate.value = false;
-  }
-}
+// Shared with Help → Check for Updates (composables/useUpdateCheck.ts).
+const { checking: checkingUpdate, manualCheckUpdate } = useUpdateCheck();
 
 const settingDefault = ref(false);
 
@@ -201,8 +285,10 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 // default `basics`. We watch open transitions to true rather than the
 // section value alone, because the parent leaves the section ref in place
 // after close — re-opening would otherwise jump back to the same anchor.
+// Every category, `keys` included — it was missing, so the shortcut sheet's
+// "change shortcuts" link opened Settings on Basics instead.
 const VALID_CATEGORIES = new Set<SettingsCategory>([
-  'basics', 'writing', 'sync', 'integrations', 'export', 'advanced',
+  'basics', 'writing', 'sync', 'integrations', 'export', 'keys', 'advanced',
 ]);
 watch(
   () => props.open,
@@ -216,6 +302,332 @@ watch(
 );
 
 const settings = useSettingsStore();
+// #328/#344 — the editor-engine choice only exists where there are two
+// editors, i.e. Windows (and the ?forcePlain dev hook).
+const windowsEditorRuntime = isWindowsEditorRuntime();
+
+// ---------------------------------------------------------------------------
+// #352 — search across every category.
+//
+// Filtering works on what is rendered: each top-level `[data-cat]` block of
+// the body is matched against its own text, so nothing has to be listed a
+// second time. English keywords also work in a translated UI (see
+// lib/settings-search.ts). While a query is active the category pages are
+// switched off (no data-active-cat) and the matches are shown grouped under
+// their category headings, in category order (CSS `order`).
+// ---------------------------------------------------------------------------
+const searchQuery = ref('');
+const searchInput = ref<HTMLInputElement | null>(null);
+const searching = computed(() => normalize(searchQuery.value).length > 0);
+const searchHitCount = ref(0);
+const catsWithHits = ref<Set<string>>(new Set());
+const catOrder = new Map(categories.map((c, i) => [c.id as string, i]));
+let flatCache: { lang: string; en: Map<string, string>; cur: Map<string, string> } | null = null;
+
+function dictsFor(lang: string) {
+  if (!flatCache || flatCache.lang !== lang) {
+    const en = flatten(getDict('en'));
+    flatCache = { lang, en, cur: lang === 'en' ? en : flatten(getDict(lang)) };
+  }
+  return flatCache;
+}
+
+const HIGHLIGHT = 'settings-search';
+function clearHighlight() {
+  (globalThis as any).CSS?.highlights?.delete?.(HIGHLIGHT);
+}
+/** Mark the matched words with the CSS Custom Highlight API — no DOM edits,
+ *  so Vue's text nodes are left alone. Skipped where unsupported.
+ *  A block that contains the typed query gets only the query marked; the
+ *  English-fallback needles (whole translated sentences) are marked only in
+ *  blocks that matched through them alone, or the page turns into a wall of
+ *  orange. */
+function highlight(blocks: HTMLElement[], query: string, fallback: string[]) {
+  const registry = (globalThis as any).CSS?.highlights;
+  const HighlightCtor = (globalThis as any).Highlight;
+  if (!registry || !HighlightCtor) return;
+  const ranges: Range[] = [];
+  const hasQuery = queryMatcher(query);
+  for (const b of blocks) {
+    const needles = hasQuery(b.textContent || '') ? [query] : fallback;
+    const walker = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = walker.nextNode()) && ranges.length < 500) {
+      const parent = (node as Text).parentElement;
+      if (parent?.closest('select, option, textarea')) continue;
+      const text = (node.nodeValue || '').toLowerCase();
+      for (const n of needles) {
+        // Same rule as the matcher: Latin needles only at the start of a word.
+        const latin = /^[a-z0-9 ._+#-]+$/.test(n);
+        let i = n ? text.indexOf(n) : -1;
+        while (i >= 0 && ranges.length < 500) {
+          if (!latin || i === 0 || !/[a-z0-9]/.test(text[i - 1])) {
+            const r = document.createRange();
+            r.setStart(node, i);
+            r.setEnd(node, i + n.length);
+            ranges.push(r);
+          }
+          i = text.indexOf(n, i + n.length);
+        }
+      }
+    }
+  }
+  registry.set(HIGHLIGHT, new HighlightCtor(...ranges));
+}
+
+function applySearch() {
+  const body = bodyEl.value;
+  if (!body) return;
+  const blocks = Array.from(body.children).filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && !!el.dataset.cat,
+  );
+  if (!searching.value) {
+    for (const b of blocks) {
+      delete b.dataset.match;
+      b.style.order = '';
+    }
+    clearCurrentHit();
+    hitEls = [];
+    searchHitCount.value = 0;
+    catsWithHits.value = new Set();
+    clearHighlight();
+    return;
+  }
+  const q = searchQuery.value;
+  const { en, cur } = dictsFor(settings.language);
+  const needles = englishFallbackNeedles(q, en, cur);
+  const cats = new Set<string>();
+  const hits: HTMLElement[] = [];
+  for (const b of blocks) {
+    const cat = b.dataset.cat!;
+    const match = blockMatches(b.textContent || '', q, needles);
+    b.dataset.match = match ? '1' : '0';
+    b.style.order = String((catOrder.get(cat) ?? 99) * 2 + 1);
+    if (match) {
+      cats.add(cat);
+      hits.push(b);
+    }
+  }
+  // Display order is category order (CSS `order`), then document order —
+  // the stepper walks them in the order the user sees them. sort() is stable.
+  hits.sort((a, b) => (catOrder.get(a.dataset.cat!) ?? 99) - (catOrder.get(b.dataset.cat!) ?? 99));
+  // A re-filter caused by a setting appearing/disappearing (MutationObserver)
+  // keeps the current match if it is still one; a new query starts over.
+  const prev = currentHit.value >= 0 ? hitEls[currentHit.value] : null;
+  hitEls = hits;
+  const keep = prev ? hits.indexOf(prev) : -1;
+  if (keep < 0) prev?.removeAttribute('data-hit-current');
+  currentHit.value = keep;
+  searchHitCount.value = hits.length;
+  catsWithHits.value = cats;
+  highlight(hits, normalize(q), needles);
+}
+
+// #352 follow-up — step through the matches one at a time (buttons, and
+// Enter / Shift+Enter in the search box). The current match gets a
+// `data-hit-current` ring and a short accent pulse (`data-hit-flash`); data
+// attributes rather than classes so Vue's class patching never drops them.
+let hitEls: HTMLElement[] = [];
+const currentHit = ref(-1);
+let flashTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearCurrentHit() {
+  for (const el of bodyEl.value?.querySelectorAll('[data-hit-current]') ?? []) {
+    el.removeAttribute('data-hit-current');
+    el.removeAttribute('data-hit-flash');
+  }
+  currentHit.value = -1;
+}
+
+function stepHit(dir: 1 | -1) {
+  const n = hitEls.length;
+  const body = bodyEl.value;
+  if (!n || !body) return;
+  const from = currentHit.value;
+  const i = from < 0 ? (dir === 1 ? 0 : n - 1) : (from + dir + n) % n;
+  if (from >= 0) {
+    hitEls[from].removeAttribute('data-hit-current');
+    hitEls[from].removeAttribute('data-hit-flash');
+  }
+  const el = hitEls[i];
+  currentHit.value = i;
+  el.setAttribute('data-hit-current', '');
+  // Restart the pulse even when stepping onto the same element (n === 1).
+  el.removeAttribute('data-hit-flash');
+  void el.offsetWidth;
+  el.setAttribute('data-hit-flash', '');
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => el.removeAttribute('data-hit-flash'), 1200);
+  // Scroll only the one container that actually scrolls (scrollIntoView
+  // would also nudge the modal/page). Centre the match; a block taller than
+  // the viewport is aligned to its top instead, with room for the group
+  // heading above a category's first match.
+  const sc = scrollerOf(body);
+  const b = sc.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  // In the phone layout the search bar sits inside the scroller, pinned
+  // (sticky) to its top — the visible area starts below it.
+  const bar = searchInput.value?.parentElement;
+  const barH = bar && sc !== body && sc.contains(bar) ? bar.offsetHeight : 0;
+  const visH = b.height - barH;
+  const offset = r.top - b.top + sc.scrollTop - barH;
+  const top = r.height + 48 < visH ? offset - (visH - r.height) / 2 : offset - 28;
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  sc.scrollTo({ top: Math.max(0, top), behavior: reduced ? 'auto' : 'smooth' });
+}
+
+/** The element that scrolls the settings. On desktop that is the body
+ *  itself; in the phone layout the body grows to its content and the
+ *  dialog's own body (`.ds-modal__body`) scrolls instead. */
+function scrollerOf(body: HTMLElement): HTMLElement {
+  for (let el: HTMLElement | null = body; el; el = el.parentElement) {
+    const oy = getComputedStyle(el).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1) return el;
+    if (el.classList.contains('ds-modal__panel')) break;
+  }
+  return body;
+}
+
+/** Enter / Shift+Enter in the search box. Ignored mid-composition: with a
+ *  Chinese/Japanese IME, Enter commits the text and must not also jump. */
+function onSearchEnter(e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  stepHit(e.shiftKey ? -1 : 1);
+}
+
+/** While searching, the category rail lists only categories with a match.
+ *  With no match at all the full list stays, so the rail (a chip row on a
+ *  phone) is never blank and the user can still jump to a category. */
+function navVisible(id: string) {
+  return !searching.value || searchHitCount.value === 0 || catsWithHits.value.has(id);
+}
+
+// Blocks appear and disappear with settings (v-if), so re-filter on changes.
+let bodyObserver: MutationObserver | null = null;
+watch(
+  [searchQuery, () => props.open, () => settings.language],
+  async () => {
+    await nextTick();
+    clearCurrentHit(); // a new query (or language) starts stepping over
+    applySearch();
+    bodyObserver?.disconnect();
+    bodyObserver = null;
+    if (props.open && searching.value && bodyEl.value) {
+      bodyObserver = new MutationObserver(() => applySearch());
+      bodyObserver.observe(bodyEl.value, { childList: true });
+    }
+    if (searching.value && bodyEl.value) scrollerOf(bodyEl.value).scrollTo({ top: 0 });
+  },
+);
+
+// 5.0 — System-Settings cards. Consecutive one-row settings of the page share
+// one card, separated by hairlines; a block that carries its own group title
+// (<h3>) or is a whole sub-panel (AISettings, GithubSyncSettings, …) gets a
+// card of its own. Which blocks are visible depends on the category, the
+// search and a dozen v-ifs, so the card edges are worked out from what is
+// actually rendered: `data-gs` (group start) / `data-ge` (group end).
+// While searching every match is its own card.
+function markGroups() {
+  const body = bodyEl.value;
+  if (!body) return;
+  const blocks = Array.from(body.children).filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && !!el.dataset.cat,
+  );
+  const visible = blocks.filter((b) => b.getClientRects().length > 0);
+  const standalone = (b: HTMLElement) =>
+    searching.value || b.tagName !== 'SECTION' || b.firstElementChild?.tagName === 'H3';
+  for (const b of blocks) {
+    if (!visible.includes(b)) {
+      delete b.dataset.gs;
+      delete b.dataset.ge;
+      delete b.dataset.gfirst;
+    }
+  }
+  visible.forEach((b, i) => {
+    const prev = visible[i - 1];
+    const next = visible[i + 1];
+    const solo = standalone(b);
+    if (i === 0) b.dataset.gfirst = '';
+    else delete b.dataset.gfirst;
+    if (!prev || solo || standalone(prev)) b.dataset.gs = '';
+    else delete b.dataset.gs;
+    if (!next || solo || standalone(next)) b.dataset.ge = '';
+    else delete b.dataset.ge;
+  });
+}
+let groupObserver: MutationObserver | null = null;
+watch(
+  [() => props.open, activeCategory, searchQuery, () => settings.language],
+  async () => {
+    await nextTick();
+    markGroups();
+    groupObserver?.disconnect();
+    groupObserver = null;
+    if (props.open && bodyEl.value) {
+      groupObserver = new MutationObserver(() => markGroups());
+      groupObserver.observe(bodyEl.value, { childList: true });
+    }
+  },
+  { immediate: true },
+);
+onUnmounted(() => groupObserver?.disconnect());
+
+function pickCategory(id: SettingsCategory) {
+  searchQuery.value = '';
+  activeCategory.value = id;
+}
+
+/** Esc clears a query before it closes the dialog, and ⌘F / Ctrl+F jumps to
+ *  the search box. Window capture runs before DsModal's document-capture
+ *  Escape handler (and the app's global shortcuts). */
+function onSearchKeys(e: KeyboardEvent) {
+  if (!props.open) return;
+  // A chord being recorded is the recorder's (onRecordKey), ⌘F and Esc too.
+  // Both listen on window in the capture phase and this one was added first
+  // (when the panel opened), so it used to take ⌘F before the recorder saw it.
+  if (recordingAction.value) return;
+  if (e.key === 'Escape' && searchQuery.value) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    searchQuery.value = '';
+    searchInput.value?.focus();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    searchInput.value?.focus();
+    searchInput.value?.select();
+  }
+}
+watch(
+  () => props.open,
+  async (open) => {
+    if (open) {
+      window.addEventListener('keydown', onSearchKeys, true);
+      // DsModal focuses the first control, which is now the search box. On a
+      // phone that would raise the keyboard over a dialog the user opened to
+      // browse, so give the focus back there.
+      await nextTick();
+      setTimeout(() => {
+        if (document.documentElement.classList.contains('narrow-viewport')) searchInput.value?.blur();
+      }, 0);
+    } else {
+      window.removeEventListener('keydown', onSearchKeys, true);
+      searchQuery.value = '';
+      clearHighlight();
+    }
+  },
+  { immediate: true },
+);
+onUnmounted(() => {
+  window.removeEventListener('keydown', onSearchKeys, true);
+  bodyObserver?.disconnect();
+  if (flashTimer) clearTimeout(flashTimer);
+  clearHighlight();
+});
+
 
 // #246 — dictionaries actually present, so the picker can't offer a language
 // that would fail to load. `spellcheck_list_dicts` scans
@@ -243,7 +655,20 @@ void refreshSpellDicts();
 const tabs = useTabsStore();
 const toasts = useToastsStore();
 const workspace = useWorkspaceStore();
+const files = useFiles();
 const rag = useRagStore();
+
+// #282 — a custom CSS theme takes the palette over completely (see the note
+// beside the theme dropdown). Name it from the file rather than the
+// marketplace manifest: the manifest is a network fetch that only happens
+// once the marketplace modal is opened, and a hand-picked .css file has no
+// manifest entry at all.
+const customThemeName = computed(() => {
+  const path = settings.customCssPath;
+  if (!path) return '';
+  const base = path.split(/[\\/]/).pop() || path;
+  return base.replace(/\.css$/i, '');
+});
 
 async function onToggleRagEnabled() {
   settings.toggleRagEnabled();
@@ -265,7 +690,7 @@ async function onReindexNow() {
   if (rag.lastError) {
     toasts.error(`RAG reindex failed: ${rag.lastError}`);
   } else {
-    toasts.success(`Reindexed ${rag.status?.indexed_files ?? 0} files`);
+    toasts.success(t('toast.reindexed', { n: rag.status?.indexed_files ?? 0 }));
   }
 }
 
@@ -279,6 +704,7 @@ function onToggleOutlineGlobal() {
 async function pickCustomCss() {
   const path = await openFileDialog({
     multiple: false,
+    defaultPath: await files.filePickerStartDir(),
     filters: [{ name: 'CSS', extensions: ['css'] }],
   });
   if (path && typeof path === 'string') {
@@ -420,27 +846,94 @@ function onSelectPdfFont(v: string) {
     class="settings-modal"
     @update:model-value="emit('close')"
   >
+      <div class="settings__search">
+        <input
+          ref="searchInput"
+          v-model="searchQuery"
+          type="search"
+          class="settings__search-input"
+          :placeholder="t('settings.searchPlaceholder')"
+          :aria-label="t('settings.searchPlaceholder')"
+          spellcheck="false"
+          autocomplete="off"
+          @keydown.enter="onSearchEnter"
+        />
+        <template v-if="searching">
+          <span class="settings__search-steps">
+            <button
+              type="button"
+              class="settings__search-step"
+              :disabled="searchHitCount === 0"
+              :title="t('settings.searchPrev')"
+              :aria-label="t('settings.searchPrev')"
+              @click="stepHit(-1)"
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+            <button
+              type="button"
+              class="settings__search-step"
+              :disabled="searchHitCount === 0"
+              :title="t('settings.searchNext')"
+              :aria-label="t('settings.searchNext')"
+              @click="stepHit(1)"
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+          </span>
+          <span
+            class="settings__search-count"
+            aria-live="polite"
+            :title="currentHit >= 0 ? t('settings.searchPosition', { i: currentHit + 1, n: searchHitCount }) : undefined"
+          >
+            <template v-if="currentHit >= 0">
+              <span aria-hidden="true">{{ currentHit + 1 }}/{{ searchHitCount }}</span>
+              <span class="settings__sr-only">{{ t('settings.searchPosition', { i: currentHit + 1, n: searchHitCount }) }}</span>
+            </template>
+            <template v-else>{{ t('settings.searchCount', { n: searchHitCount }) }}</template>
+          </span>
+        </template>
+      </div>
       <div class="settings__layout">
         <!-- v3.0 — left-side category nav. Click switches the right-side
              content panel; only one category visible at a time. -->
         <nav class="settings__nav">
           <button
             v-for="c in categories"
+            v-show="navVisible(c.id)"
             :key="c.id"
             class="settings__nav-item"
-            :class="{ 'settings__nav-item--active': activeCategory === c.id }"
-            @click="activeCategory = c.id"
+            :class="{ 'settings__nav-item--active': !searching && activeCategory === c.id }"
+            @click="pickCategory(c.id)"
           >
-            <span class="settings__nav-icon">{{ c.icon }}</span>
+            <Icons class="settings__nav-icon" :name="c.icon" :size="16" />
             <span class="settings__nav-label">{{ t(c.labelKey) }}</span>
           </button>
         </nav>
-      <div ref="bodyEl" class="settings__body" :data-active-cat="activeCategory">
+      <div
+        ref="bodyEl"
+        class="settings__body"
+        :data-active-cat="searching ? undefined : activeCategory"
+        :data-searching="searching ? '' : undefined"
+      >
+        <h2 v-if="!searching" class="settings__page-title">{{ t(activeCategoryLabelKey) }}</h2>
+        <template v-if="searching">
+          <h2
+            v-for="(c, i) in categories"
+            v-show="catsWithHits.has(c.id)"
+            :key="'sg-' + c.id"
+            class="settings__search-group"
+            :style="{ order: i * 2 }"
+          ><Icons class="settings__search-group-icon" :name="c.icon" :size="14" />{{ t(c.labelKey) }}</h2>
+          <p v-if="searchHitCount === 0" class="settings__search-empty">
+            {{ t('settings.searchEmpty', { q: searchQuery.trim() }) }}
+          </p>
+        </template>
         <section data-cat="basics">
           <label>{{ t('settings.language') }}</label>
           <select
             :value="settings.language"
-            @change="settings.setLanguage(($event.target as HTMLSelectElement).value as 'en' | 'zh' | 'ja' | 'ko' | 'de' | 'fr' | 'es' | 'pt' | 'it' | 'pl' | 'nl' | 'tr' | 'sv' | 'uk')"
+            @change="settings.setLanguage(($event.target as HTMLSelectElement).value as 'en' | 'zh' | 'ja' | 'ko' | 'de' | 'fr' | 'es' | 'pt' | 'it' | 'pl' | 'nl' | 'tr' | 'sv' | 'uk' | 'ru')"
           >
             <option value="en">English</option>
             <option value="zh">中文</option>
@@ -456,17 +949,34 @@ function onSelectPdfFont(v: string) {
             <option value="tr">Türkçe</option>
             <option value="sv">Svenska</option>
             <option value="uk">Українська</option>
+            <option value="ru">Русский</option>
           </select>
         </section>
 
         <section data-cat="basics">
           <label>{{ t('settings.theme') }}</label>
           <select
-            :value="settings.theme"
-            @change="settings.setTheme(($event.target as HTMLSelectElement).value as Theme)"
+            :value="settings.followSystemTheme ? 'system' : settings.theme"
+            @change="settings.setTheme(($event.target as HTMLSelectElement).value as Theme | 'system')"
           >
-            <option v-for="th in themeLabels" :key="th.value" :value="th.value">{{ th.label }}</option>
+            <option v-for="th in themeOptions(t)" :key="th.value" :value="th.value">{{ th.label }}</option>
           </select>
+          <!-- #282 — the reporter picked "Dark (One Dark)" and the app stayed
+               light (his screenshots read #e6e5e0, which is Soft UI's --bg to
+               the byte). It was doing exactly what it was told: 14 of the 15
+               marketplace themes declare their palette for `:root,
+               :root[data-theme="light"], :root[data-theme="dark"]` in one
+               rule, and custom-theme.ts injects them after the app bundle —
+               so they win in BOTH slots and this dropdown stops changing a
+               single colour. Nothing said so: the custom-CSS control lives
+               under Advanced, three categories from here. Say it where the
+               choice is made, and make undoing it one click. -->
+          <p v-if="customThemeName" class="setting-hint setting-hint--warn">
+            {{ t('settings.customThemeOverrides', { name: customThemeName }) }}
+            <button type="button" class="hint-btn" @click="settings.setCustomCssPath('')">
+              {{ t('settings.customThemeDisable') }}
+            </button>
+          </p>
         </section>
 
         <section data-cat="basics">
@@ -481,7 +991,7 @@ function onSelectPdfFont(v: string) {
             :placeholder="t('settings.customFontPlaceholder')"
             :value="customFontFamily"
             @input="onCustomFontInput(($event.target as HTMLInputElement).value)"
-            style="margin-top: 6px; padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit; width: 100%;"
+            class="settings__field settings__field--sub"
           />
           <p class="setting-hint">{{ t('settings.fontFamilyHint') }}</p>
         </section>
@@ -493,7 +1003,7 @@ function onSelectPdfFont(v: string) {
             :placeholder="t('settings.codeFontFamilyPlaceholder')"
             :value="settings.codeFontFamily"
             @input="settings.setCodeFontFamily(($event.target as HTMLInputElement).value)"
-            style="padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit; width: 100%;"
+            class="settings__field"
           />
           <p class="setting-hint">{{ t('settings.codeFontFamilyHint') }}</p>
         </section>
@@ -581,6 +1091,22 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.livePreview" @change="settings.toggleLivePreview()" />
             {{ t('settings.livePreview') }}
           </label>
+        </section>
+
+        <section data-cat="basics">
+          <label>
+            <input type="checkbox" :checked="settings.alwaysShowMarkers" @change="settings.toggleAlwaysShowMarkers()" />
+            {{ t('settings.alwaysShowMarkers') }}
+          </label>
+          <div class="hint">{{ t('settings.alwaysShowMarkersHint') }}</div>
+        </section>
+
+        <section data-cat="basics">
+          <label>
+            <input type="checkbox" :checked="settings.highlightCurrentLine" @change="settings.toggleHighlightCurrentLine()" />
+            {{ t('settings.highlightCurrentLine') }}
+          </label>
+          <div class="hint">{{ t('settings.highlightCurrentLineHint') }}</div>
         </section>
 
         <section data-cat="basics">
@@ -693,12 +1219,48 @@ function onSelectPdfFont(v: string) {
           <label>
             <input
               type="checkbox"
+              :checked="settings.explorerDoubleClickFolders"
+              @change="settings.toggleExplorerDoubleClickFolders()"
+            />
+            {{ t('settings.explorerDoubleClickFolders') }}
+          </label>
+          <p class="setting-hint">{{ t('settings.explorerDoubleClickFoldersHint') }}</p>
+        </section>
+
+        <section data-cat="basics">
+          <label>
+            <input
+              type="checkbox"
+              :checked="settings.explorerFollowActive"
+              @change="settings.toggleExplorerFollowActive()"
+            />
+            {{ t('settings.explorerFollowActive') }}
+          </label>
+          <p class="setting-hint">{{ t('settings.explorerFollowActiveHint') }}</p>
+        </section>
+
+        <section data-cat="basics">
+          <label>
+            <input
+              type="checkbox"
               :checked="settings.explorerShowHidden"
               @change="settings.toggleExplorerShowHidden()"
             />
             {{ t('settings.explorerShowHidden') }}
           </label>
           <p class="setting-hint">{{ t('settings.explorerShowHiddenHint') }}</p>
+        </section>
+
+        <section data-cat="basics">
+          <label>
+            <input
+              type="checkbox"
+              :checked="settings.splitLiveSync"
+              @change="settings.toggleSplitLiveSync()"
+            />
+            {{ t('settings.splitLiveSync') }}
+          </label>
+          <p class="setting-hint">{{ t('settings.splitLiveSyncHint') }}</p>
         </section>
 
         <section data-cat="basics">
@@ -779,7 +1341,7 @@ function onSelectPdfFont(v: string) {
             />
             {{ t('reading.readingByDefaultOnMobile') }}
           </label>
-          <p style="font-size: 11px; color: var(--text-faint); margin: 4px 0 0; line-height: 1.5;">{{ t('reading.readingByDefaultOnMobileHint') }}</p>
+          <p class="setting-hint">{{ t('reading.readingByDefaultOnMobileHint') }}</p>
         </section>
 
         <section data-cat="basics">
@@ -803,8 +1365,18 @@ function onSelectPdfFont(v: string) {
           </label>
         </section>
 
+        <!-- 5.0 — the floating format bar over a selection. Desktop only:
+             phones and tablets use the bar above the keyboard instead. -->
+        <section v-if="!isMobile()" data-cat="writing">
+          <label>
+            <input type="checkbox" :checked="settings.selectionBubble" @change="settings.toggleSelectionBubble()" />
+            {{ t('settings.selectionBubble') }}
+          </label>
+          <p class="setting-hint">{{ t('settings.selectionBubbleHint') }}</p>
+        </section>
+
         <section data-cat="writing">
-          <h3 style="font-size: 13px; font-weight: 600; color: var(--text); margin: 18px 0 6px;">
+          <h3 class="settings__group-title">
             {{ t('writingStats.settingsHeading') }}
           </h3>
           <label>
@@ -824,7 +1396,7 @@ function onSelectPdfFont(v: string) {
             />
             {{ t('writingStats.showWorkspaceDailyTotal') }}
           </label>
-          <p style="font-size: 11px; color: var(--text-faint); margin: 4px 0 0; line-height: 1.5;">
+          <p class="setting-hint">
             {{ t('writingStats.frontMatterHint') }}
           </p>
         </section>
@@ -833,23 +1405,23 @@ function onSelectPdfFont(v: string) {
              row of buttons that answer "Command … not found". Say so plainly
              instead of shipping dead controls. -->
         <section v-if="!gitBackend" data-cat="sync">
-          <h3 style="font-size: 13px; font-weight: 600; color: var(--text); margin: 18px 0 6px;">
+          <h3 class="settings__group-title">
             {{ t('settings.catSync') }}
           </h3>
-          <p style="font-size: 12px; color: var(--text-faint); margin: 0; line-height: 1.6;">
+          <p class="setting-hint">
             {{ t('settings.syncUnsupportedAndroid') }}
           </p>
         </section>
 
         <section v-if="gitBackend" data-cat="sync">
-          <h3 style="font-size: 13px; font-weight: 600; color: var(--text); margin: 18px 0 6px;">
+          <h3 class="settings__group-title">
             {{ t('settings.versionHistoryHeading') }}
           </h3>
           <label>
             <input type="checkbox" :checked="settings.autoGitEnabled" @change="settings.toggleAutoGit()" />
             {{ t('settings.autoGitEnabled') }}
           </label>
-          <p style="font-size: 11px; color: var(--text-faint); margin: 4px 0 0; line-height: 1.5;">
+          <p class="setting-hint">
             {{ withChord('settings.autoGitHelp', 'file.save') }}
           </p>
         </section>
@@ -872,10 +1444,30 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.spellcheckEnabled" @change="settings.toggleSpellcheckEnabled()" />
             {{ t('settings.spellcheckEnabled') }}
           </label>
+          <!-- #246 — only en_US ships with the app; anything the user drops in
+               `<config>/dictionaries/` shows up here. Without this the checker
+               flagged every word for non-English writers. It belongs to the
+               Hunspell checkbox: it used to hang off the browser spell-check
+               toggle below, so ticking this box revealed nothing. -->
+          <div v-if="settings.spellcheckEnabled" class="ghs-row" style="align-items:center; gap:8px; margin-top:6px;">
+            <span>{{ t('settings.spellcheckLang') }}</span>
+            <select
+              class="ghs-select"
+              :value="settings.spellcheckLang"
+              @focus="refreshSpellDicts"
+              @change="settings.setSpellcheckLang(($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="code in spellDicts" :key="code" :value="code">{{ code }}</option>
+            </select>
+            <button type="button" class="link-button" @click="openDictsFolder">
+              {{ t('settings.spellcheckAddDict') }}
+            </button>
+          </div>
+          <p v-if="settings.spellcheckEnabled" class="setting-hint">{{ t('settings.spellcheckLangHint') }}</p>
         </section>
 
         <section data-cat="integrations">
-          <h3 style="font-size: 13px; font-weight: 600; color: var(--text); margin: 18px 0 6px;">
+          <h3 class="settings__group-title">
             {{ t('rag.settingsHeading') }}
           </h3>
           <label>
@@ -886,14 +1478,14 @@ function onSelectPdfFont(v: string) {
             />
             {{ t('rag.enable') }}
           </label>
-          <p style="font-size: 11px; color: var(--text-faint); margin: 4px 0 0; line-height: 1.5;">
+          <p class="setting-hint">
             {{ t('rag.enableHint') }}
           </p>
           <div
             v-if="settings.ragEnabled && workspace.currentFolder"
             style="margin-top: 8px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;"
           >
-            <span style="font-size: 11px; color: var(--text-muted);">
+            <span class="settings__unit">
               <template v-if="rag.status?.ready">
                 {{ t('rag.statusReady', {
                   indexed: String(rag.status.indexed_files),
@@ -916,14 +1508,6 @@ function onSelectPdfFont(v: string) {
           </div>
         </section>
 
-        <!-- v2.5 F3: PDF / print export defaults. -->
-        <section data-cat="export">
-          <h3 style="font-size: 13px; font-weight: 600; color: var(--text); margin: 18px 0 6px;">
-            {{ t('settings.pdfDefaults.heading') }}
-          </h3>
-          <p class="setting-hint">{{ t('settings.pdfDefaults.headingHint') }}</p>
-        </section>
-
         <section v-if="!isPhoneOrTablet" data-cat="integrations">
           <label>
             <input
@@ -939,9 +1523,9 @@ function onSelectPdfFont(v: string) {
             :value="settings.quickCaptureShortcut"
             :disabled="!settings.quickCaptureEnabled"
             spellcheck="false"
-            placeholder="CmdOrCtrl+Alt+M"
+            placeholder="CmdOrCtrl+Alt+Shift+M"
             @change="settings.setQuickCaptureShortcut(($event.target as HTMLInputElement).value)"
-            style="margin-top: 6px; padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit; width: 100%;"
+            class="settings__field settings__field--sub"
           />
           <p v-if="quickCaptureError" class="setting-hint" style="color: var(--danger);">
             {{ t('settings.quickCaptureFailed', { error: quickCaptureError }) }}
@@ -974,18 +1558,30 @@ function onSelectPdfFont(v: string) {
           <p class="setting-hint">{{ t('settings.printThemeHint') }}</p>
         </section>
 
+        <!-- v2.5 F3: PDF / print export defaults. #347 — the heading sits right
+             above its controls; it used to be separated from them by the
+             Word template and print theme, and read as an empty section. -->
+        <section data-cat="export">
+          <h3 class="settings__group-title">
+            {{ t('settings.pdfDefaults.heading') }}
+          </h3>
+          <p class="setting-hint">{{ t('settings.pdfDefaults.headingHint') }}</p>
+        </section>
+
         <section data-cat="export">
           <label>{{ t('settings.pdfDefaults.pageSize') }}</label>
           <select
             :value="settings.pdfDefaults.pageSize"
             @change="settings.setPdfDefaults({ pageSize: ($event.target as HTMLSelectElement).value as any })"
           >
+            <option value="Auto">{{ t('settings.pdfDefaults.pageSizeAuto') }}</option>
             <option value="A4">A4 (210 × 297 mm)</option>
             <option value="A5">A5 (148 × 210 mm)</option>
             <option value="Letter">{{ t('settings.pdfDefaults.letter') }} (8.5 × 11 in)</option>
             <option value="Legal">{{ t('settings.pdfDefaults.legal') }} (8.5 × 14 in)</option>
             <option value="Custom">{{ t('settings.pdfDefaults.custom') }}</option>
           </select>
+          <p class="setting-hint">{{ t('settings.pdfDefaults.pageSizeHint') }}</p>
           <div
             v-if="settings.pdfDefaults.pageSize === 'Custom'"
             class="row"
@@ -998,10 +1594,10 @@ function onSelectPdfFont(v: string) {
               step="1"
               :value="settings.pdfDefaults.customWidthMm"
               @input="onCustomMmChange('customWidthMm', ($event.target as HTMLInputElement).value)"
-              style="width: 90px; padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px;"
+              class="settings__field settings__field--num"
               :aria-label="t('settings.pdfDefaults.widthMm')"
             />
-            <span style="font-size: 12px; color: var(--text-muted);">×</span>
+            <span class="settings__unit">×</span>
             <input
               type="number"
               min="50"
@@ -1009,10 +1605,10 @@ function onSelectPdfFont(v: string) {
               step="1"
               :value="settings.pdfDefaults.customHeightMm"
               @input="onCustomMmChange('customHeightMm', ($event.target as HTMLInputElement).value)"
-              style="width: 90px; padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px;"
+              class="settings__field settings__field--num"
               :aria-label="t('settings.pdfDefaults.heightMm')"
             />
-            <span style="font-size: 12px; color: var(--text-muted);">mm</span>
+            <span class="settings__unit">mm</span>
           </div>
         </section>
 
@@ -1031,45 +1627,45 @@ function onSelectPdfFont(v: string) {
             v-if="settings.pdfDefaults.margin === 'Custom'"
             style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin-top: 6px;"
           >
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
-              <span style="min-width: 56px; color: var(--text-muted);">{{ t('settings.pdfDefaults.marginTop') }}</span>
+            <label class="settings__mm">
+              <span class="settings__mm-label">{{ t('settings.pdfDefaults.marginTop') }}</span>
               <input
                 type="number" min="5" max="100" step="1"
                 :value="settings.pdfDefaults.customMarginTopMm"
                 @input="onCustomMmChange('customMarginTopMm', ($event.target as HTMLInputElement).value)"
-                style="width: 70px; padding: 4px 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px;"
+                class="settings__field settings__field--num"
               />
-              <span style="font-size: 11px; color: var(--text-muted);">mm</span>
+              <span class="settings__unit">mm</span>
             </label>
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
-              <span style="min-width: 56px; color: var(--text-muted);">{{ t('settings.pdfDefaults.marginRight') }}</span>
+            <label class="settings__mm">
+              <span class="settings__mm-label">{{ t('settings.pdfDefaults.marginRight') }}</span>
               <input
                 type="number" min="5" max="100" step="1"
                 :value="settings.pdfDefaults.customMarginRightMm"
                 @input="onCustomMmChange('customMarginRightMm', ($event.target as HTMLInputElement).value)"
-                style="width: 70px; padding: 4px 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px;"
+                class="settings__field settings__field--num"
               />
-              <span style="font-size: 11px; color: var(--text-muted);">mm</span>
+              <span class="settings__unit">mm</span>
             </label>
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
-              <span style="min-width: 56px; color: var(--text-muted);">{{ t('settings.pdfDefaults.marginBottom') }}</span>
+            <label class="settings__mm">
+              <span class="settings__mm-label">{{ t('settings.pdfDefaults.marginBottom') }}</span>
               <input
                 type="number" min="5" max="100" step="1"
                 :value="settings.pdfDefaults.customMarginBottomMm"
                 @input="onCustomMmChange('customMarginBottomMm', ($event.target as HTMLInputElement).value)"
-                style="width: 70px; padding: 4px 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px;"
+                class="settings__field settings__field--num"
               />
-              <span style="font-size: 11px; color: var(--text-muted);">mm</span>
+              <span class="settings__unit">mm</span>
             </label>
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
-              <span style="min-width: 56px; color: var(--text-muted);">{{ t('settings.pdfDefaults.marginLeft') }}</span>
+            <label class="settings__mm">
+              <span class="settings__mm-label">{{ t('settings.pdfDefaults.marginLeft') }}</span>
               <input
                 type="number" min="5" max="100" step="1"
                 :value="settings.pdfDefaults.customMarginLeftMm"
                 @input="onCustomMmChange('customMarginLeftMm', ($event.target as HTMLInputElement).value)"
-                style="width: 70px; padding: 4px 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px;"
+                class="settings__field settings__field--num"
               />
-              <span style="font-size: 11px; color: var(--text-muted);">mm</span>
+              <span class="settings__unit">mm</span>
             </label>
           </div>
           <p v-if="pdfMmRangeError" class="setting-hint" style="color: var(--danger, #d12);">
@@ -1108,6 +1704,17 @@ function onSelectPdfFont(v: string) {
               @change="settings.setPdfDefaults({ footer: ($event.target as HTMLInputElement).checked })"
             />
             {{ t('settings.pdfDefaults.footer') }}
+          </label>
+        </section>
+
+        <section data-cat="export">
+          <label>
+            <input
+              type="checkbox"
+              :checked="settings.pdfDefaults.toc"
+              @change="settings.setPdfDefaults({ toc: ($event.target as HTMLInputElement).checked })"
+            />
+            {{ t('settings.pdfDefaults.toc') }}
           </label>
         </section>
 
@@ -1156,7 +1763,7 @@ function onSelectPdfFont(v: string) {
             :value="settings.assetsDirName"
             @change="settings.setAssetsDirName(($event.target as HTMLInputElement).value)"
             placeholder="_assets"
-            style="padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit;"
+            class="settings__field"
           />
           <p class="setting-hint">{{ t('settings.assetsDirNameHint') }}</p>
         </section>
@@ -1168,7 +1775,7 @@ function onSelectPdfFont(v: string) {
             :value="settings.attachmentCustomPath"
             @change="settings.setAttachmentCustomPath(($event.target as HTMLInputElement).value)"
             placeholder="./images/${filename}/"
-            style="padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit;"
+            class="settings__field"
           />
           <p class="setting-hint">{{ t('settings.attachmentCustomPathHint') }}</p>
         </section>
@@ -1324,6 +1931,53 @@ function onSelectPdfFont(v: string) {
 
         <section data-cat="keys">
           <p class="setting-hint" style="margin-top:0;">{{ t('settings.keysHint') }}</p>
+          <div v-if="intercepted.length" class="kb-clash">
+            <p class="kb-clash__title">⚠ {{ t('settings.keysInterceptedTitle') }}</p>
+            <p class="kb-clash__body">{{ t('settings.keysInterceptedBody') }}</p>
+            <ul class="kb-clash__list">
+              <li v-for="b in intercepted" :key="b.action.id">
+                <kbd class="kb-chip">{{ formatCombo(b.combo, macKeys) }}</kbd>
+                {{ actionLabel(b.action) }}
+                <span class="kb-clash__source">— {{ b.source }}</span>
+                <span class="kb-clash__arrow">→</span>
+                <kbd class="kb-chip">{{ formatCombo(b.alternative, macKeys) }}</kbd>
+              </li>
+            </ul>
+            <button class="kb-btn kb-btn--wide" @click="applyHotkeyCompatPreset()">
+              {{ t('settings.keysApplyCompat') }}
+            </button>
+          </div>
+          <div class="kb-clash kb-clash--neutral">
+            <p class="kb-clash__title">{{ t('settings.keysWriterTitle') }}</p>
+            <p class="kb-clash__body">{{ t('settings.keysWriterBody', writerPresetKeys) }}</p>
+            <button v-if="!writerPresetOn" class="kb-btn kb-btn--wide" @click="applyWriterPreset()">
+              {{ t('settings.keysWriterApply', writerPresetKeys) }}
+            </button>
+            <button v-else class="kb-btn kb-btn--wide" @click="undoWriterPreset()">
+              ✓ {{ t('settings.keysWriterUndo') }}
+            </button>
+          </div>
+          <div class="kb-clash kb-clash--neutral" data-preset="typora">
+            <p class="kb-clash__title">{{ t('settings.keysTyporaTitle') }}</p>
+            <p class="kb-clash__body">{{ t('settings.keysTyporaBody', typoraKeys) }}</p>
+            <button v-if="!typoraOn" class="kb-btn kb-btn--wide" @click="applyTyporaPreset()">
+              {{ t('settings.keysTyporaApply') }}
+            </button>
+            <button v-else class="kb-btn kb-btn--wide" @click="undoTyporaPreset()">
+              ✓ {{ t('settings.keysTyporaUndo') }}
+            </button>
+          </div>
+          <label class="kb-hints-toggle">
+            <input type="checkbox" :checked="settings.formatHints" @change="settings.toggleFormatHints()" />
+            {{ t('settings.formatHints') }}
+          </label>
+          <input
+            v-model="keyQuery"
+            class="kb-search"
+            type="search"
+            :placeholder="t('settings.keysSearch')"
+          />
+          <p v-if="!keyGroups.length" class="setting-hint">{{ t('settings.keysNoMatch') }}</p>
           <div v-for="group in keyGroups" :key="group.key" class="kb-group">
             <h4 class="kb-group__title">{{ t('settings.keysCat' + group.key.charAt(0).toUpperCase() + group.key.slice(1)) }}</h4>
             <div v-for="action in group.items" :key="action.id" class="kb-row">
@@ -1333,7 +1987,17 @@ function onSelectPdfFont(v: string) {
                   <kbd class="kb-chip kb-chip--recording">{{ t('settings.keysRecording') }}</kbd>
                 </template>
                 <template v-else-if="actionCombos(action).length">
-                  <kbd v-for="c in actionCombos(action)" :key="c" class="kb-chip">{{ c }}</kbd>
+                  <kbd
+                    v-for="c in actionCombos(action)"
+                    :key="c"
+                    class="kb-chip"
+                    :class="{ 'kb-chip--intercepted': interceptedIds.has(action.id) }"
+                    :title="
+                      interceptedIds.has(action.id)
+                        ? t('settings.keysInterceptedBy', { source: interceptionFor(action)?.source || '' })
+                        : undefined
+                    "
+                  >{{ c }}<span v-if="interceptedIds.has(action.id)" class="kb-chip__warn">⚠</span></kbd>
                 </template>
                 <span v-else class="kb-row__unbound">{{ t('settings.keysUnbound') }}</span>
               </span>
@@ -1363,7 +2027,7 @@ function onSelectPdfFont(v: string) {
             :value="settings.dailyNotesFolder"
             @input="settings.setDailyNotesFolder(($event.target as HTMLInputElement).value)"
             placeholder="Daily"
-            style="padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit;"
+            class="settings__field"
           />
         </section>
 
@@ -1374,7 +2038,7 @@ function onSelectPdfFont(v: string) {
             :value="settings.dailyNotesFormat"
             @input="settings.setDailyNotesFormat(($event.target as HTMLInputElement).value)"
             placeholder="YYYY-MM-DD.md"
-            style="padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit;"
+            class="settings__field"
           />
         </section>
 
@@ -1410,23 +2074,6 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.spellCheck" @change="settings.toggleSpellCheck()" />
             {{ t('settings.spellCheck') }}
           </label>
-          <!-- #246 — only en_US ships with the app; anything the user drops in
-               `<config>/dictionaries/` shows up here. Without this the checker
-               flagged every word for non-English writers. -->
-          <div v-if="settings.spellCheck" class="ghs-row" style="align-items:center; gap:8px; margin-top:6px;">
-            <span>{{ t('settings.spellcheckLang') }}</span>
-            <select
-              class="ghs-select"
-              :value="settings.spellcheckLang"
-              @change="settings.setSpellcheckLang(($event.target as HTMLSelectElement).value)"
-            >
-              <option v-for="code in spellDicts" :key="code" :value="code">{{ code }}</option>
-            </select>
-            <button type="button" class="link-button" @click="openDictsFolder">
-              {{ t('settings.spellcheckAddDict') }}
-            </button>
-          </div>
-          <p v-if="settings.spellCheck" class="setting-hint">{{ t('settings.spellcheckLangHint') }}</p>
         </section>
 
         <section data-cat="writing">
@@ -1434,23 +2081,20 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.focusMode" @change="settings.toggleFocusMode()" />
             {{ t('settings.focusMode') }}
           </label>
+          <label>
+            <input type="checkbox" :checked="settings.toolbarHidden" @change="settings.toggleToolbarHidden()" />
+            {{ t('settings.toolbarHidden') }}
+          </label>
+          <p class="setting-hint">{{ withChord('settings.toolbarHiddenHint', 'view.toggleToolbar') }}</p>
         </section>
 
         <section data-cat="writing">
-          <h3 style="font-size: 13px; font-weight: 600; color: var(--text); margin: 18px 0 6px;">
+          <h3 class="settings__group-title">
             {{ t('pomodoro.settingsHeading') }}
           </h3>
-          <label>
-            <input
-              type="checkbox"
-              :checked="settings.pomodoroShowControls"
-              @change="settings.togglePomodoroShowControls()"
-            />
-            {{ t('pomodoro.showControls') }}
-          </label>
-          <p style="font-size: 11px; color: var(--text-faint); margin: 4px 0 8px; line-height: 1.5;">
-            {{ withChord('pomodoro.showControlsHint', 'pomodoro.startLast') }}
-          </p>
+          <!-- bug/C2 — the "show controls in toolbar" switch went with the
+               toolbar chevron it controlled; sessions now start from the
+               command palette ("Writing Session (Pomodoro)…") or the chord. -->
           <label>
             <input
               type="checkbox"
@@ -1459,7 +2103,7 @@ function onSelectPdfFont(v: string) {
             />
             {{ t('pomodoro.autoEngageFocus') }}
           </label>
-          <p style="font-size: 11px; color: var(--text-faint); margin: 4px 0 8px; line-height: 1.5;">
+          <p class="setting-hint">
             {{ t('pomodoro.autoEngageFocusHint') }}
           </p>
           <label style="display: block; margin-top: 4px;">{{ t('pomodoro.defaultDuration') }}</label>
@@ -1483,7 +2127,7 @@ function onSelectPdfFont(v: string) {
             :value="settings.pomodoroDefaultMinutes"
             @input="settings.setPomodoroDefaultMinutes(parseInt(($event.target as HTMLInputElement).value, 10) || 25)"
             :aria-label="t('pomodoro.customDurationLabel')"
-            style="margin-left: 8px; padding: 4px 6px; width: 70px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit;"
+            class="settings__field settings__field--num" style="margin-left: 8px;"
           />
         </section>
 
@@ -1501,10 +2145,33 @@ function onSelectPdfFont(v: string) {
           </label>
         </section>
 
+        <section v-if="windowsEditorRuntime" data-cat="writing">
+          <label>{{ t('settings.windowsEditorEngine') }}</label>
+          <select
+            :value="settings.vimMode ? 'codemirror' : settings.windowsEditorEngine"
+            :disabled="settings.vimMode"
+            @change="settings.setWindowsEditorEngine(($event.target as HTMLSelectElement).value as WindowsEditorEngine)"
+          >
+            <option value="auto">{{ t('settings.windowsEditorEngineAuto', { current: autoEngineName }) }}</option>
+            <option value="native">{{ t('settings.windowsEditorEngineNative') }}</option>
+            <option value="codemirror">{{ t('settings.windowsEditorEngineCodeMirror') }}</option>
+          </select>
+          <p class="setting-hint">
+            {{ settings.vimMode ? t('settings.windowsEditorEngineVimHint') : t('settings.windowsEditorEngineHint') }}
+          </p>
+        </section>
+
         <section data-cat="writing">
           <label>
             <input type="checkbox" :checked="settings.slashCommandsEnabled" @change="settings.toggleSlashCommandsEnabled()" />
             {{ t('settings.slashCommandsEnabled') }}
+          </label>
+        </section>
+
+        <section data-cat="writing">
+          <label>
+            <input type="checkbox" :checked="settings.fenceLanguageSuggestions" @change="settings.toggleFenceLanguageSuggestions()" />
+            {{ t('settings.fenceLanguageSuggestions') }}
           </label>
         </section>
 
@@ -1514,14 +2181,14 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.inboxWorkflowEnabled" @change="settings.toggleInboxWorkflow()" />
             {{ t('inbox.workflowSetting') }}
           </label>
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.5;">
+          <div class="setting-hint">
             {{ t('inbox.workflowSettingHint') }}
           </div>
           <label v-if="settings.inboxWorkflowEnabled" style="margin-top: 8px;">
             <input type="checkbox" :checked="settings.autoAdvanceInboxAfterOrganize" @change="settings.toggleAutoAdvanceInbox()" />
             {{ t('inbox.autoAdvanceSetting') }}
           </label>
-          <div v-if="settings.inboxWorkflowEnabled" style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.5;">
+          <div v-if="settings.inboxWorkflowEnabled" class="setting-hint">
             {{ t('inbox.autoAdvanceSettingHint') }}
           </div>
         </section>
@@ -1531,7 +2198,7 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.restoreSession" @change="settings.toggleRestoreSession()" />
             {{ t('settings.restoreSession') }}
           </label>
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.5;">
+          <div class="setting-hint">
             {{ t('settings.restoreSessionHint') }}
           </div>
         </section>
@@ -1543,11 +2210,11 @@ function onSelectPdfFont(v: string) {
             @change="settings.setStartupViewMode((($event.target as HTMLSelectElement).value || null) as any)"
           >
             <option value="">{{ t('settings.startupViewModeLastUsed') }}</option>
-            <option value="edit">Edit</option>
-            <option value="liveEdit">Live edit</option>
-            <option value="split">Split</option>
-            <option value="preview">Preview</option>
-            <option value="reading">Reading</option>
+            <option value="edit">{{ t('toolbar.viewSource') }}</option>
+            <option value="liveEdit">{{ t('toolbar.viewLive') }}</option>
+            <option value="split">{{ t('toolbar.viewSplit') }}</option>
+            <option value="preview">{{ t('toolbar.viewPreview') }}</option>
+            <option value="reading">{{ t('toolbar.viewReading') }}</option>
           </select>
           <p class="setting-hint">{{ t('settings.startupViewModeHint') }}</p>
         </section>
@@ -1557,7 +2224,7 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.perWorkspaceTabs" @change="settings.togglePerWorkspaceTabs()" />
             {{ t('settings.perWorkspaceTabs') }}
           </label>
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.5;">
+          <div class="setting-hint">
             {{ t('settings.perWorkspaceTabsHint') }}
           </div>
         </section>
@@ -1567,7 +2234,7 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.autoReloadExternalChanges" @change="settings.toggleAutoReloadExternalChanges()" />
             {{ t('settings.autoReloadExternalChanges') }}
           </label>
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.5;">
+          <div class="setting-hint">
             {{ t('settings.autoReloadExternalChangesHint') }}
           </div>
         </section>
@@ -1577,7 +2244,7 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.autoSaveOnBlur" @change="settings.toggleAutoSaveOnBlur()" />
             {{ t('settings.autoSaveOnBlur') }}
           </label>
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.5;">
+          <div class="setting-hint">
             {{ t('settings.autoSaveOnBlurHint') }}
           </div>
         </section>
@@ -1587,7 +2254,7 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.openFileInNewWindow" @change="settings.toggleOpenFileInNewWindow()" />
             {{ t('settings.openFileInNewWindow') }}
           </label>
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.5;">
+          <div class="setting-hint">
             {{ t('settings.openFileInNewWindowHint') }}
           </div>
         </section>
@@ -1597,7 +2264,7 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.revealInFileTreeOnOpen" @change="settings.toggleRevealInFileTreeOnOpen()" />
             {{ t('settings.revealInFileTreeOnOpen') }}
           </label>
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.5;">
+          <div class="setting-hint">
             {{ t('settings.revealInFileTreeOnOpenHint') }}
           </div>
         </section>
@@ -1607,7 +2274,7 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.openLinkedFilesExternally" @change="settings.toggleOpenLinkedFilesExternally()" />
             {{ t('settings.openLinkedFilesExternally') }}
           </label>
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.5;">
+          <div class="setting-hint">
             {{ t('settings.openLinkedFilesExternallyHint') }}
           </div>
         </section>
@@ -1624,12 +2291,14 @@ function onSelectPdfFont(v: string) {
           </div>
         </section>
 
-        <section data-cat="advanced">
+        <!-- App Store builds send no usage data at all (lib/telemetry.ts), so
+             there is no switch to show. -->
+        <section v-if="!IS_APP_STORE_BUILD" data-cat="advanced">
           <label>
             <input type="checkbox" :checked="settings.telemetryEnabled" @change="settings.toggleTelemetry()" />
             {{ t('settings.telemetry') }}
           </label>
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.5;">
+          <div class="setting-hint">
             {{ t('settings.telemetryHint') }}
           </div>
         </section>
@@ -1664,7 +2333,7 @@ function onSelectPdfFont(v: string) {
               {{ settingDefault ? t('settings.settingDefault') : t('settings.setDefault') }}
             </button>
           </div>
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 6px; line-height: 1.5;">
+          <div class="setting-hint">
             {{ t('settings.setDefaultHint') }}
           </div>
         </section>
@@ -1687,106 +2356,194 @@ function onSelectPdfFont(v: string) {
 </template>
 
 <style scoped>
+/* ── 5.0 Settings (spec §6): macOS System Settings feel ───────────────────
+ * 220px navigation with 16px line icons (rows 30px / radius 7, selected
+ * --accent-soft + --accent-text); content: a 20/620 page title, then group
+ * cards (--bg-elev, radius 10) whose rows are split by hairlines — label on
+ * the left, control on the right, help text 12px --text-3 underneath.
+ * Card edges come from markGroups() (data-gs / data-ge). */
+
 /* #180 shortcut editor */
-.kb-group { margin-bottom: 14px; }
+.kb-clash {
+  border: var(--bd-hair);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+/* Same box, no alarm: an offer rather than a warning (#296). */
+.kb-hints-toggle {
+  margin: 2px 0 4px;
+}
+.kb-search {
+  margin-bottom: 4px;
+}
+.kb-clash--neutral {
+  border-color: var(--hairline);
+  background: var(--bg);
+}
+.kb-clash__title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 13px;
+}
+.kb-clash__body {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.kb-clash__list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.kb-clash__source {
+  color: var(--text-3);
+}
+.kb-clash__arrow {
+  color: var(--text-3);
+  padding: 0 2px;
+}
+.kb-chip--intercepted {
+  color: var(--warning);
+}
+.kb-chip__warn {
+  margin-left: 3px;
+  font-size: 10px;
+}
+.kb-group {
+  margin-bottom: 6px;
+}
 .kb-group__title {
-  margin: 12px 0 6px;
+  margin: 14px 0 4px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-faint);
+  letter-spacing: 0.02em;
+  color: var(--text-3);
 }
 .kb-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 5px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  min-height: 34px;
+  border-bottom: var(--bd-hair);
+}
+.kb-group .kb-row:last-child {
+  border-bottom: 0;
 }
 .kb-row__label { flex: 1; min-width: 0; font-size: 13px; }
-.kb-row__combos { display: flex; gap: 4px; flex-shrink: 0; }
-.kb-row__unbound { font-size: 11px; color: var(--text-faint); }
+.kb-row__combos { display: flex; gap: 6px; flex-shrink: 0; }
+.kb-row__unbound { font-size: 12px; color: var(--text-3); }
+/* Chords read as text, not keycaps (same rule as the menus). */
 .kb-chip {
-  font: 11px/1.6 var(--font-mono, monospace);
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-soft, var(--bg));
+  font: 12px/1.6 var(--font-ui, inherit);
+  letter-spacing: 0.02em;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: var(--fill-1);
+  color: var(--text-2);
   white-space: nowrap;
 }
-.kb-chip--recording { border-color: var(--accent); color: var(--accent); }
-.kb-row__actions { display: flex; gap: 4px; flex-shrink: 0; }
+.kb-chip--recording {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.kb-row__actions { display: flex; gap: 2px; flex-shrink: 0; }
 .kb-btn {
-  font-size: 11px;
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  height: 24px;
+  font-size: 12px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
   background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
+  color: var(--text-2);
+  cursor: default;
 }
-.kb-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
-.kb-btn:disabled { opacity: 0.35; cursor: default; }
-.kb-btn--wide { margin-top: 10px; padding: 5px 12px; }
-.kb-error { color: var(--danger, #e5484d); font-size: 12px; margin: 8px 0 0; }
+.kb-btn:hover:not(:disabled) { color: var(--text); background: var(--fill-1); }
+.kb-btn:disabled { opacity: 0.35; }
+.kb-btn--wide {
+  height: 28px;
+  margin-top: 4px;
+  padding: 0 12px;
+  font-weight: 560;
+  color: var(--text);
+  background: var(--fill-1);
+  border-radius: var(--r-md);
+}
+.kb-btn--wide:hover:not(:disabled) { background: var(--fill-2); }
+.kb-error { color: var(--danger); font-size: 12px; margin: 8px 0 0; }
 
-/* DsModal supplies the backdrop / frame / header (title + close). Zero its
-   body padding so the two-column nav+body layout fills the panel edge-to-edge,
-   and give the panel a fixed working height like the old shell. */
-.settings-modal :deep(.ds-modal__body) {
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
+/* ── shell ───────────────────────────────────────────────────────────── */
+/* DsModal frame overrides live in the unscoped <style> block at the end of
+   this file: the overlay is teleported, so a scoped selector cannot reach
+   it. */
 .settings__layout {
   flex: 1;
   display: flex;
   min-height: 0;
-  height: min(560px, 78vh);
+  height: min(600px, 78vh);
 }
 .settings__nav {
-  width: 160px;
+  width: 220px;
   flex-shrink: 0;
-  border-right: 1px solid var(--border);
-  background: var(--bg-soft, var(--bg));
+  box-sizing: border-box;
+  border-right: var(--bd-hair);
+  background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
-  padding: 10px 6px;
-  gap: 1px;
+  padding: 12px 10px;
+  gap: 2px;
   overflow-y: auto;
 }
 .settings__nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 9px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 10px;
+  font-family: inherit;
   font-size: 13px;
-  color: var(--text-muted);
+  font-weight: 450;
+  color: var(--text);
   background: transparent;
   border: none;
-  border-radius: 6px;
-  cursor: pointer;
+  border-radius: 7px;
+  cursor: default;
   text-align: left;
-  font: inherit;
-  transition: all 0.12s;
 }
 .settings__nav-item:hover {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  color: var(--text);
+  background: var(--fill-1);
 }
-.settings__nav-item--active {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent);
-  font-weight: 600;
+.settings__nav-item--active,
+.settings__nav-item--active:hover {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 500;
 }
 .settings__nav-icon {
-  font-size: 16px;
-  line-height: 1;
+  flex: none;
+  color: var(--text-2);
+}
+.settings__nav-item--active .settings__nav-icon {
+  color: var(--accent-text);
 }
 .settings__nav-label {
   flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 /* v3.0 — single-source-of-truth visibility: each section/component
    gets data-cat="basics|writing|sync|integrations|export|keys|advanced",
    the body's data-active-cat determines which subset renders. Saves
@@ -1805,53 +2562,314 @@ function onSelectPdfFont(v: string) {
 .settings__body[data-active-cat="export"] > [data-cat="export"],
 .settings__body[data-active-cat="keys"] > [data-cat="keys"],
 .settings__body[data-active-cat="advanced"] > [data-cat="advanced"] {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: block;
 }
+.settings__body[data-active-cat="basics"] > section[data-cat="basics"],
+.settings__body[data-active-cat="writing"] > section[data-cat="writing"],
+.settings__body[data-active-cat="sync"] > section[data-cat="sync"],
+.settings__body[data-active-cat="integrations"] > section[data-cat="integrations"],
+.settings__body[data-active-cat="export"] > section[data-cat="export"],
+.settings__body[data-active-cat="keys"] > section[data-cat="keys"],
+.settings__body[data-active-cat="advanced"] > section[data-cat="advanced"],
+.settings__body[data-searching] > section[data-cat] {
+  display: grid;
+}
+
+/* ── search ──────────────────────────────────────────────────────────── */
+.settings__search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 24px 12px;
+  border-bottom: var(--bd-hair);
+}
+.settings__search-input {
+  flex: 0 1 340px;
+  min-width: 0;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--fill-1);
+  border: 0;
+  border-radius: var(--r-md);
+  outline: none;
+}
+.settings__search-input::placeholder {
+  color: var(--text-3);
+}
+.settings__search-input:focus {
+  background: var(--bg);
+  box-shadow: var(--ring);
+}
+.settings__search-count {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.settings__search-steps {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.settings__search-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: default;
+}
+.settings__search-step:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--fill-1);
+}
+.settings__search-step:disabled {
+  opacity: 0.4;
+}
+:root.narrow-viewport .settings__search-step {
+  width: 36px;
+  height: 36px;
+}
+/* Phone: the whole dialog body scrolls, so without this the search box and
+   its previous/next buttons scroll away the moment you step to a match.
+   Sticky offsets are measured inside the scroller's padding; the negative
+   top (DsModal's body padding) pins it to the visible edge instead of
+   leaving a strip of settings showing above it. */
+:root.narrow-viewport .settings__search {
+  position: sticky;
+  top: calc(-1 * var(--sp-5, 24px));
+  z-index: 2;
+  padding-top: 8px;
+  background: var(--bg);
+}
+.settings__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* Stepping through matches: a quiet accent ring on the current match, and a
+   one-off pulse when it is reached. Reduced motion keeps the ring only. */
+.settings__body[data-searching] > [data-hit-current] {
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.settings__body[data-searching] > [data-hit-flash] {
+  animation: settings-hit-pulse 1.1s ease-out;
+}
+@keyframes settings-hit-pulse {
+  0% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px var(--accent-ring);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings__body[data-searching] > [data-hit-flash] {
+    animation: none;
+  }
+}
+/* Search mode: every category's blocks are candidates; only matches show. */
+.settings__body[data-searching] > [data-cat]:not([data-match="1"]) {
+  display: none;
+}
+.settings__search-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 16px 0 6px;
+}
+.settings__search-group:first-child {
+  margin-top: 0;
+}
+.settings__search-group-icon {
+  color: var(--text-3);
+}
+.settings__search-empty {
+  order: -1;
+  color: var(--text-3);
+  font-size: 13px;
+  margin: 24px 0;
+  text-align: center;
+}
+
+/* ── content ─────────────────────────────────────────────────────────── */
 .settings__body {
   flex: 1;
-  padding: 16px 22px;
+  min-width: 0;
+  padding: 20px 28px 32px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 0;
+  background: var(--bg);
 }
-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.settings__page-title {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--text);
 }
-section > label {
+
+.settings__body > * {
+  flex-shrink: 0;
+}
+/* Every visible block is a card row. */
+.settings__body > [data-cat] {
+  box-sizing: border-box;
+  background: var(--bg-elev);
+  padding: 10px 14px;
+  border-top: var(--bd-hair);
+}
+.settings__body > [data-cat][data-gs] {
+  border-top: 0;
+  border-top-left-radius: var(--r-lg);
+  border-top-right-radius: var(--r-lg);
+  margin-top: 16px;
+}
+.settings__body > [data-cat][data-gfirst] {
+  margin-top: 0;
+}
+.settings__body[data-searching] > [data-cat][data-gs] {
+  margin-top: 8px;
+}
+.settings__body > [data-cat][data-ge] {
+  border-bottom-left-radius: var(--r-lg);
+  border-bottom-right-radius: var(--r-lg);
+}
+/* Whole sub-panels (AI, GitHub sync, proxy, …) get room inside their card. */
+.settings__body > div[data-cat] {
+  padding: 14px 16px;
+}
+.settings__body > div[data-cat]:empty {
+  display: none !important;
+}
+
+/* A row: label left, control right; anything else spans the row. */
+.settings__body > section {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 4px;
+  min-height: 24px;
+}
+.settings__body > section > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.settings__body > section > label {
   font-size: 13px;
+  line-height: 1.4;
   color: var(--text);
   display: flex;
   align-items: center;
   gap: 8px;
 }
-section > label:has(input[type='checkbox']) {
-  display: inline-flex;
-  align-self: flex-start;
-  cursor: pointer;
+/* A plain caption label ("Theme", "Font size: 16px") is the row's label. */
+.settings__body > section > label:first-child:not(:has(input, select, textarea)),
+.settings__body > section > label:first-child:not(:has(input, select, textarea)) {
+  grid-column: 1;
 }
-section > label:not(:has(input)) {
-  font-size: 12px;
-  color: var(--text-muted);
+/* …and the control right after it sits on the right of the same line. */
+.settings__body > section > label:first-child:not(:has(input, select, textarea)) + select,
+.settings__body > section > label:first-child:not(:has(input, select, textarea)) + input:not([type='checkbox']):not([type='radio']),
+.settings__body > section > label:first-child:not(:has(input, select, textarea)) + .settings__field {
+  grid-column: 2;
+  grid-row: 1;
+  width: 240px;
+  max-width: 100%;
 }
-.setting-hint {
+.settings__body > section > label:first-child:not(:has(input, select, textarea)) + input[type='range'] {
+  width: 200px;
+}
+
+/* Checkbox rows: the text on the left, a switch on the right. */
+.settings__body > section > label:has(> input[type='checkbox']),
+.kb-hints-toggle {
+  justify-content: space-between;
+  flex-direction: row-reverse;
+  gap: 16px;
+  cursor: default;
+  min-height: 24px;
+}
+.settings__body > section > label:has(> input[type='checkbox']) + label:has(> input[type='checkbox']) {
+  padding-top: 6px;
+  margin-top: 4px;
+  border-top: var(--bd-hair);
+}
+
+/* Group title inside a card (e.g. "Writing statistics", "Version history"). */
+.settings__group-title {
+  margin: 2px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Help text */
+.setting-hint,
+.hint {
   margin: 0;
-  font-size: 11px;
-  color: var(--text-faint, #888);
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.settings__body > section > label + .setting-hint,
+.settings__body > section > label + .hint {
+  margin-top: -2px;
 }
 .setting-hint a {
-  color: var(--accent);
+  color: var(--accent-text);
+  text-decoration: none;
+}
+.setting-hint a:hover {
+  text-decoration: underline;
+}
+/* #282 — "your theme choice is not reaching the screen" is not a footnote;
+   it explains why the control right above it looks broken. */
+.setting-hint--warn {
+  margin-top: 6px;
+  color: var(--text-2);
+}
+.hint-btn,
+.link-button {
+  padding: 0;
+  margin-left: 4px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent-text);
+  background: none;
+  border: none;
+  cursor: default;
+}
+.hint-btn:hover,
+.link-button:hover {
+  background: none;
   text-decoration: underline;
 }
 .css-path-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  word-break: break-all;
+  margin-top: 4px;
 }
 .css-path-row > span {
   min-width: 0;
@@ -1865,15 +2883,14 @@ section > label:not(:has(input)) {
   padding: 0;
   flex-shrink: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  color: var(--text-2);
+  cursor: default;
 }
 .refresh-css-btn:hover {
-  background: var(--bg-soft, rgba(0, 0, 0, 0.05));
-  color: var(--accent);
+  background: var(--fill-1);
+  color: var(--text);
 }
 .refresh-css-btn svg.is-spinning {
   animation: refresh-css-spin 0.7s linear infinite;
@@ -1882,48 +2899,327 @@ section > label:not(:has(input)) {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-/* Image-upload (图床) text/password fields — match the inline-styled inputs
-   used elsewhere in this panel. */
-.img-field {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  border-radius: 4px;
-  font: inherit;
-  width: 100%;
+
+/* ── controls (tokens; same look as ui/DsInput / DsButton) ────────────── */
+.settings__field,
+.img-field,
+.kb-search,
+select {
   box-sizing: border-box;
+  height: 28px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--fill-1);
+  border: 0;
+  border-radius: var(--r-sm);
+  outline: none;
 }
-.row {
-  display: flex;
-  gap: 4px;
-}
-.row button {
-  border: 1px solid var(--border);
-  padding: 6px 14px;
-  font-size: 12px;
-}
-.row button.active {
-  background: var(--bg-active);
-  color: var(--accent);
-  border-color: var(--accent);
-}
-select,
-input[type='range'] {
+.settings__field,
+.img-field,
+.kb-search {
   width: 100%;
+}
+.settings__field::placeholder,
+.img-field::placeholder,
+.kb-search::placeholder {
+  color: var(--text-3);
+}
+.settings__field:focus,
+.img-field:focus,
+.kb-search:focus,
+select:focus {
+  background: var(--bg);
+  box-shadow: var(--ring);
+}
+.settings__field--sub {
+  margin-top: 4px;
+}
+.settings__field--num {
+  width: 76px;
+  font-variant-numeric: tabular-nums;
 }
 select {
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  padding: 6px 8px;
-  border-radius: 4px;
-  font: inherit;
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='gray' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='8 10 12 6 16 10'/%3E%3Cpolyline points='8 14 12 18 16 14'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  cursor: default;
 }
+select:hover:not(:focus) {
+  background-color: var(--fill-2);
+}
+.settings__unit {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.settings__mm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.settings__mm-label {
+  min-width: 56px;
+  color: var(--text-2);
+}
+/* Slider: a hairline-thin track with a round white knob, AppKit style. */
 input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: default;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--fill-2);
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: var(--r-full);
+  background: var(--knob);
+  box-shadow: var(--sh-thumb), 0 0 0 var(--hair-w) var(--hairline);
+}
+input[type='range']:focus-visible {
+  outline: none;
+}
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--ring);
+}
+input[type='range']:disabled {
+  opacity: 0.4;
+}
+
+/* Switch: a checkbox drawn as an AppKit-style toggle. Still a real checkbox
+   (keyboard, label click, :checked), only painted differently. */
+.settings__body > section input[type='checkbox'],
+.kb-hints-toggle input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 18px;
+  margin: 0;
+  border-radius: var(--r-full);
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 var(--hair-w) var(--hairline);
+  transition: background-color var(--dur-fast) var(--ease);
+  cursor: default;
+}
+.settings__body > section input[type='checkbox']::before,
+.kb-hints-toggle input[type='checkbox']::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--r-full);
+  background: var(--knob);
+  box-shadow: var(--sh-thumb);
+  transition: transform var(--dur) var(--ease-out);
+}
+.settings__body > section input[type='checkbox']:checked,
+.kb-hints-toggle input[type='checkbox']:checked {
+  background: var(--accent);
+  box-shadow: none;
+}
+.settings__body > section input[type='checkbox']:checked::before,
+.kb-hints-toggle input[type='checkbox']:checked::before {
+  transform: translateX(12px);
+}
+.settings__body > section input[type='checkbox']:focus-visible,
+.kb-hints-toggle input[type='checkbox']:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+.settings__body > section input[type='checkbox']:disabled {
+  opacity: 0.4;
+}
+.settings__body > section label:has(> input[type='checkbox']:disabled) {
+  color: var(--text-3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings__body > section input[type='checkbox'],
+  .settings__body > section input[type='checkbox']::before {
+    transition: none;
+  }
+}
+
+/* Buttons inside the settings rows: secondary by default, primary when
+   marked as such. */
+.row {
+  display: flex;
+  gap: 8px;
+}
+.settings__body > section button:not([class]),
+.row button {
+  height: 28px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--text);
+  background: var(--fill-1);
+  border: 0;
+  border-radius: var(--r-md);
+  cursor: default;
+}
+.settings__body > section button:not([class]):hover:not(:disabled),
+.row button:hover:not(:disabled) {
+  background: var(--fill-2);
+}
+.row button.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.row .primary-btn {
+  background: var(--accent-strong);
+  color: var(--accent-strong-fg);
+}
+.row .primary-btn:hover:not(:disabled) {
+  background: var(--accent-strong);
+  filter: brightness(1.06);
+}
+.settings__body > section button:focus-visible,
+.row button:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+@media (pointer: coarse) {
+  select,
+  .settings__field,
+  .img-field,
+  .kb-search {
+    height: 40px;
+    font-size: 15px;
+  }
+}
+
+/* Phone: one column — label above control. */
+:root.narrow-viewport .settings__body > section {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root.narrow-viewport .settings__body > section > * {
+  grid-column: 1 / -1 !important;
+  grid-row: auto !important;
+}
+:root.narrow-viewport .settings__body > section > label:first-child:not(:has(input, select, textarea)) + select,
+:root.narrow-viewport .settings__body > section > label:first-child:not(:has(input, select, textarea)) + input,
+:root.narrow-viewport .settings__body > section > label:first-child:not(:has(input, select, textarea)) + .settings__field {
+  width: 100%;
+}
+</style>
+
+<style>
+/* DsModal is teleported to <body> and forwards `class="settings-modal"` to
+   its overlay; scoped selectors cannot reach it, so the frame overrides are
+   global but namespaced. Zero the body padding so the nav + content columns
+   fill the panel edge-to-edge. */
+.ds-modal.settings-modal .ds-modal__panel {
+  background: var(--bg);
+}
+.ds-modal.settings-modal .ds-modal__head {
+  padding-bottom: 10px;
+}
+.ds-modal.settings-modal .ds-modal__body {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sub-panels (AISettings, GithubSyncSettings, ProxySettings, Integrations…)
+   carry their own scoped styles from the 4.x era — bordered white boxes,
+   11px buttons, native-looking fields. Inside the settings cards they get
+   the 5.0 controls: --fill-1 fields with a focus ring, 28px secondary /
+   primary buttons, hairline cards. Only the look is touched, never widths
+   or layout, so each panel keeps its own arrangement. */
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(
+  input[type='text'],
+  input[type='password'],
+  input[type='number'],
+  input[type='url'],
+  input[type='email'],
+  input[type='search'],
+  input:not([type]),
+  select,
+  textarea
+) {
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background-color: var(--fill-1);
+  border: 0;
+  border-radius: var(--r-sm);
+  outline: none;
+  box-shadow: none;
+}
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(input, select, textarea)::placeholder {
+  color: var(--text-3);
+}
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(input, select, textarea):focus {
+  background-color: var(--bg);
+  box-shadow: var(--ring);
+}
+.ds-modal.settings-modal .settings__body > div[data-cat] input[type='checkbox'],
+.ds-modal.settings-modal .settings__body > div[data-cat] input[type='radio'] {
   accent-color: var(--accent);
 }
-input[type='checkbox'] {
-  accent-color: var(--accent);
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(button[class*='btn'], button[class*='-button']):not([class*='--link']):not([class*='close']) {
+  min-height: 28px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--text);
+  background: var(--fill-1);
+  border: 0;
+  border-radius: var(--r-md);
+  cursor: default;
+}
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(button[class*='btn'], button[class*='-button']):not([class*='--link']):not([class*='close']):hover:not(:disabled) {
+  background: var(--fill-2);
+  border-color: transparent;
+}
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(button[class*='btn'], button[class*='-button'])[class*='--primary'],
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(button[class*='btn'], button[class*='-button'])[class*='--primary']:hover:not(:disabled) {
+  background: var(--accent-strong);
+  color: var(--accent-strong-fg);
+}
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(button[class*='btn'], button[class*='-button'])[class*='--danger'] {
+  color: var(--danger);
+}
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(button[class*='btn'], button[class*='-button'])[class*='--small'] {
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(button[class*='btn'], button[class*='-button'])[class*='--ghost'] {
+  background: transparent;
+  color: var(--text-2);
+}
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(.ghs-card, .ic-card) {
+  background: var(--bg);
+  border: var(--bd-hair);
+  border-radius: var(--r-lg);
+}
+.ds-modal.settings-modal .settings__body > div[data-cat] :is(h3, h4) {
+  text-align: left;
 }
 </style>

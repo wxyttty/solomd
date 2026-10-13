@@ -34,8 +34,29 @@ test('分隔行比表头多一列 — 用户上报的文档', () => {
   const html = renderMarkdown(src);
   assert.equal(countTables(html), 1, '应被识别为 1 个表格');
   assert.match(html, /<th[^>]*>大类<\/th>/);
-  // 首列的 `:----:` 对齐意图应保留
-  assert.match(html, /<th style="text-align:center">大类<\/th>/);
+  // 首列的 `:----:` 对齐意图应保留（短单元格还会带 cell-nowrap class，见下）
+  assert.match(html, /<th style="text-align:center"[^>]*>大类<\/th>/);
+});
+
+// #271 — 短单元格不换行：否则表格布局只保证每列一个汉字宽，短标签会被挤成竖排。
+test('短单元格带 cell-nowrap，长单元格照常换行', () => {
+  const long = '这是一段非常长的中文说明文字没有任何空格用来检验长单元格仍然会正常换行';
+  const html = renderMarkdown(`| 序号 | 模块 | 说明 |
+| --- | --- | --- |
+| 6 | 定时任务调度与数据同步 | ${long} |`);
+  assert.match(html, /<td class="cell-nowrap">6<\/td>/);
+  assert.match(html, /<td class="cell-nowrap">定时任务调度与数据同步<\/td>/);
+  assert.match(html, new RegExp(`<td>${long}</td>`));
+});
+
+test('单元格宽度按显示文本算，不按 Markdown 标记算', () => {
+  // 12 个汉字 = 24 个宽度单位，刚好是上限；加粗标记不计入。
+  const html = renderMarkdown(`| A |
+| --- |
+| **一二三四五六七八九十一二** |
+| 一二三四五六七八九十一二三 |`);
+  assert.match(html, /<td class="cell-nowrap"><strong>一二三四五六七八九十一二<\/strong><\/td>/);
+  assert.match(html, /<td>一二三四五六七八九十一二三<\/td>/);
 });
 
 test('分隔行比表头少一列', () => {
@@ -149,4 +170,80 @@ test('#213 嵌套:4 空格 / 三层深 / 9→10 变宽标记', () => {
 
 test('#213 回归:无序列表嵌套不受影响', () => {
   assert.equal(nestsSublist(renderMarkdown('- a\n  - b\n  - c\n- d\n')), true);
+});
+
+// ---- 正文 `[TOC]` 自动目录 -------------------------------------------------
+
+test('[TOC] 生成带锚点和层级的正文目录', () => {
+  const html = renderMarkdown(`[TOC]
+
+# 项目概览
+
+## 安装与使用
+
+### Windows
+
+## 常见问题`);
+  assert.match(html, /<nav class="md-toc"[^>]*aria-label="Table of contents"/);
+  assert.match(html, /<a href="#%E9%A1%B9%E7%9B%AE%E6%A6%82%E8%A7%88" class="md-toc__link">项目概览<\/a>/);
+  assert.match(html, /<a href="#%E5%AE%89%E8%A3%85%E4%B8%8E%E4%BD%BF%E7%94%A8" class="md-toc__link">安装与使用<\/a>/);
+  assert.equal((html.match(/class="md-toc__list"/g) || []).length, 3);
+  assert.doesNotMatch(html, /\[TOC\]/i);
+});
+
+test('[TOC] 与实际标题共用重复 slug，并保留原始 source line', () => {
+  const html = renderMarkdown(`[toc]
+
+# Repeat
+
+# Repeat`);
+  assert.match(html, /href="#repeat"/);
+  assert.match(html, /href="#repeat-1"/);
+  assert.match(html, /<h1 id="repeat"[^>]*data-source-line="3">/);
+  assert.match(html, /<h1 id="repeat-1"[^>]*data-source-line="5">/);
+});
+
+test('[TOC] 支持 Setext 和格式化标题文本', () => {
+  const html = renderMarkdown(`[TOC]
+
+Main *Title*
+============
+
+## Use \`code\``);
+  assert.match(html, /href="#main-title"[^>]*>Main Title<\/a>/);
+  assert.match(html, /href="#use-code"[^>]*>Use code<\/a>/);
+});
+
+test('代码块、行内文本和列表中的 [TOC] 不会展开', () => {
+  const html = renderMarkdown(`\`\`\`
+[TOC]
+\`\`\`
+
+这里有 [TOC] 文本。
+
+- [TOC]
+
+# Heading`);
+  assert.doesNotMatch(html, /<nav class="md-toc"/);
+  assert.match(html, /<code[^>]*>.*\[TOC\]/s);
+  assert.match(html, /这里有 \[TOC\] 文本/);
+});
+
+test('无标题文档中的 [TOC] 不显示空标记', () => {
+  const html = renderMarkdown('[TOC]\n\n正文');
+  assert.doesNotMatch(html, /\[TOC\]|<nav class="md-toc"/i);
+  assert.match(html, /<p[^>]*>正文<\/p>/);
+});
+
+test('分块实时预览可从完整文档生成 [TOC]，且不泄漏 front matter', () => {
+  const html = renderMarkdown('[TOC]', {
+    tocSource: `---
+title: Full document
+---
+
+# 全文标题`,
+  });
+  assert.match(html, /<nav class="md-toc"/);
+  assert.match(html, /href="#%E5%85%A8%E6%96%87%E6%A0%87%E9%A2%98"/);
+  assert.doesNotMatch(html, /md-frontmatter|Full document/);
 });

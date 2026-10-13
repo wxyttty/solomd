@@ -1,0 +1,9 @@
+“Varsayılan uygulamada aç” yeniden çalışıyor. Yanlış yere yazılmış bir izin kuralı, başka bir uygulamayla açma işlemlerinin tümünü engelliyordu: araç çubuğu düğmesi, bağlantılı PDF ve Office dosyaları, sözlük klasörü. Artık her belge açılıyor; programlar ve betikler yine engelleniyor.
+
+Yazdırılan PDF'ler tüm sayfaları içeriyor. Metin PDF'si ilk sayfada duruyordu; uzun tablolar her sayfada başlık satırını tekrarlıyor. Görüntü PDF'si sayfa sonlarında metin ya da tablo satırlarını kesmiyor.
+
+Dışa aktarılan HTML kendi başına çalışıyor: Mermaid diyagramları, matematik yazı tipleri ve yerel görseller gömülü, indirme beklemesi yok. Word dışa aktarımı Mermaid diyagramlarını görsel olarak içeriyor.
+
+Dosya ağacı: silmeden önce onay (yine Çöp Kutusu'na gider), klasör simgeleri ve girinti çizgileri, vurgulanan seçim yeni dosyanın yerini belirliyor, klasörleri çift tıklamayla açma seçeneği, seçili klasörde not oluşturan yeni kısayol, “Dosya ağacında göster” dosyaya kaydırıyor.
+
+Ayrıca: Esc görsel görüntüleyiciyi kapatıyor, ``` dil önerileri sunuyor.

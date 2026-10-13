@@ -216,6 +216,111 @@ async function loadLocalSvgDataUrl(path: string): Promise<string | null> {
   }
 }
 
+/** MIME type for an image path, or `null` when the extension is not an image. */
+function imageMimeForPath(path: string): string | null {
+  const ext = stripLocalImageUrlSuffix(path).split('.').pop()?.toLowerCase() ?? '';
+  switch (ext) {
+    case 'png':
+    case 'apng':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    case 'svg':
+      return 'image/svg+xml';
+    case 'bmp':
+      return 'image/bmp';
+    case 'tif':
+    case 'tiff':
+      return 'image/tiff';
+    case 'avif':
+      return 'image/avif';
+    case 'heic':
+    case 'heif':
+      return 'image/heic';
+    case 'ico':
+      return 'image/x-icon';
+    default:
+      return null;
+  }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  // Chunked: spreading a multi-megabyte array into fromCharCode overflows the
+  // argument limit.
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/** Reads a file's bytes — injectable so the inlining can be unit tested. */
+export type BinaryReader = (path: string) => Promise<Uint8Array | null>;
+
+const readBinaryViaTauri: BinaryReader = async (path) => {
+  try {
+    return new Uint8Array(await invoke<number[]>('read_binary_file', { path }));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Embed every local image in rendered markdown HTML as a `data:` URL.
+ *
+ * Exported HTML is a standalone file, so the `asset.localhost` URLs the app
+ * rewrites local paths to — which is what makes images show up in the webview
+ * — are unreachable the moment that file leaves the app: a shared .html opens
+ * with broken images (issue reported with a note whose figures are local SVGs).
+ * Inlining the bytes keeps the export self-contained and offline, matching what
+ * the rest of the export path promises.
+ *
+ * Remote / `data:` / blob sources are left alone, and so is anything that can't
+ * be read (a missing file stays a broken link rather than vanishing).
+ */
+export async function inlineLocalImages(
+  rawHtml: string,
+  imageRoot: string | null,
+  filePath?: string,
+  readBytes: BinaryReader = readBinaryViaTauri,
+): Promise<string> {
+  const matches = [...rawHtml.matchAll(/(<img[^>]*\bsrc=)(["'])([^"']*)\2/gi)];
+  if (!matches.length) return rawHtml;
+
+  const cache = new Map<string, string | null>();
+  const dataUrlFor = async (src: string): Promise<string | null> => {
+    if (!src || /^(https?|data|blob|asset|tauri):/i.test(src)) return null;
+    const path = resolveImagePath(src, imageRoot, filePath);
+    if (/^(https?|data|blob|asset|tauri):/i.test(path)) return null;
+    const cached = cache.get(path);
+    if (cached !== undefined) return cached;
+
+    const mime = imageMimeForPath(path);
+    const bytes = mime ? await readBytes(path) : null;
+    const url = mime && bytes && bytes.length ? `data:${mime};base64,${bytesToBase64(bytes)}` : null;
+    cache.set(path, url);
+    return url;
+  };
+
+  let out = '';
+  let cursor = 0;
+  for (const match of matches) {
+    const [full, prefix, quote, src] = match;
+    const index = match.index ?? 0;
+    out += rawHtml.slice(cursor, index);
+    cursor = index + full.length;
+    const dataUrl = await dataUrlFor(src);
+    out += dataUrl ? `${prefix}${quote}${dataUrl}${quote}` : full;
+  }
+  return out + rawHtml.slice(cursor);
+}
+
 export function installSvgImageFallbacks(root: ParentNode): void {
   const images = root.querySelectorAll<HTMLImageElement>('img[data-solomd-local-src]');
   for (const img of Array.from(images)) {

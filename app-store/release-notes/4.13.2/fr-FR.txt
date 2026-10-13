@@ -1,0 +1,9 @@
+Une note ne peut plus exécuter de code. Le HTML en ligne d'un fichier markdown était rendu tel quel dans l'application, sans aucun filtre : un script caché dans la note de quelqu'un d'autre s'exécutait donc dans l'éditeur. Le markdown rendu est désormais assaini partout — aperçu, édition live, diaporama et tous les exports. Le HTML en ligne ordinaire fonctionne toujours ; les scripts, les gestionnaires d'événements et les liens javascript: non. Si vous avez ouvert du markdown que vous n'avez pas écrit, installez cette mise à jour.
+
+Les diagrammes Mermaid s'affichent à l'export en PDF texte. Cette voie imprimait auparavant le code source du diagramme. L'impression ne récupère plus sa feuille de style mathématique sur le réseau : les équations gardent leur mise en forme hors ligne.
+
+Le nom du document ne disparaît plus dans une fenêtre étroite, et la barre d'outils dépliée fait un tiers de sa hauteur précédente, sans trou au milieu de la deuxième ligne.
+
+Un thème qui semble ne rien changer s'explique maintenant : un thème du marketplace qui définit à la fois les couleurs claires et sombres l'emporte sur le sélecteur intégré — celui-ci nomme désormais le thème en cause et permet de le désactiver d'un clic.
+
+L'application démarre plus vite. Tout était compilé avant la première image — le moteur de diagrammes, les deux dictionnaires chinois, les exports PDF et Word, le diaporama. Ils se chargent maintenant à la demande, et le premier affichage est environ 30 % plus rapide.

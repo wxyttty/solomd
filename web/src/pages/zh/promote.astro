@@ -1,0 +1,19 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Header from '../../components/Header.astro';
+import Footer from '../../components/Footer.astro';
+import Promote from '../../components/Promote.astro';
+const lang = 'zh' as const;
+---
+
+<Layout
+  title="帮 SoloMD 推广 — 推广计划"
+  description="写文章、录视频或推荐 SoloMD，就能出现在官网感谢墙、应用「关于」窗口和 GitHub README 贡献者名单里。"
+  lang={lang}
+>
+  <Header lang={lang} />
+  <main id="main">
+    <Promote lang={lang} />
+  </main>
+  <Footer lang={lang} />
+</Layout>

@@ -1,0 +1,9 @@
+Uygulamadan çıkmadan dosya ve klasörleri taşıyın. Bir notu klasörün üzerine sürükleyin ya da menüsünden "Şuraya taşı…" seçip birkaç harf yazarak hedefi bulun. Taşıma geri alınabilir, açık sekmeler dosyayı izler ve taşınan nottaki göreli bağlantılar yeniden bağlanır, böylece görseller çalışmaya devam eder.
+
+Gizli dosyaları gösterin. Nokta ile başlayan dosya ve klasörlere uygulama içinden erişilemiyordu; yeni bir ayar bunları listeler, varsayılan olarak kapalıdır.
+
+Dosya ağacını dosya türüne göre süzün. Liste, kasanızda gerçekten bulunan uzantıları sayılarıyla birlikte sunar; eşleşme içermeyen klasörler de onlarla birlikte kaybolur. Etkin süzgeci belirten bir bilgi çubuğu, bunun hiçbir zaman eksik dosya gibi görünmemesini sağlar.
+
+Bölünmüş görünümde düzenleyici ile önizlemeyi ayırt edin. Önizleme için, kullandığınız temadan türetilen isteğe bağlı bir ton; böylece bölünme tek bir geniş sütun gibi görünmez.
+
+Çok dar bir pencere artık araç çubuğunu sessizce kesmiyor. Satır taştığında bir düğme, araç çubuğunun tamamını etiketli iki ya da üç satır hâlinde açar.

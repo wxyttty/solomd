@@ -1,0 +1,9 @@
+Imagens coladas aparecem mesmo quando o caminho da pasta tem espaço. Esses caminhos invalidavam o link da imagem; notas antigas com esses links agora aparecem na pré-visualização e na exportação.
+
+A árvore de arquivos acompanha o arquivo atual: ao trocar de nota, as pastas acima são expandidas e o arquivo fica selecionado (pode ser desativado).
+
+Exportação: HTML independente em papel branco; o PDF de texto pode começar com uma página de sumário (Ajustes → PDF).
+
+Tela mais limpa: oculte os botões da barra com ⌘⌥⇧T; o botão de IA só aparece com a IA ativada; temas da comunidade são aplicados por completo.
+
+A tela Sobre agora agradece aos apoiadores do projeto.

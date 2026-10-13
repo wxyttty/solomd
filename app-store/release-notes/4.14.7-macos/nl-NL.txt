@@ -1,0 +1,3 @@
+De App Store-versie van SoloMD verstuurt geen gebruiksgegevens meer.
+
+Om een beoordeling wordt alleen met Apples eigen venster gevraagd — af en toe, en nooit bij het eerste gebruik.

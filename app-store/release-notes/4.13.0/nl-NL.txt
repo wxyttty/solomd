@@ -1,0 +1,9 @@
+Verplaats bestanden en mappen zonder de app te verlaten. Sleep een notitie op een map, of kies "Verplaatsen naar…" en typ een paar letters om de bestemming te vinden. Verplaatsen kan ongedaan worden gemaakt, open tabbladen volgen het bestand, en relatieve links in een verplaatste notitie worden opnieuw verankerd zodat de afbeeldingen blijven werken.
+
+Verborgen bestanden tonen. Bestanden en mappen met een punt ervoor waren vanuit de app onbereikbaar; een nieuwe instelling toont ze, standaard uit.
+
+Filter de bestandsboom op bestandstype. De lijst biedt de extensies die uw kluis werkelijk bevat, met aantallen, en mappen zonder treffer verdwijnen mee. Een melding noemt het actieve filter, zodat het nooit op ontbrekende bestanden lijkt.
+
+Onderscheid editor en voorbeeld in de gesplitste weergave. Een optionele eigen tint voor het voorbeeld, afgeleid van uw thema, zodat de splitsing niet als één brede kolom leest.
+
+Een te smal venster kapt de werkbalk niet langer stilletjes af. Bij overloop klapt een knop de hele werkbalk uit als twee of drie rijen met labels.

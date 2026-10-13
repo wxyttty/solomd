@@ -1,0 +1,11 @@
+L’éditeur de tableaux écrit à l’endroit. La saisie dans une cellule sortait à l’envers — « abc » devenait « cba » — parce que chaque frappe réécrivait la cellule et renvoyait le curseur au début. Ajouter, déplacer ou supprimer des lignes et des colonnes garde le texte de chaque cellule à sa place.
+
+Les volets divisés se ferment. Glisser un onglet sur l’éditeur crée une deuxième vue de la même note, et ce volet supplémentaire n’avait aucune sortie visible ; il revenait même après un redémarrage. Chaque volet a désormais son propre bouton de fermeture dès qu’il y en a plus d’un.
+
+Chaque fichier ouvert est à un geste. Quand les onglets ne tiennent plus, un bouton ⌄ les liste tous, les non enregistrés étant signalés.
+
+Arborescence : un nouveau fichier ou dossier se nomme là où il apparaîtra réellement, dans son dossier, et non en haut de l’arbre. Les noms longs utilisent toute la largeur du panneau au lieu de 30 caractères fixes. Les dossiers de pièces jointes images (_assets et nom.assets) sont masqués tant que « Afficher les fichiers masqués » est désactivé, pour éviter de les renommer ou déplacer par erreur.
+
+Tableaux : les cellules courtes ne sont plus écrasées en une colonne d’un seul caractère à côté d’une longue, dans l’app comme à l’export PDF, HTML et image.
+
+Sur iPhone, la barre d’outils déployée passe à la ligne dans l’écran : Réglages et les autres boutons de fin sont accessibles en portrait. Les menus utilisent la hauteur de la fenêtre au lieu de défiler au-delà de 360 points.

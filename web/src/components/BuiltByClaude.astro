@@ -1,0 +1,63 @@
+---
+import { getT, type Lang } from '../i18n/translations';
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const tr = getT(lang);
+---
+
+<section id="built-by-claude" class="bbc">
+  <div class="container">
+    <div class="bbc__card">
+      <div class="bbc__icon" aria-hidden="true">🤖</div>
+      <div class="bbc__body">
+        <h2>{tr.builtByClaude.heading}</h2>
+        <p>{tr.builtByClaude.body}</p>
+        <p class="bbc__note">{tr.builtByClaude.note}</p>
+        <a class="bbc__link" href="https://github.com/zhitongblog/solomd">{tr.builtByClaude.cta} →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* A single band rather than a card grid: this is a disclosure, not a feature.
+     It sits directly under the facts so nobody has to scroll to find out who
+     wrote the thing they are about to trust with their notes. */
+  .bbc { padding-top: 8px; }
+  .bbc__card {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 14px;
+    padding: 24px 26px;
+  }
+  .bbc__icon { font-size: 30px; line-height: 1.1; flex: none; }
+  .bbc__body { min-width: 0; }
+  .bbc__body h2 {
+    font-size: 20px;
+    margin: 0 0 10px;
+  }
+  .bbc__body p {
+    margin: 0 0 10px;
+    max-width: 68ch;
+  }
+  .bbc__note {
+    color: var(--text-muted, inherit);
+    font-size: 0.95em;
+  }
+  .bbc__link {
+    display: inline-block;
+    margin-top: 2px;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .bbc__link:hover { text-decoration: underline; }
+
+  @media (max-width: 560px) {
+    .bbc__card { flex-direction: column; gap: 12px; padding: 20px; }
+  }
+</style>

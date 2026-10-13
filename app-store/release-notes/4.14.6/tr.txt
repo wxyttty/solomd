@@ -1,0 +1,9 @@
+Numaralı listeler sırasını korur: bir öğe ekleyin ya da silin, diğerleri kendiliğinden yeniden numaralanır.
+
+Birden fazla paragrafta kalın, italik, üstü çizili ve kod artık her paragrafı ayrı biçimlendiriyor; önceden tek bir işaret çifti eklenip yıldızlar olduğu gibi görünüyordu.
+
+Menüler: Düzen menüsünde Bul ve değiştir, yakınlaştırma komutları Görünüm › Yakınlaştırma alt menüsünde, Yardım menüsü Markdown hızlı başvurusunu, klavye kısayollarını ve komut satırını ayrı ayrı gösteriyor. Ekle menüsüne 4–6. düzey başlıklar eklendi.
+
+Notlardaki bağlantılar her zaman tarayıcıda açılır, asla SoloMD'nin içinde değil.
+
+Birkaç günlük kullanımdan sonra SoloMD, GitHub'da yıldız vermek isteyip istemediğinizi bir kez — yalnızca bir kez — sorar.

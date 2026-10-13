@@ -1,0 +1,9 @@
+En anteckning kan inte längre köra kod. Inline-HTML i en markdownfil renderades rakt in i appen utan något filter, så ett skript gömt i någon annans anteckning kördes inne i redigeraren. Renderad markdown saneras nu överallt — förhandsvisning, liveredigering, bildspel och varje export. Vanlig inline-HTML fungerar fortfarande; skript, händelsehanterare och javascript:-länkar gör det inte. Har du öppnat markdown som du inte skrivit själv är det här uppdateringen att ta.
+
+Mermaid-diagram renderas vid export till text-PDF. Tidigare skrev den vägen ut diagrammets källkod. Utskrift hämtar inte längre sitt matematikstilmall från nätet, så ekvationer behåller sin formatering offline.
+
+Dokumentnamnet försvinner inte längre i smala fönster, och den utfällda verktygsraden är en tredjedel så hög som förut, utan lucka mitt i andra raden.
+
+Att välja ett tema utan att något händer förklaras nu: ett marketplace-tema som definierar både ljusa och mörka färger åsidosätter den inbyggda växlingen — som nu namnger temat och stänger av det med ett klick.
+
+Appen startar snabbare. Allt kompilerades före första bilden: diagrammotorn, båda kinesiska ordböckerna, PDF- och Word-exporten, bildspelet. Nu laddas de när något efterfrågar dem, och första ritningen är omkring 30 % snabbare.

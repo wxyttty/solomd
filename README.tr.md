@@ -5,6 +5,7 @@
 [![Latest release](https://img.shields.io/github/v/release/zhitongblog/solomd)](https://github.com/zhitongblog/solomd/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/zhitongblog/solomd?color=orange)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/zhitongblog/solomd/total)](https://github.com/zhitongblog/solomd/releases)
+[![GitHub stars](https://img.shields.io/github/stars/zhitongblog/solomd?style=flat&logo=github&color=yellow)](https://github.com/zhitongblog/solomd/stargazers)
 [![Website](https://img.shields.io/badge/website-solomd.app-ff9f40.svg)](https://solomd.app)
 
 🌐 **[English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · [Português](README.pt.md) · [Italiano](README.it.md) · [Polski](README.pl.md) · [Nederlands](README.nl.md) · [Svenska](README.sv.md) · [Українська](README.uk.md)**
@@ -12,6 +13,17 @@
 [**v4.0'u indir**](https://github.com/zhitongblog/solomd/releases/latest) · [**Lansman yazısı**](https://solomd.app/blog/v4-0-0-agent-native-author/) · [**Web sitesi**](https://solomd.app) · [**Güvenlik**](https://solomd.app/security)
 
 ![SoloMD Editor](web/public/demo/solomd-demo.svg)
+
+> ### 🤖 Claude tarafından geliştirilip sürdürülüyor
+>
+> SoloMD neredeyse tamamen Anthropic'in kodlama ajanı **Claude Code** tarafından yazılıyor,
+> test ediliyor ve yayınlanıyor; yönü belirleyen ve neyin çıkacağına karar veren bir insan
+> sorumlu var. **Issue'lar ve pull request'ler de Claude tarafından ele alınıp
+> yanıtlanıyor** — burada aldığınız yanıtları bir yapay zekâ yazıyor, bir insan yazmıyor.
+>
+> Bunu iki nedenle söylüyoruz. Notlarınızı neye emanet ettiğinizi bilmelisiniz: kod MIT
+> lisanslı ve tamamı açık, okuyun. Ve bir yanıt kendinden emin biçimde yanlış olduğunda —
+> ki oluyor — bunu konu başlığında belirtin. O düzeltme mekanizmanın ta kendisi.
 
 Notlarınız bir klasörde yaşar. **SoloMD bunun üzerindeki editördür — editör içi birinci sınıf bir ajan yüzeyi ve Claude Code / Cursor'un dışarıdan sürebileceği MCP uç noktası ile birlikte.** Aynı `.md` dosyaları. Vault'unuzla sohbet edin. Klavyenin başında olmadığınızda çalışan tarifler planlayın. Aynı vault'u herhangi bir MCP istemcisine devredin.
 
@@ -60,7 +72,7 @@ solomd mcp-config
 {
   "mcpServers": {
     "solomd": {
-      "command": "/Applications/SoloMD.app/Contents/Resources/solomd-mcp",
+      "command": "/Applications/SoloMD.app/Contents/MacOS/solomd-mcp",
       "args": ["--workspace", "/Users/me/Documents/SoloMD"]
     }
   }

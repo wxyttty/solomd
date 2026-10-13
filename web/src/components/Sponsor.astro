@@ -3,6 +3,10 @@ import { getT, type Lang } from '../i18n/translations';
 interface Props { lang: Lang }
 const { lang } = Astro.props;
 const tr = getT(lang);
+// One list for the site, the README and the in-app About dialog.
+import { sponsors as sponsorList, promoters, featuredPromoters } from '../lib/supporters';
+const sponsors: string[] = sponsorList.map((x) => x.name);
+const promoteHref = lang === 'zh' ? '/zh/promote' : '/promote';
 
 // TODO: replace with real GitHub Sponsors URL once approved
 const githubSponsorUrl = 'https://github.com/sponsors/zhitongblog';
@@ -85,7 +89,50 @@ const wechatQr = '/sponsor/wechat-qr.jpg';
       </article>
     </div>
 
+    {sponsors.length > 0 && (
+      <div class="sponsor__thanks">
+        <h3>{tr.sponsor.thanksHeading}</h3>
+        <ul class="sponsor__names">
+          {sponsors.map((n) => <li>{n}</li>)}
+        </ul>
+      </div>
+    )}
+
     <p class="sponsor__note">{tr.sponsor.note}</p>
+
+    <!-- Promotion: the way to support SoloMD that costs nothing. Promoters get
+         the same recognition as sponsors (/promote explains the rules). -->
+    <div class="promote-card" id="promote">
+      <div class="promote-card__icon" aria-hidden="true">📣</div>
+      <div class="promote-card__text">
+        <h3>{tr.sponsor.promoteHeading}</h3>
+        <p>{tr.sponsor.promoteBody}</p>
+      </div>
+      <a class="btn btn--primary promote-card__cta" href={promoteHref}>{tr.sponsor.promoteCta}</a>
+    </div>
+
+    {featuredPromoters.length > 0 && (
+      <div class="promote-featured">
+        <h3>{tr.sponsor.featuredHeading}</h3>
+        <div class="promote-featured__grid">
+          {featuredPromoters.slice(0, 6).map((p) => (
+            <a class="promote-quote" href={p.url} target="_blank" rel="noopener">
+              <p class="promote-quote__text">“{p.quote}”</p>
+              <span class="promote-quote__who">{p.name} · {p.platform}</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {promoters.length > 0 && (
+      <div class="sponsor__thanks">
+        <h3>{tr.sponsor.promotersHeading}</h3>
+        <ul class="sponsor__names">
+          {promoters.map((p) => <li><a href={p.url} target="_blank" rel="noopener">{p.name}</a></li>)}
+        </ul>
+      </div>
+    )}
   </div>
 </section>
 
@@ -191,9 +238,49 @@ const wechatQr = '/sponsor/wechat-qr.jpg';
     border-radius: 4px;
   }
 
+  .sponsor__thanks { margin: 8px auto 28px; max-width: 760px; }
+  .sponsor__thanks h3 { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+  .sponsor__names {
+    list-style: none; padding: 0; margin: 0;
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  }
+  .sponsor__names li {
+    padding: 4px 12px; border-radius: 999px; font-size: 14px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
   .sponsor__note {
     font-size: 12px;
     color: var(--text-faint);
     margin: 0;
   }
+  .promote-card {
+    display: flex; align-items: center; gap: 18px; text-align: left;
+    max-width: 760px; margin: 32px auto 0; padding: 20px 22px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+  .promote-card__icon { font-size: 30px; line-height: 1; }
+  .promote-card__text { flex: 1; min-width: 0; }
+  .promote-card__text h3 { margin: 0 0 6px; font-size: 17px; }
+  .promote-card__text p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--text-muted); }
+  .promote-card__cta { white-space: nowrap; }
+  @media (max-width: 640px) {
+    .promote-card { flex-direction: column; align-items: flex-start; }
+  }
+  .promote-featured { max-width: 960px; margin: 28px auto 0; }
+  .promote-featured h3 { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+  .promote-featured__grid {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+  .promote-quote {
+    display: flex; flex-direction: column; gap: 10px; text-align: left;
+    padding: 16px; border-radius: 12px; text-decoration: none; color: inherit;
+    border: 1px solid var(--border, rgba(127,127,127,0.25));
+  }
+  .promote-quote__text { margin: 0; font-size: 14px; line-height: 1.6; }
+  .promote-quote__who { font-size: 12px; color: var(--text-faint); }
+  .sponsor__names li a { color: inherit; text-decoration: none; }
 </style>

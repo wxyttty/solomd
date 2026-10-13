@@ -13,6 +13,9 @@
  *     strings/numbers/booleans pass the validator (see
  *     web/functions/api/track.ts). Anything PII-shaped is dropped.
  *   - The user can opt out at any time via Settings → 发送匿名使用数据.
+ *   - App Store builds (iOS / iPadOS / Mac App Store) never send anything:
+ *     `track()` returns before reading settings, and the notice and the
+ *     switch are hidden there. The privacy pages promise this.
  *
  * Network model:
  *   - Fire-and-forget POST. Endpoint returns 204 in all cases (success
@@ -25,6 +28,7 @@
  */
 import { getVersion } from '@tauri-apps/api/app';
 import { useSettingsStore } from '../stores/settings';
+import { IS_APP_STORE_BUILD } from './app-build';
 
 type EventProps = Record<string, string | number | boolean>;
 
@@ -125,6 +129,7 @@ async function postEvent(payload: Record<string, unknown>): Promise<void> {
 
 /** Fire-and-forget — never await, never throw into callers. */
 export function track(event: string, props?: EventProps): void {
+  if (IS_APP_STORE_BUILD) return;
   try {
     const settings = useSettingsStore();
     if (!settings.telemetryEnabled) return;

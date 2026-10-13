@@ -1,0 +1,11 @@
+Sortuj drzewo plików według nazwy, daty utworzenia lub modyfikacji albo przeciągaj w dowolnej kolejności; nowe pliki trafiają na koniec.
+
+Wyszukiwanie w ustawieniach po nazwie i opisie.
+
+Spokojniejsza edycja: opcja stałego pokazywania znaczników Markdown, aby żaden wiersz nie przeskakiwał, oraz podświetlenie bieżącego wiersza. W podglądzie skoki z konspektu trafiają dokładnie w nagłówek.
+
+Rosyjski jest teraz językiem interfejsu, a pasek stanu jest przetłumaczony.
+
+Eksport: spis treści PDF z tytułem i numerami stron, neutralne kolory.
+
+Nowy skrót ⌘⌥/ przełącza między edycją na żywo a samą edycją.

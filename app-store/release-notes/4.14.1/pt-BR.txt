@@ -1,0 +1,11 @@
+O editor de tabelas escreve para a frente. O texto digitado numa célula saía invertido — “abc” virava “cba” — porque cada tecla reescrevia a célula e mandava o cursor de volta ao início. Ao adicionar, mover ou excluir linhas e colunas, o texto de cada célula continua no lugar certo.
+
+Painéis divididos podem ser fechados. Arrastar uma aba para o editor cria uma segunda visualização da mesma nota, e esse painel extra não tinha nenhuma saída visível; ele voltava até depois de reiniciar. Agora cada painel tem seu próprio botão de fechar quando há mais de um.
+
+Cada arquivo aberto a um toque. Quando as abas não cabem mais, um botão ⌄ lista todas, com as não salvas marcadas.
+
+Árvore de arquivos: um novo arquivo ou pasta é nomeado onde realmente vai aparecer, dentro da pasta, e não no topo da árvore. Nomes longos usam toda a largura do painel em vez de 30 caracteres fixos. As pastas de imagens anexadas (_assets e nome.assets) ficam ocultas enquanto “Mostrar arquivos ocultos” estiver desativado, para não serem renomeadas ou movidas por engano.
+
+Tabelas: células curtas não são mais espremidas numa coluna de um caractere ao lado de uma longa, no app e na exportação para PDF, HTML e imagem.
+
+No iPhone, a barra de ferramentas expandida quebra linha dentro da tela, então Ajustes e os outros botões do fim ficam acessíveis na vertical. Os menus usam a altura da janela em vez de rolar depois de 360 pontos.

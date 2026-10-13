@@ -25,8 +25,59 @@ $S/unzoo.sh upload 'input[type=file][accept=".aab"]' dist-android/SoloMD_X.Y.Z.a
   upload button by coordinate (`box` the `mdc-button`, then `click`). Usually
   you do not need it: `set_input_files` with `trusted:true` skips the picker.
 - **Setting the files does not start the upload.** The Angular uploader listens
-  for `change`; `unzoo.sh upload` dispatches it for you.
+  for `change`. `set_input_files` with `trusted:true` fires a real one itself —
+  `unzoo.sh upload` only dispatches a synthetic `change` if no native one
+  arrived. Do not add your own dispatch on top (see the next bullet).
+- **★ "0 B of NN MB" that never moves is a duplicate `change`, not a dead
+  upload.** `unzoo.sh upload` used to dispatch `change` unconditionally, so the
+  page got two — one trusted, one synthetic — for the same file. Play then
+  renders the progress model built for the second while the first is the one
+  actually streaming bytes, and it sits at "0 B" from start to finish. It also
+  hides the *real* error when the upload finishes and the server rejects it.
+  This burned two sessions on 4.13.0. Fixed in `unzoo.sh`; if you ever see
+  "0 B" again, count the change events before blaming the network:
+  `document.addEventListener('change', e => ..., true)`.
+- **Trust the XHR, not the progress text.** Hook
+  `XMLHttpRequest.prototype.send` and listen on `xhr.upload` to see real bytes.
+  `performance.getEntriesByType("resource")` shows *nothing* for this upload —
+  it is issued from `uploader.client.dartjs.v3/uploader.js`, outside the main
+  context — so an empty resource list is not evidence that no request was made.
+  `POST /api/v1/network/requests` (unzoo's CDP capture) does show it.
 - **Leaving the page cancels the upload.** Do not navigate while it runs.
+
+## ★ Check the AAB is signed before you upload it
+
+Play rejects an unsigned bundle with 「所有上传的软件包都必须签名」 — and it does
+so *after* the whole 39 MB is uploaded, attached to the file row as a small
+`error` icon that is easy to read as a network failure. Gradle produces an
+unsigned release artifact **silently** when the `ANDROID_KEYSTORE_*` env vars
+are missing, which is what happens if you run `./gradlew bundleUniversalRelease`
+directly instead of `scripts/build-android.sh`. Both ends now refuse
+(the gradle config throws, the script asserts), but verify anyway:
+
+```bash
+python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); \
+print([n for n in z.namelist() if n.startswith('META-INF/')])" dist/SoloMD_X.Y.Z_play.aab
+# want: MANIFEST.MF + SOLOMD.SF + SOLOMD.RSA
+```
+
+To sign one that is already built (keeps the versionCode):
+
+```bash
+set -a; source .env.local; set +a
+jarsigner -keystore "$ANDROID_KEYSTORE_PATH" -storepass "$ANDROID_KEYSTORE_PASS" \
+  -keypass "$ANDROID_KEY_PASS" -sigalg SHA256withRSA -digestalg SHA-256 \
+  the.aab "$ANDROID_KEY_ALIAS"
+jarsigner -verify the.aab
+```
+
+Confirm the cert matches one Play has already accepted — a wrong key is
+rejected the same way as no key:
+
+```bash
+unzip -p the.aab 'META-INF/*.RSA' | openssl pkcs7 -inform DER -print_certs \
+  | openssl x509 -noout -fingerprint -sha256
+```
 
 The AAB is at `app/src-tauri/gen/android/app/build/outputs/bundle/universalRelease/`
 after a release build.
@@ -34,7 +85,9 @@ after a release build.
 Watch progress by polling text rather than screenshotting:
 
 ```bash
-while :; do $S/unzoo.sh text | grep -iE '正在上传|上传|%|已上传|错误' | head -3; sleep 10; done
+while :; do $S/unzoo.sh dom-text | grep -oE '正在上传|已上传|错误' | head -3; sleep 10; done
+# dom-text, not text — see SKILL.md. `text` empties out whenever the window is
+# not on screen, which is exactly the situation a polling loop runs in.
 ```
 
 ## Version codes
@@ -97,7 +150,7 @@ is blind to Play-only versions. See `reference_play_signing_and_tracks`.
 
 ```bash
 $S/unzoo.sh nav 'https://play.google.com/console/u/0/developers/8662341371772988450/app/4973693003540583322/tracks/production'
-$S/unzoo.sh text | head -40
+$S/unzoo.sh dom-text | head -40
 ```
 
 The release is live when the track shows the version code as 已发布/全面发布

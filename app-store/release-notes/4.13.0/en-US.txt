@@ -1,0 +1,9 @@
+Move files and folders without leaving the app. Drag a note onto a folder, or pick "Move to…" from its menu and type a few letters to find the destination. Moves can be undone, open tabs follow the file, and relative links inside a moved note are re-anchored so its images keep working.
+
+Show hidden files. Dot-files and dot-folders were unreachable from inside the app; a new setting lists them, off by default.
+
+Filter the file tree by file type. The list offers the extensions your vault actually contains, with counts, and folders holding no match collapse away with them. A banner names the active filter so it can never read as missing files.
+
+Tell the editor and the preview apart in split view. An optional shade for the preview pane, derived from whichever theme you use, so a split stops reading as one wide column.
+
+A window too narrow for the toolbar no longer clips it silently. When the row overflows, a button opens the whole toolbar as two or three labelled rows where every control is visible and named.

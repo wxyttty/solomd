@@ -84,6 +84,10 @@ while IFS=$'\t' read -r want name; do
   done
   [ "$ok" = 1 ] || { echo "  ✗ could not fetch $name"; MISSING=1; }
 done < .manifest
+# Upload exactly this release's assets. A reused GITEE_WORK_DIR also holds
+# other versions' files, and uploading "everything in the folder" once pushed
+# sixteen 4.14.5 files into the v4.14.7 release and ran the 1 GB quota out.
+cut -f2 .manifest > .names
 rm -f .manifest
 [ "$MISSING" = 0 ] || { echo "Aborting: some assets could not be downloaded." >&2; exit 1; }
 ls -la
@@ -148,7 +152,7 @@ uploaded_names() {
 HAVE="$(uploaded_names)"
 FAILED=0
 
-for f in *; do
+for f in $(cat .names); do
   SIZE=$(du -h "$f" | cut -f1)
   if printf '%s\n' "$HAVE" | grep -Fxq "$f"; then
     printf "  = %-45s %6s ... already on Gitee\n" "$f" "$SIZE"

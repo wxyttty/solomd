@@ -36,6 +36,15 @@
 #                               profile file — used as
 #                               PROVISIONING_PROFILE_SPECIFIER)
 # Optional env:
+#   IOS_BUNDLE_VERSION         CFBundleVersion override, for an extra TestFlight
+#                              build of a version already uploaded (e.g. 4.14.61
+#                              under 4.14.6 — higher than the existing build, at
+#                              most three integers). Default: the app version.
+#   IOS_APP_VERSION            CFBundleShortVersionString override. Once a
+#                              version is approved it takes no more builds, so
+#                              a TestFlight build after that needs the NEXT
+#                              version (e.g. 4.14.7) with a build number below
+#                              the one the real release will use (e.g. 4.14.1).
 #   IOS_LAUNCHCTL_PROXY        URL like http://127.0.0.1:7897 — if set,
 #                              we register it at launchctl so Xcode
 #                              subprocess can reach GitHub
@@ -46,12 +55,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# A pin given on the command line wins over the one in .env.local: main
+# (4.14.x, no UIScene) must build with Xcode 26, the 5.0 line with Xcode 27.
+_IOS_DEVELOPER_DIR_ARG="${IOS_DEVELOPER_DIR:-}"
 if [ -f .env.local ]; then
   set -a
   # shellcheck disable=SC1091
   source .env.local
   set +a
 fi
+[ -n "$_IOS_DEVELOPER_DIR_ARG" ] && IOS_DEVELOPER_DIR="$_IOS_DEVELOPER_DIR_ARG"
 
 : "${IOS_SIGNING_PROFILE_NAME:?Set IOS_SIGNING_PROFILE_NAME — name of the iOS Distribution profile}"
 : "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID — the ten-character team identifier}"
@@ -129,13 +142,52 @@ rm -rf app/src-tauri/gen/apple/Externals/arm64/debug
 echo "==> Regenerating .xcodeproj from project.yml"
 ( cd app/src-tauri/gen/apple && xcodegen generate )
 
+# ---------------------------------------------------------------------------
+# Which Xcode builds this. Set IOS_DEVELOPER_DIR (in .env.local) to pin one,
+# e.g. /Volumes/Dev/xcode26/Xcode-26.app/Contents/Developer.
+#
+# Why it matters: an app linked against the iOS 27 SDK is killed at launch on
+# iOS 27 unless it has adopted the UIScene lifecycle, and Tauri 2.10/2.11 has
+# not (proper support is unreleased as of 2026-09). Apple rejected 4.13.3 for
+# exactly that (2.1a, crash in
+# _UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption). Linked
+# against the iOS 26 SDK the same code runs fine on iOS 27.
+#
+# Exporting DEVELOPER_DIR is NOT enough: the Tauri mobile CLI scrubs the
+# environment before it runs xcodebuild and keeps little more than PATH, so
+# the build silently falls back to `xcode-select -p`. PATH survives, so put
+# forwarding shims first on it.
+# ---------------------------------------------------------------------------
+if [ -n "${IOS_DEVELOPER_DIR:-}" ]; then
+  [ -x "$IOS_DEVELOPER_DIR/usr/bin/xcodebuild" ] || { echo "ERROR: IOS_DEVELOPER_DIR has no xcodebuild: $IOS_DEVELOPER_DIR" >&2; exit 1; }
+  SHIMS="$(mktemp -d)"
+  for tool in xcodebuild xcrun; do
+    printf '#!/bin/sh\nexport DEVELOPER_DIR=%s\nexec /usr/bin/%s "$@"\n' "$IOS_DEVELOPER_DIR" "$tool" > "$SHIMS/$tool"
+    chmod +x "$SHIMS/$tool"
+  done
+  export DEVELOPER_DIR="$IOS_DEVELOPER_DIR"
+  export PATH="$SHIMS:$PATH"
+  echo "==> Xcode pinned: $(xcodebuild -version | tr '\n' ' ')"
+fi
+
 echo "==> Building iOS .ipa (release / arm64)"
 # App Store distribution: strip the AI / Agent / Recipe surface (Apple 3.1.1).
 # SOLOMD_APP_STORE_BUILD gates Rust commands (option_env! in app_build.rs);
 # VITE_APP_STORE_BUILD gates the Vue UI (import.meta.env in app-build.ts).
 export SOLOMD_APP_STORE_BUILD=1
 export VITE_APP_STORE_BUILD=true
-( cd app && pnpm tauri ios build )
+OVERRIDE=$(IOS_APP_VERSION="${IOS_APP_VERSION:-}" IOS_BUNDLE_VERSION="${IOS_BUNDLE_VERSION:-}" python3 -c '
+import json, os
+c = {}
+if os.environ["IOS_APP_VERSION"]: c["version"] = os.environ["IOS_APP_VERSION"]
+if os.environ["IOS_BUNDLE_VERSION"]: c["bundle"] = {"iOS": {"bundleVersion": os.environ["IOS_BUNDLE_VERSION"]}}
+print(json.dumps(c) if c else "")')
+if [ -n "$OVERRIDE" ]; then
+  echo "==> Version override: $OVERRIDE"
+  ( cd app && pnpm tauri ios build --config "$OVERRIDE" )
+else
+  ( cd app && pnpm tauri ios build )
+fi
 
 IPA=app/src-tauri/gen/apple/build/arm64/SoloMD.ipa
 [ -f "$IPA" ] || { echo "ERROR: build didn't produce $IPA" >&2; exit 1; }
@@ -150,5 +202,27 @@ echo "  Xcode-managed: $(security cms -D -i "$TMP/profile" | plutil -extract IsX
 rm -rf "$TMP"
 
 echo ""
+# Read the SDK the binary was actually linked against — out of the artifact,
+# not out of what we asked for. A 27-SDK build is what got 4.13.3 rejected, and
+# nothing about it looks wrong until it is launched on iOS 27.
+SDK_NAME="$(unzip -p "$IPA" 'Payload/*.app/Info.plist' | plutil -extract DTSDKName raw -o - - 2>/dev/null || true)"
+echo "==> Linked SDK: ${SDK_NAME:-unknown}"
+# Since Tauri 2.12 the app runs on the scene lifecycle (the overlay declares a
+# UIApplicationSceneManifest), and a newer SDK is fine. What must never ship
+# again is a newer-SDK build WITHOUT the manifest — check the artifact for it.
+HAS_SCENES=$(unzip -p "$IPA" 'Payload/*.app/Info.plist' | plutil -extract UIApplicationSceneManifest xml1 -o - - >/dev/null 2>&1 && echo yes || echo no)
+echo "==> UIScene manifest: $HAS_SCENES"
+case "$SDK_NAME" in
+  iphoneos26.*) ;;
+  *)
+    if [ "$HAS_SCENES" != yes ] && [ -z "${IOS_ALLOW_NEW_SDK:-}" ]; then
+      echo "ERROR: $IPA is linked against '${SDK_NAME:-unknown}' but declares no" >&2
+      echo "       UIApplicationSceneManifest: it would crash at launch on iOS 27" >&2
+      echo "       (4.13.3's rejection). Check app/src-tauri/ios-project-overlay.yml." >&2
+      exit 1
+    fi
+    ;;
+esac
+
 echo "==> Done: $IPA ($(du -h "$IPA" | cut -f1))"
 echo "    Submit: ./scripts/submit-ios.sh"

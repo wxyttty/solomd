@@ -1,0 +1,11 @@
+Ordene a árvore de arquivos por nome, data de criação ou de modificação, ou arraste na sua própria ordem; arquivos novos vão para o fim.
+
+Busca nos ajustes por nome e descrição.
+
+Edição mais estável: opção de manter as marcas do Markdown visíveis para nenhuma linha pular, e de destacar a linha atual. Na pré-visualização, os saltos do sumário caem exatamente no título.
+
+O russo agora é idioma da interface e a barra de status está traduzida.
+
+Exportação: sumário do PDF com título e números de página, cores neutras.
+
+Novo atalho ⌘⌥/ alterna entre edição ao vivo e só edição.

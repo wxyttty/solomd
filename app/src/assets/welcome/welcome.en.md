@@ -25,7 +25,7 @@ This tour is **four short notes**. Open any tab to keep reading.
 - **Native print → PDF** with `Ctrl+Shift+Alt+P` (no headless Chrome required).
 - **Slideshow mode** — `Ctrl+Alt+P` renders the active doc as fullscreen slides, split on `---`.
 - **Front-matter `imageRoot`** lets every paste/drop write to a custom image folder per document.
-- **No telemetry by default in the App Store version**, opt-in elsewhere — you decide.
+- **Your notes never leave your device.** SoloMD sends anonymous usage counts (features used, version, OS — never file content); one switch turns them off: Settings → Advanced → *Send anonymous usage data*. The App Store versions send none.
 
 > Tip: press `Ctrl+K` (or `Cmd+K`) to open the **command palette** — it lists everything SoloMD can do.
 

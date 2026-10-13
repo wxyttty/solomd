@@ -1,0 +1,11 @@
+Ordena el árbol de archivos por nombre, fecha de creación o de modificación, o arrastrando a tu orden; los archivos nuevos van al final.
+
+Búsqueda en Ajustes por nombre y descripción.
+
+Edición más estable: opción de mantener visibles las marcas de Markdown para que ninguna línea salte, y de resaltar la línea actual. En la vista previa, los saltos del esquema caen justo en el título.
+
+El ruso ya es idioma de la interfaz y la barra de estado está traducida.
+
+Exportación: índice del PDF con título y números de página, colores neutros.
+
+Nuevo atajo ⌘⌥/ para cambiar entre edición en vivo y solo edición.

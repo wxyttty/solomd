@@ -1,0 +1,9 @@
+«Apri con l’app predefinita» funziona di nuovo. Una regola di permessi mal collocata bloccava ogni apertura con un’altra app: pulsante della barra, PDF e file Office collegati, cartella dei dizionari. Ora si apre qualsiasi documento; programmi e script restano bloccati.
+
+I PDF stampati contengono tutte le pagine. Il PDF di testo si fermava alla prima; le tabelle lunghe ripetono l’intestazione. Il PDF immagine non taglia più righe di testo o di tabella.
+
+L’HTML esportato è autonomo: diagrammi Mermaid, font matematici e immagini locali incorporati, senza attese di download. L’esportazione Word include i diagrammi Mermaid come immagini.
+
+Albero dei file: conferma prima di eliminare (va sempre nel Cestino), icone delle cartelle e guide di rientro, la selezione evidenziata decide dove creare un file, doppio clic opzionale per le cartelle, nuova scorciatoia per una nota nella cartella selezionata, «Mostra nell’albero» scorre fino al file.
+
+Inoltre: Esc chiude il visualizzatore di immagini e ``` suggerisce i linguaggi.

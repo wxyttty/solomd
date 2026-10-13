@@ -9,7 +9,7 @@
  * Reuses `Preview.vue`'s renderer via the `skin: 'reading'` prop, so
  * we don't duplicate the markdown / mermaid / image-overlay pipeline.
  */
-import { computed } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Preview from './Preview.vue';
 import Icon from './Icons.vue';
@@ -43,6 +43,36 @@ function winClose() {
   // Same close-requested flow (unsaved-tabs confirm) as the title-bar ✕.
   if (hasTauriShell) void getCurrentWindow().close();
 }
+// #221 follow-up — the set was min / ✕ only; add maximize/restore so reading
+// mode offers the same three caption buttons as the title bar. The toolbar's
+// own max button (and its Snap Layouts hit-test rect) is unmounted in reading
+// mode, so this is a plain DOM button driving toggleMaximize().
+const isMaximized = ref(false);
+let unlistenResize: (() => void) | null = null;
+async function refreshMaximized() {
+  if (!hasTauriShell) return;
+  try {
+    isMaximized.value = await getCurrentWindow().isMaximized();
+  } catch {
+    /* not fatal */
+  }
+}
+function winToggleMax() {
+  if (hasTauriShell) void getCurrentWindow().toggleMaximize();
+}
+onMounted(async () => {
+  if (!winControls || !hasTauriShell) return;
+  await refreshMaximized();
+  try {
+    unlistenResize = await getCurrentWindow().onResized(() => void refreshMaximized());
+  } catch {
+    /* not fatal */
+  }
+});
+onBeforeUnmount(() => {
+  unlistenResize?.();
+  unlistenResize = null;
+});
 </script>
 
 <template>
@@ -59,6 +89,17 @@ function winClose() {
       </button>
       <button
         v-if="winControls"
+        class="reading-view__winbtn"
+        :title="isMaximized ? t('menubar.restore') : t('menubar.maximize')"
+        :aria-label="isMaximized ? t('menubar.restore') : t('menubar.maximize')"
+        data-reading-max
+        @click="winToggleMax"
+      >
+        <svg v-if="isMaximized" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"><path d="M2.5 0.5h7v7" /><rect x="0.5" y="2.5" width="7" height="7" /></svg>
+        <svg v-else width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1"><rect x="0.5" y="0.5" width="9" height="9" /></svg>
+      </button>
+      <button
+        v-if="winControls"
         class="reading-view__winbtn reading-view__winbtn--close"
         :title="t('menubar.close')"
         :aria-label="t('menubar.close')"
@@ -68,11 +109,12 @@ function winClose() {
       </button>
       <button
         class="reading-view__close"
-        :title="t('reading.exitTooltip')"
-        :aria-label="t('reading.exit')"
+        :title="t('reading.toEditTooltip')"
+        :aria-label="t('reading.toEdit')"
+        data-reading-exit
         @click="exit"
       >
-        <Icon name="close" :size="18" />
+        <Icon name="view-edit" :size="18" />
       </button>
     </div>
     <div v-if="tab" class="reading-view__doc">

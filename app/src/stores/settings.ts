@@ -1,6 +1,12 @@
+import { isTreeSortMode, type TreeSortMode } from '../lib/tree-sort';
 import { defineStore } from 'pinia';
 import type { Theme, ViewMode } from '../types';
-import { isIOS, isMobile } from '../lib/platform';
+import type { WindowsEditorEngine } from '../lib/platform';
+import { isMobile } from '../lib/platform';
+import {
+  QUICK_CAPTURE_DEFAULT_SHORTCUT,
+  migrateQuickCaptureShortcut,
+} from '../lib/quick-capture-shortcut';
 
 const LS_KEY = 'solomd.settings.v1';
 
@@ -21,8 +27,16 @@ export function buildEditorFontStack(face: string): string {
   return `${quoted}, ${CJK_FALLBACK}, "JetBrains Mono", Menlo, Consolas, monospace`;
 }
 
+/** 5.0 default editor face: the "System Sans" preset in Settings (same value,
+ *  so the picker shows it selected) — SF Pro + PingFang on Apple, Segoe UI +
+ *  YaHei on Windows via buildEditorFontStack's CJK tail. */
+export const DEFAULT_EDITOR_FONT = '-apple-system, "Segoe UI", system-ui, sans-serif';
+
 interface Settings {
   theme: Theme;
+  /** D6 — follow the OS light/dark appearance. While on, `theme` holds the
+   *  resolved 'light' | 'dark', so every reader of `theme` keeps working. */
+  followSystemTheme: boolean;
   viewMode: ViewMode;
   // #87(3) — if set, this view mode is forced on every launch, overriding
   // the persisted last-used `viewMode`. `null` (default) keeps the existing
@@ -34,6 +48,14 @@ interface Settings {
   showLineNumbers: boolean;
   // #193 — non-blinking (solid) caret in the editor.
   solidCursor: boolean;
+  // 5.0 — floating format bar over a text selection (desktop only).
+  selectionBubble: boolean;
+  // #353 — keep Markdown markers (`#`, `**`, …) visible in the CodeMirror
+  // live views instead of hiding them off the caret line, so clicking a line
+  // doesn't reflow it. Styling (heading size, bold) still applies.
+  alwaysShowMarkers: boolean;
+  // #344 — tint the caret line's background in the CodeMirror editor.
+  highlightCurrentLine: boolean;
   // #190 — dedicated code font (code blocks / inline code / mono UI).
   // Empty = built-in monospace stack.
   codeFontFamily: string;
@@ -76,10 +98,27 @@ interface Settings {
   // Editor super features
   spellCheck: boolean;
   focusMode: boolean;
+  /** #346: hide the toolbar's buttons for a distraction-free, keyboard-only
+   *  setup. The window strip (drag area, file name, window controls and the
+   *  Windows menubar) stays. Where the OS draws the title bar, the whole
+   *  toolbar goes. */
+  toolbarHidden: boolean;
   typewriterMode: boolean;
+  /** One-time tips when Markdown formatting is typed by hand (useFormatHints). */
+  formatHints: boolean;
+  /** Hint keys already shown — `bold`, `heading`, … Never shown twice. */
+  formatHintsSeen: string[];
   vimMode: boolean;
+  /** Windows only: 'auto' (default — CodeMirror on WebView2 154+, the
+   *  IME-safe native textarea below that), 'native' or 'codemirror' (#328,
+   *  #344). Vim mode forces CodeMirror regardless. Ignored elsewhere. */
+  windowsEditorEngine: WindowsEditorEngine;
+  /** True once the user picked native/CodeMirror themselves. Before `auto`
+   *  existed every install stored 'native' (the old default), so a stored
+   *  'native' without this flag is not a choice and becomes 'auto'. */
+  windowsEditorEngineExplicit: boolean;
   uiFontSize: number;
-  language: 'en' | 'zh' | 'ja' | 'ko' | 'de' | 'fr' | 'es' | 'pt' | 'it' | 'pl' | 'nl' | 'tr' | 'sv' | 'uk';
+  language: 'en' | 'zh' | 'ja' | 'ko' | 'de' | 'fr' | 'es' | 'pt' | 'it' | 'pl' | 'nl' | 'tr' | 'sv' | 'uk' | 'ru';
   autoCheckUpdate: boolean;
   // Preview layout
   previewFitWidth: boolean;
@@ -239,6 +278,7 @@ interface Settings {
   // editor. Default ON — can be turned off for users who don't like
   // the keyboard interception.
   slashCommandsEnabled: boolean;
+  fenceLanguageSuggestions: boolean;
   // v3.6: PNG export — show "Created with SoloMD · solomd.app" footer
   // under the rendered note. Default ON (mild self-promotion is fine
   // for a free MIT app), but explicitly toggleable in Settings → Export
@@ -263,7 +303,7 @@ interface Settings {
   // Quick capture: a system-wide hotkey that opens a small box, takes a line
   // of text and files it in the Inbox without bringing the app forward. The
   // chord is an OS-level accelerator (Tauri's spelling, e.g.
-  // `CmdOrCtrl+Alt+M`), not one of the rebindable in-app shortcuts, because
+  // `CmdOrCtrl+Alt+Shift+M`), not one of the rebindable in-app shortcuts, because
   // it has to work while another application is focused.
   quickCaptureEnabled: boolean;
   quickCaptureShortcut: string;
@@ -288,6 +328,15 @@ interface Settings {
   // #182: show full file names in the Explorer tree (wrapped across lines)
   // instead of the default middle-ellipsis truncation.
   explorerFullNames: boolean;
+  // #338 — folders in the Explorer open on a double click instead of a single
+  // one (a single click then only selects the folder, e.g. as the target of
+  // "new file"). Files always open on a single click. Default off.
+  explorerDoubleClickFolders: boolean;
+  // #333 — the Explorer follows the active document: switching tabs (or
+  // opening a file) expands the file's folders and scrolls its row into view,
+  // like an IDE's "always select opened file". Default on. It never re-roots
+  // the workspace: a file outside it is simply not followed.
+  explorerFollowActive: boolean;
   // Show dot-files / dot-folders in the Explorer tree. Off by default: a
   // vault's `.git`, `.obsidian` and friends are noise for most people. On,
   // they're reachable from inside the app instead of only from Finder.
@@ -296,11 +345,21 @@ interface Settings {
   // so the two panels aren't identical surfaces. Off by default — it changes
   // how the app looks, which is not something to do to everyone in a patch.
   distinctSplitPanes: boolean;
+  // Split view: keep the preview following the editor as you type and scroll
+  // (the default). Off, the two panes are independent — no scroll sync, and
+  // the preview only re-renders from what was last saved to disk.
+  splitLiveSync: boolean;
+  // #367: editor share of the split view, in percent (the preview gets the
+  // rest). Dragging the divider sets it; double-click resets to 50.
+  splitRatio: number;
   // #282: show only these file extensions in the Explorer tree (lower-case,
   // no dot; '' is the no-extension bucket). Empty = show everything. It
   // persists, so the tree carries a permanent banner whenever it is set —
   // a filter you can't see is indistinguishable from missing files.
   explorerExtFilter: string[];
+  // #342: file-tree order, per workspace folder (key = absolute folder path).
+  // A folder without an entry sorts by name, as it always did.
+  explorerSortByFolder: Record<string, TreeSortMode>;
   // #141 (4.8.10): render a single newline as a real line break (Typora-like)
   // in preview / live editor / every export. Default ON — CJK users write
   // one-sentence-per-line and expect it to hold; standard blank-line
@@ -318,14 +377,18 @@ interface Settings {
   spellcheckLang: string;
   smartQuotes: boolean;
   /** #180 — per-action shortcut overrides. Only what the user changed is
-   *  stored; a `null` value means they unbound the action entirely. */
-  keybindings: Record<string, string | null>;
+   *  stored; a `null` value means they unbound the action entirely, and a
+   *  list keeps several chords (the Typora / Word preset uses one). */
+  keybindings: Record<string, string | string[] | null>;
   // #251 — `c4ca303` (#216) flipped the *default* to false, but `load()` does
   // `{...defaults(), ...parsed}`, so every install that already had `true`
   // saved kept it. Those users went on seeing U+2019 drawn fullwidth by a CJK
   // font fallback and reported the same "space after the apostrophe" bug
   // again. One-time marker that turns it off once for them.
   smartQuotesOptInMigrated: boolean;
+  /** #347 — one-time: a saved `pdfDefaults.pageSize` of `A4` from before
+   *  `Auto` existed was the untouched default, not a choice. */
+  pdfPageSizeAutoMigrated: boolean;
   // Promote plain numbered-section lines (`6.2 出口许可证管理目录`,
   // `6.2.1 …`) to headings whose level tracks the numbering depth. Off by
   // default — the promotion is heuristic (a line opening with a decimal like
@@ -423,8 +486,13 @@ interface Settings {
 
 /** v2.5 PDF / print export defaults. */
 export interface PdfDefaults {
-  /** Page size preset (`A4` / `A5` / `Letter` / `Legal`) or `Custom`. */
-  pageSize: 'A4' | 'A5' | 'Letter' | 'Legal' | 'Custom';
+  /** Page size preset (`A4` / `A5` / `Letter` / `Legal`) or `Custom`.
+   *  `Auto` (#347, the default) = don't set one; the print dialog decides.
+   *  Before `Auto` existed the default was `A4`, and an untouched `A4` meant
+   *  the same thing — so picking A4 on purpose was indistinguishable from not
+   *  choosing, and TOC page numbers (which need a known page size) could
+   *  never be switched on for A4. */
+  pageSize: 'Auto' | 'A4' | 'A5' | 'Letter' | 'Legal' | 'Custom';
   /** Custom page width in mm — only consulted when `pageSize === 'Custom'`. */
   customWidthMm: number;
   /** Custom page height in mm — only consulted when `pageSize === 'Custom'`. */
@@ -444,11 +512,13 @@ export interface PdfDefaults {
   footer: boolean;
   /** Code-block syntax highlighting in PDF: match preview / always light / always dark. */
   codeTheme: 'preview' | 'light' | 'dark';
+  /** #347 — start the text PDF with a table-of-contents page. */
+  toc: boolean;
 }
 
 export function defaultPdfDefaults(): PdfDefaults {
   return {
-    pageSize: 'A4',
+    pageSize: 'Auto',
     customWidthMm: 210,
     customHeightMm: 297,
     margin: 'Normal',
@@ -460,7 +530,36 @@ export function defaultPdfDefaults(): PdfDefaults {
     fontSize: 11,
     footer: true,
     codeTheme: 'preview',
+    toc: false,
   };
+}
+
+/**
+ * Make sure the right sidebar has something to draw, and report whether it
+ * now does. Supplied by the shell (App.vue), which owns the per-pane rules —
+ * asking it beats re-deriving them here, and it keeps this store from
+ * importing the tabs store it already imports back.
+ *
+ * Why it exists: the strip only renders when at least one pane can draw, and
+ * most panes need a workspace folder (Backlinks also needs a markdown tab).
+ * On a fresh install with no folder open, Backlinks and Tags — the two panes
+ * on by default — can draw nothing, so toggling the strip flipped a flag and
+ * changed nothing on screen in either direction. The toolbar button, its
+ * shortcut and the palette entry all read as dead until the user happened to
+ * switch on the Outline, the one pane that needs only a markdown tab.
+ */
+let rightSidebarShell: {
+  /** Is the strip on screen right now? */
+  visible: () => boolean;
+  /** Switch something on that can actually draw; false if nothing can. */
+  ensureRenderable: () => boolean;
+} | null = null;
+
+export function setRightSidebarShell(shell: {
+  visible: () => boolean;
+  ensureRenderable: () => boolean;
+}) {
+  rightSidebarShell = shell;
 }
 
 function defaults(): Settings {
@@ -470,13 +569,22 @@ function defaults(): Settings {
     window.matchMedia('(prefers-color-scheme: dark)').matches;
   return {
     theme: prefersDark ? 'dark' : 'light',
-    viewMode: 'edit',
+    // New installs follow the OS; load() keeps it off for a stored blob that
+    // predates the option, so an existing explicit choice is never undone.
+    followSystemTheme: true,
+    // 5.0 (docs/v5-ui-spec.md §5) — new installs open in live edit, in the
+    // system face at 16px, without line numbers. Saved settings are never
+    // rewritten: these only fill keys a stored blob does not have.
+    viewMode: 'liveEdit',
     startupViewMode: null,
-    fontSize: 14,
-    fontFamily: 'JetBrains Mono',
+    fontSize: 16,
+    fontFamily: DEFAULT_EDITOR_FONT,
     wordWrap: true,
-    showLineNumbers: true,
+    showLineNumbers: false,
     solidCursor: false,
+    selectionBubble: true,
+    alwaysShowMarkers: false,
+    highlightCurrentLine: false,
     codeFontFamily: '',
     showOutline: false,
     outlineSide: 'right',
@@ -492,17 +600,24 @@ function defaults(): Settings {
     // share the narrow width (the doc becomes an unreadable sliver), so the
     // right sidebar starts hidden. The editor + file tree behave as mutually
     // exclusive full-width views (opening a file collapses the tree).
-    rightSidebarHidden: isMobile(),
+    // 5.0 — writing first: a new install opens on the text alone; the right
+    // sidebar is one click (or ⌘⌥B) away. Saved settings are untouched.
+    rightSidebarHidden: true,
     livePreview: true,
     spellCheck: true,
     focusMode: false,
+    toolbarHidden: false,
     typewriterMode: false,
+    formatHints: true,
+    formatHintsSeen: [],
     vimMode: false,
+    windowsEditorEngine: 'auto',
+    windowsEditorEngineExplicit: false,
     uiFontSize: 13,
     autoCheckUpdate: true,
     language: (() => {
       // Detect browser language on first run. Maps navigator BCP-47 tag
-      // to one of the 14 shipped UI locales; everything else → 'en'.
+      // to one of the 15 shipped UI locales; everything else → 'en'.
       try {
         const nav = typeof navigator !== 'undefined' ? navigator.language || '' : '';
         if (/^zh/i.test(nav)) return 'zh';
@@ -518,14 +633,15 @@ function defaults(): Settings {
         if (/^tr/i.test(nav)) return 'tr';
         if (/^sv/i.test(nav)) return 'sv';
         if (/^uk/i.test(nav)) return 'uk';
+        if (/^ru/i.test(nav)) return 'ru';
         return 'en';
       } catch { return 'en'; }
-    })() as 'en' | 'zh' | 'ja' | 'ko' | 'de' | 'fr' | 'es' | 'pt' | 'it' | 'pl' | 'nl' | 'tr' | 'sv' | 'uk',
+    })() as 'en' | 'zh' | 'ja' | 'ko' | 'de' | 'fr' | 'es' | 'pt' | 'it' | 'pl' | 'nl' | 'tr' | 'sv' | 'uk' | 'ru',
     previewFitWidth: false,
-    previewMaxWidth: 760,
+    previewMaxWidth: 680,
     plantumlEnabled: false,
     plantumlServer: 'https://www.plantuml.com/plantuml',
-    limitEditorWidth: false,
+    limitEditorWidth: true,
     customCssPath: '',
     telemetryEnabled: true,
     telemetryNoticeAck: false,
@@ -557,7 +673,7 @@ function defaults(): Settings {
     agentAllowWrite: false,
     agentToolLoopCap: 8,
     sideSidebarWidth: 260,
-    fileTreeWidth: 240,
+    fileTreeWidth: 260,
     aiEnabled: false,
     aiProvider: 'openai',
     aiModel: '',
@@ -570,14 +686,11 @@ function defaults(): Settings {
     showInspector: false,
     rightSidebarPaneHeights: {},
     ragEnabled: false,
-    readingByDefaultOnMobile: (() => {
-      try {
-        return isIOS();
-      } catch {
-        return false;
-      }
-    })(),
-    lastNonReadingViewMode: 'edit',
+    // 5.0 — off for new installs: the phone editor screen has its own preview
+    // button, and reading mode's full-screen takeover hid the nav (back to
+    // 笔记, the bottom bar). Saved settings keep the user's choice.
+    readingByDefaultOnMobile: false,
+    lastNonReadingViewMode: 'liveEdit',
     showWritingStats: true,
     showWorkspaceDailyTotal: false,
     pdfDefaults: defaultPdfDefaults(),
@@ -585,28 +698,35 @@ function defaults(): Settings {
     pomodoroAutoEngageFocus: true,
     pomodoroDefaultMinutes: 25,
     slashCommandsEnabled: true,
+    fenceLanguageSuggestions: true,
     imageExportBranding: true,
     globalZoom: 1,
     wheelZoomEnabled: true,
     quickCaptureEnabled: true,
-    quickCaptureShortcut: 'CmdOrCtrl+Alt+M',
+    quickCaptureShortcut: QUICK_CAPTURE_DEFAULT_SHORTCUT,
     docxPreset: 'plain',
     printTheme: 'light',
     foldingEnabled: true,
     codeBlockLineNumbers: false,
     codeBlockWrap: false,
     explorerFullNames: false,
+    explorerDoubleClickFolders: false,
+    explorerFollowActive: true,
     explorerShowHidden: false,
     explorerExtFilter: [] as string[],
+    explorerSortByFolder: {} as Record<string, TreeSortMode>,
     distinctSplitPanes: false,
+    splitLiveSync: true,
+    splitRatio: 50,
     markdownHardBreaks: true,
     spellcheckLang: 'en_US',
     smartQuotes: false,
     keybindings: {},
     smartQuotesOptInMigrated: true,
+    pdfPageSizeAutoMigrated: true,
     markdownAutoNumberHeadings: false,
     rsPaneOrder: ['search', 'outline', 'backlinks', 'relationships', 'tags', 'tasks', 'neighborhood', 'types', 'history', 'inspector', 'agent'],
-    previewFontSize: 15,
+    previewFontSize: 16,
     attachmentMode: 'shared',
     assetsDirName: '_assets',
     attachmentCustomPath: './images/${filename}/',
@@ -649,7 +769,7 @@ function mergePdfDefaults(saved: unknown): PdfDefaults {
     const v = typeof n === 'number' && Number.isFinite(n) ? n : fallback;
     return Math.max(min, Math.min(max, v));
   };
-  const okPageSize = ['A4', 'A5', 'Letter', 'Legal', 'Custom'] as const;
+  const okPageSize = ['Auto', 'A4', 'A5', 'Letter', 'Legal', 'Custom'] as const;
   const okMargin = ['Narrow', 'Normal', 'Wide', 'Custom'] as const;
   const okCodeTheme = ['preview', 'light', 'dark'] as const;
   return {
@@ -665,7 +785,16 @@ function mergePdfDefaults(saved: unknown): PdfDefaults {
     fontSize: clamp(s.fontSize, 9, 16, base.fontSize),
     footer: typeof s.footer === 'boolean' ? s.footer : base.footer,
     codeTheme: okCodeTheme.includes(s.codeTheme as never) ? (s.codeTheme as PdfDefaults['codeTheme']) : base.codeTheme,
+    toc: typeof s.toc === 'boolean' ? s.toc : base.toc,
   };
+}
+
+/** #367 — keep either side of the split at least a fifth of the width. */
+export const SPLIT_RATIO_MIN = 20;
+export const SPLIT_RATIO_MAX = 80;
+export function clampSplitRatio(n: unknown): number {
+  const v = typeof n === 'number' && Number.isFinite(n) ? n : 50;
+  return Math.round(Math.max(SPLIT_RATIO_MIN, Math.min(SPLIT_RATIO_MAX, v)) * 10) / 10;
 }
 
 function load(): Settings {
@@ -680,10 +809,32 @@ function load(): Settings {
       merged.pdfDefaults = mergePdfDefaults(parsed.pdfDefaults);
       // #180 — keybindings is a free-form map, so a tampered or older blob
       // could put anything here; keep only string/null values.
+      // 'codemirror' was always a choice; 'native' only counts as one when the
+      // user picked it after 'auto' existed; anything else follows WebView2.
+      if (merged.windowsEditorEngine === 'native' && parsed.windowsEditorEngineExplicit === true) {
+        merged.windowsEditorEngineExplicit = true;
+      } else if (merged.windowsEditorEngine !== 'codemirror') {
+        merged.windowsEditorEngine = 'auto';
+        merged.windowsEditorEngineExplicit = false;
+      }
+      merged.explorerSortByFolder = {};
+      if (parsed.explorerSortByFolder && typeof parsed.explorerSortByFolder === 'object') {
+        for (const [k, v] of Object.entries(parsed.explorerSortByFolder)) {
+          if (isTreeSortMode(v)) merged.explorerSortByFolder[k] = v;
+        }
+      }
+      merged.splitRatio = clampSplitRatio(merged.splitRatio);
+      // The old default Ctrl+Alt+M was also the formula editor's chord, and
+      // the global registration always won. Users who never changed it move to
+      // the new default; a chord someone picked is theirs to keep.
+      merged.quickCaptureShortcut = migrateQuickCaptureShortcut(parsed.quickCaptureShortcut);
       merged.keybindings = {};
       if (parsed.keybindings && typeof parsed.keybindings === 'object') {
         for (const [k, v] of Object.entries(parsed.keybindings)) {
           if (v === null || typeof v === 'string') merged.keybindings[k] = v;
+          else if (Array.isArray(v) && v.length && v.every((c) => typeof c === 'string')) {
+            merged.keybindings[k] = v as string[];
+          }
         }
       }
       // One-time v4.0 upgrade: any saved settings blob written before
@@ -709,6 +860,15 @@ function load(): Settings {
       // default change. Clear it once. Anyone who genuinely wants typographic
       // quotes can switch it back on and that choice sticks, because the
       // marker is written here regardless.
+      // #347 — an old saved `A4` becomes `Auto`. Behaviour is identical: an
+      // untouched A4 applied no page setup, and when another PDF field was
+      // changed, Auto resolves to A4 exactly as A4 did.
+      if (!parsed.pdfPageSizeAutoMigrated) {
+        if (merged.pdfDefaults.pageSize === 'A4') {
+          merged.pdfDefaults = { ...merged.pdfDefaults, pageSize: 'Auto' };
+        }
+        merged.pdfPageSizeAutoMigrated = true;
+      }
       if (!parsed.smartQuotesOptInMigrated) {
         merged.smartQuotes = false;
         merged.smartQuotesOptInMigrated = true;
@@ -730,14 +890,52 @@ function load(): Settings {
         if (isMobile()) merged.rightSidebarHidden = true;
         merged.v491MobileLayoutMigrated = true;
       }
+      // D6 — a theme outside the built-in list (e.g. a hand-edited or
+      // MCP-written 'system') rendered as a bare white page; reset it to the
+      // default, and treat a literal 'system' as the follow-OS option.
+      if (typeof parsed.followSystemTheme !== 'boolean') merged.followSystemTheme = false;
+      if ((parsed.theme as string) === 'system') merged.followSystemTheme = true;
+      if (!isTheme(merged.theme)) merged.theme = systemTheme();
+      if (merged.followSystemTheme) merged.theme = systemTheme();
       return merged;
     }
   } catch {}
   return defaults();
 }
 
+const THEMES: readonly Theme[] = [
+  'light', 'dark', 'nord', 'solarized-light', 'solarized-dark', 'monokai', 'github-light', 'dracula',
+];
+export function isTheme(v: unknown): v is Theme {
+  return typeof v === 'string' && (THEMES as readonly string[]).includes(v);
+}
+function systemTheme(): Theme {
+  const dark =
+    typeof window !== 'undefined' &&
+    !!window.matchMedia &&
+    window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? 'dark' : 'light';
+}
+
+// D6 — live-follow the OS appearance switch while "System" is selected.
+let systemThemeListening = false;
+function listenSystemTheme() {
+  if (systemThemeListening || typeof window === 'undefined' || !window.matchMedia) return;
+  systemThemeListening = true;
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    const s = useSettingsStore();
+    if (s.followSystemTheme && s.theme !== systemTheme()) {
+      s.theme = systemTheme();
+      s.persist();
+    }
+  });
+}
+
 export const useSettingsStore = defineStore('settings', {
-  state: (): Settings => load(),
+  state: (): Settings => {
+    listenSystemTheme();
+    return load();
+  },
   actions: {
     persist() {
       try {
@@ -748,8 +946,19 @@ export const useSettingsStore = defineStore('settings', {
         localStorage.setItem(LS_KEY, JSON.stringify(rest));
       } catch {}
     },
-    setTheme(theme: Theme) {
-      this.theme = theme;
+    /** 'system' follows the OS appearance; anything not a built-in theme is
+     *  ignored (it used to be stored as-is and render a bare page). */
+    setTheme(theme: Theme | 'system') {
+      if (theme === 'system') {
+        this.followSystemTheme = true;
+        this.theme = systemTheme();
+      } else if (isTheme(theme)) {
+        this.followSystemTheme = false;
+        this.theme = theme;
+      } else {
+        console.warn('[settings] ignoring unknown theme', theme);
+        return;
+      }
       this.persist();
     },
     toggleTheme() {
@@ -779,6 +988,11 @@ export const useSettingsStore = defineStore('settings', {
       const order: ViewMode[] = ['edit', 'split', 'liveEdit', 'preview', 'reading'];
       const i = order.indexOf(this.viewMode);
       this.setViewMode(order[(i + 1) % order.length]);
+    },
+    /** #180 - flip between live edit (WYSIWYG) and edit only (source).
+     *  From any other view (split, preview, reading) it lands in live edit. */
+    toggleLiveEditSource() {
+      this.setViewMode(this.viewMode === 'liveEdit' ? 'edit' : 'liveEdit');
     },
     /**
      * Toggle reading mode on/off. If the user is currently in reading mode
@@ -844,6 +1058,18 @@ export const useSettingsStore = defineStore('settings', {
       this.solidCursor = !this.solidCursor;
       this.persist();
     },
+    toggleSelectionBubble() {
+      this.selectionBubble = !this.selectionBubble;
+      this.persist();
+    },
+    toggleAlwaysShowMarkers() {
+      this.alwaysShowMarkers = !this.alwaysShowMarkers;
+      this.persist();
+    },
+    toggleHighlightCurrentLine() {
+      this.highlightCurrentLine = !this.highlightCurrentLine;
+      this.persist();
+    },
     setCodeFontFamily(f: string) {
       this.codeFontFamily = f;
       this.persist();
@@ -863,7 +1089,7 @@ export const useSettingsStore = defineStore('settings', {
     /** #180 — `combo` sets an override, `null` unbinds, `undefined` restores
      *  the default (we delete the key so future default changes reach the
      *  user instead of being pinned to whatever shipped today). */
-    setKeybinding(actionId: string, combo: string | null | undefined) {
+    setKeybinding(actionId: string, combo: string | string[] | null | undefined) {
       if (combo === undefined) delete this.keybindings[actionId];
       else this.keybindings[actionId] = combo;
       this.persist();
@@ -885,7 +1111,16 @@ export const useSettingsStore = defineStore('settings', {
       // toggling back on can restore the exact layout instead of a blank
       // sidebar; when restoring, ensure at least one pane is on so the
       // sidebar isn't empty.
-      if (!this.rightSidebarHidden) {
+      //
+      // Which way to go is decided by what is on screen, not by this flag.
+      // The two differ whenever the flag says "shown" but every pane in the
+      // strip is gated off (no workspace folder), and then a press took the
+      // hide branch and changed nothing visible — the reported dead button,
+      // which needed a second press to do anything at all.
+      const onScreen = rightSidebarShell
+        ? rightSidebarShell.visible()
+        : !this.rightSidebarHidden;
+      if (onScreen) {
         this._rsPanesBeforeHide = {
           showBacklinks: this.showBacklinks,
           showRelationships: this.showRelationships,
@@ -913,8 +1148,21 @@ export const useSettingsStore = defineStore('settings', {
           this.showBacklinks = true;
           this.showTagsPanel = true;
         }
+        // Switching those flags on is not enough to make the strip appear:
+        // they are gated on a workspace folder. Ask the shell to find
+        // something that can actually draw (it falls back to the Outline,
+        // which needs only a markdown tab).
+        if (rightSidebarShell && !rightSidebarShell.ensureRenderable()) {
+          // Nothing in the strip can draw anything: no folder, no markdown
+          // document. Stay hidden rather than leave a button that looks
+          // broken, and let the caller say why out loud.
+          this.rightSidebarHidden = true;
+          this.persist();
+          return false;
+        }
       }
       this.persist();
+      return !this.rightSidebarHidden;
     },
     /** v4.3.0 PR #75 — called when the user toggles off the last visible
      *  pane via the right-click context menu; auto-hides the sidebar and
@@ -952,12 +1200,30 @@ export const useSettingsStore = defineStore('settings', {
       this.focusMode = !this.focusMode;
       this.persist();
     },
+    toggleToolbarHidden() {
+      this.toolbarHidden = !this.toolbarHidden;
+      this.persist();
+    },
+    toggleFormatHints() {
+      this.formatHints = !this.formatHints;
+      this.persist();
+    },
+    markFormatHintSeen(key: string) {
+      if (!this.formatHintsSeen.includes(key)) this.formatHintsSeen.push(key);
+      this.persist();
+    },
     toggleTypewriterMode() {
       this.typewriterMode = !this.typewriterMode;
       this.persist();
     },
     toggleVimMode() {
       this.vimMode = !this.vimMode;
+      this.persist();
+    },
+    setWindowsEditorEngine(engine: WindowsEditorEngine) {
+      this.windowsEditorEngine =
+        engine === 'codemirror' || engine === 'native' ? engine : 'auto';
+      this.windowsEditorEngineExplicit = this.windowsEditorEngine !== 'auto';
       this.persist();
     },
     toggleAutoCheckUpdate() {
@@ -1070,7 +1336,7 @@ export const useSettingsStore = defineStore('settings', {
     setFileTreeWidth(w: number) {
       // Reasonable bounds — narrower than 180 hides text, wider than 600
       // eats too much editor space.
-      const clean = Math.max(180, Math.min(600, Math.round(w) || 240));
+      const clean = Math.max(180, Math.min(600, Math.round(w) || 260));
       this.fileTreeWidth = clean;
       this.persist();
     },
@@ -1137,9 +1403,24 @@ export const useSettingsStore = defineStore('settings', {
       this.rightSidebarPaneHeights = { ...this.rightSidebarPaneHeights, [paneId]: clean };
       this.persist();
     },
-    clearRightSidebarPaneHeights() {
+    /** Double-click on one splitter: even out the pane heights only. */
+    resetRightSidebarPaneHeights() {
       this.rightSidebarPaneHeights = {};
       this.persist();
+    },
+    /** E3 — "Reset sidebar layout": pane heights, pane order and the sidebar
+     *  width all go back to their defaults (it used to reset heights only,
+     *  leaving a reordered, 400 px sidebar looking un-reset). */
+    resetRightSidebarLayout() {
+      const d = defaults();
+      this.rightSidebarPaneHeights = {};
+      this.rsPaneOrder = [...d.rsPaneOrder];
+      this.sideSidebarWidth = d.sideSidebarWidth;
+      this.persist();
+    },
+    /** The view.resetSidebarPanes command's entry point (useCommands.ts). */
+    clearRightSidebarPaneHeights() {
+      this.resetRightSidebarLayout();
     },
     setAutoGitDebounceSeconds(n: number) {
       this.autoGitDebounceSeconds = Math.max(5, Math.min(600, Math.round(n) || 30));
@@ -1149,7 +1430,7 @@ export const useSettingsStore = defineStore('settings', {
       this.uiFontSize = Math.max(10, Math.min(20, n));
       this.persist();
     },
-    setLanguage(lang: 'en' | 'zh' | 'ja' | 'ko' | 'de' | 'fr' | 'es' | 'pt' | 'it' | 'pl' | 'nl' | 'tr' | 'sv' | 'uk') {
+    setLanguage(lang: 'en' | 'zh' | 'ja' | 'ko' | 'de' | 'fr' | 'es' | 'pt' | 'it' | 'pl' | 'nl' | 'tr' | 'sv' | 'uk' | 'ru') {
       this.language = lang;
       this.persist();
     },
@@ -1205,6 +1486,10 @@ export const useSettingsStore = defineStore('settings', {
     },
     toggleSlashCommandsEnabled() {
       this.slashCommandsEnabled = !this.slashCommandsEnabled;
+      this.persist();
+    },
+    toggleFenceLanguageSuggestions() {
+      this.fenceLanguageSuggestions = !this.fenceLanguageSuggestions;
       this.persist();
     },
     toggleImageExportBranding() {
@@ -1265,6 +1550,14 @@ export const useSettingsStore = defineStore('settings', {
       this.explorerFullNames = !this.explorerFullNames;
       this.persist();
     },
+    toggleExplorerDoubleClickFolders() {
+      this.explorerDoubleClickFolders = !this.explorerDoubleClickFolders;
+      this.persist();
+    },
+    toggleExplorerFollowActive() {
+      this.explorerFollowActive = !this.explorerFollowActive;
+      this.persist();
+    },
     toggleExplorerShowHidden() {
       this.explorerShowHidden = !this.explorerShowHidden;
       this.persist();
@@ -1278,6 +1571,21 @@ export const useSettingsStore = defineStore('settings', {
     },
     clearExplorerExtFilter() {
       this.explorerExtFilter = [];
+      this.persist();
+    },
+    setExplorerSort(folder: string, mode: TreeSortMode) {
+      const next = { ...this.explorerSortByFolder };
+      if (mode === 'name-asc') delete next[folder];
+      else next[folder] = mode;
+      this.explorerSortByFolder = next;
+      this.persist();
+    },
+    toggleSplitLiveSync() {
+      this.splitLiveSync = !this.splitLiveSync;
+      this.persist();
+    },
+    setSplitRatio(n: number) {
+      this.splitRatio = clampSplitRatio(n);
       this.persist();
     },
     toggleDistinctSplitPanes() {
@@ -1314,18 +1622,20 @@ export const useSettingsStore = defineStore('settings', {
       this.persist();
     },
     resetRsPaneOrder() {
-      this.rsPaneOrder = ['search', 'outline', 'backlinks', 'relationships', 'tags', 'tasks', 'neighborhood', 'types', 'history', 'inspector', 'agent'];
+      this.rsPaneOrder = [...defaults().rsPaneOrder];
       this.persist();
     },
     /** v4.3.0 PR #74 — preview-only font size. Editor font is the existing
      *  `setFontSize`; this one drives `--content-font-size` (Preview.vue). */
     setPreviewFontSize(n: number) {
-      this.previewFontSize = Math.max(10, Math.min(32, Math.round(n || 15)));
+      this.previewFontSize = Math.max(10, Math.min(32, Math.round(n || defaults().previewFontSize)));
       this.persist();
     },
-    previewFontIn() { this.setPreviewFontSize((this.previewFontSize || 15) + 1); },
-    previewFontOut() { this.setPreviewFontSize((this.previewFontSize || 15) - 1); },
-    resetPreviewFontSize() { this.setPreviewFontSize(15); },
+    // The fallbacks and the reset read defaults(): literals here went stale
+    // when 5.0 moved both sizes to 16 (regression run F-9).
+    previewFontIn() { this.setPreviewFontSize((this.previewFontSize || defaults().previewFontSize) + 1); },
+    previewFontOut() { this.setPreviewFontSize((this.previewFontSize || defaults().previewFontSize) - 1); },
+    resetPreviewFontSize() { this.setPreviewFontSize(defaults().previewFontSize); },
     /** v4.3.5 — flip between `shared` (`_assets/`) and `per-file`
      *  (`<basename>.assets/`) attachment storage layouts. */
     setAttachmentMode(mode: 'shared' | 'per-file' | 'custom') {
@@ -1393,9 +1703,9 @@ export const useSettingsStore = defineStore('settings', {
     },
     /** v4.3.0 PR #74 — editor-only font size convenience wrappers. The
      *  underlying field is the existing `fontSize`. */
-    editorFontIn() { this.setFontSize((this.fontSize || 14) + 1); },
-    editorFontOut() { this.setFontSize((this.fontSize || 14) - 1); },
-    resetEditorFontSize() { this.setFontSize(14); },
+    editorFontIn() { this.setFontSize((this.fontSize || defaults().fontSize) + 1); },
+    editorFontOut() { this.setFontSize((this.fontSize || defaults().fontSize) - 1); },
+    resetEditorFontSize() { this.setFontSize(defaults().fontSize); },
     // v4.6 F6 — Inbox workflow toggles.
     toggleInboxWorkflow() {
       this.inboxWorkflowEnabled = !this.inboxWorkflowEnabled;

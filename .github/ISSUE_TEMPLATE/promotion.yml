@@ -1,0 +1,52 @@
+name: "📣 Promotion / 推广登记"
+description: "You wrote about SoloMD, made a video or recommended it — register it to be listed. 写了文章、录了视频或推荐了 SoloMD？在这里登记。"
+title: "📣 Promotion: "
+labels: ["promotion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you! Rules and what you get: https://solomd.app/promote · 规则与回报：https://solomd.app/zh/promote
+        App store ratings/reviews and GitHub stars don't count (both platforms forbid rewarding them). 应用商店评分/评论和 GitHub Star 不计入（两边都禁止用好处换取）。
+  - type: input
+    id: name
+    attributes:
+      label: "Name to show / 展示的名字"
+      description: "A nickname is fine. 昵称即可。"
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: "Link to your piece / 推广链接"
+      placeholder: "https://…"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: "Platform / 平台"
+      placeholder: "Blog, YouTube, Bilibili, 少数派, newsletter, …"
+    validations:
+      required: true
+  - type: input
+    id: ref
+    attributes:
+      label: "Your ref code (optional) / 你的 ref 代码（选填）"
+      description: "If your links used ?ref=<code>. Lowercase letters, digits, hyphens. 如果链接里用了 ?ref=代码。"
+  - type: input
+    id: github
+    attributes:
+      label: "GitHub username (optional) / GitHub 用户名（选填）"
+      description: "For your avatar in the README contributors table. 用于 README 贡献者表格里的头像。"
+  - type: textarea
+    id: quote
+    attributes:
+      label: "A sentence we may quote on the homepage (optional) / 可以引用到首页的一句话（选填）"
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: "Consent / 同意"
+      options:
+        - label: "I agree to my name and link being shown on solomd.app, in the app's About dialog and in the README. 同意在官网、应用「关于」窗口和 README 中展示我的名字和链接。"
+          required: true

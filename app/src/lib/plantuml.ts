@@ -50,3 +50,40 @@ export function isPlantumlLang(lang: string): boolean {
   const l = (lang || '').trim().toLowerCase();
   return l === 'plantuml' || l === 'puml';
 }
+
+/**
+ * Exports: swap ```plantuml fences inside `container` for the rendered
+ * diagram and wait until every image has loaded (or failed — a failed one
+ * keeps its source visible). The preview did this on its own, but the PDF
+ * (text and image) and DOCX exports rendered from markdown and printed the
+ * fence as code, so the diagram "disappeared" on export.
+ */
+export async function renderPlantumlForExport(container: HTMLElement, server: string | null | undefined): Promise<void> {
+  if (!server) return;
+  const blocks = Array.from(
+    container.querySelectorAll('pre > code.language-plantuml, pre > code.language-puml'),
+  );
+  await Promise.all(
+    blocks.map(
+      (block) =>
+        new Promise<void>((resolve) => {
+          const pre = block.parentElement as HTMLElement | null;
+          if (!pre) return resolve();
+          const code = (block.textContent || '').trim();
+          const wrap = document.createElement('div');
+          wrap.className = 'plantuml-block';
+          const img = document.createElement('img');
+          img.alt = 'PlantUML diagram';
+          img.onload = () => resolve();
+          img.onerror = () => {
+            wrap.replaceWith(pre);
+            resolve();
+          };
+          img.src = plantumlSvgUrl(server, code);
+          wrap.appendChild(img);
+          pre.replaceWith(wrap);
+          setTimeout(resolve, 15000); // a slow server must not hang the export
+        }),
+    ),
+  );
+}

@@ -1,0 +1,11 @@
+Scegli qualsiasi cartella dell'app File come cartella di lavoro: iCloud Drive, Sul mio iPhone o la cartella di un'altra app. SoloMD la ricorda tra un avvio e l'altro.
+
+La cartella di SoloMD ora compare nell'app File, in Sul mio iPhone › SoloMD.
+
+Le note aperte dall'app File si modificano direttamente: salvando si aggiorna l'originale invece di crearne una copia.
+
+Rinomina, sposta ed elimina file nell'albero dei file: tieni premuto un file o tocca ⋯.
+
+Le cartelle aperte prima di un aggiornamento si riaprono, invece di risultare spostate.
+
+SoloMD dall'App Store non invia dati di utilizzo e chiede una valutazione solo con la finestra di Apple.

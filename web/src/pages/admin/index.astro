@@ -17,7 +17,7 @@ const noindex = 'noindex,nofollow,noarchive,nosnippet';
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content={noindex} />
     <title>SoloMD admin · stats</title>
-    <style>
+    <style is:global>
       :root {
         --bg: #0f1115;
         --panel: #161a22;
@@ -77,8 +77,11 @@ const noindex = 'noindex,nofollow,noarchive,nosnippet';
         display: inline-block; vertical-align: middle; margin-left: 6px;
       }
       footer { color: var(--muted); font-size: 12px; margin-top: 30px; text-align: center; }
+      .grid--5 { grid-template-columns: repeat(5, 1fr); }
+      .kpi .sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+      .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
       @media (max-width: 720px) {
-        .grid { grid-template-columns: repeat(2, 1fr); }
+        .grid, .grid--5 { grid-template-columns: repeat(2, 1fr); }
         .row { grid-template-columns: 1fr; }
       }
     </style>
@@ -102,6 +105,34 @@ const noindex = 'noindex,nofollow,noarchive,nosnippet';
 
       <div id="status"></div>
 
+      <!-- All-channel downloads (GET /api/admin/downloads; collected daily by
+           .github/workflows/download-stats.yml). The first KPI is exactly
+           the number the homepage shows. -->
+      <h2>Downloads · all channels</h2>
+      <div id="dl-status"></div>
+      <div class="grid grid--5" id="dl-kpis"></div>
+      <div class="row">
+        <div class="panel">
+          <h2>GitHub by platform</h2>
+          <div id="dl-platforms"></div>
+        </div>
+        <div class="panel">
+          <h2>Not in the total</h2>
+          <div id="dl-extra"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Downloads per day (last 30 days)</h2>
+        <div id="dl-daily"></div>
+      </div>
+
+      <!-- Promoter referral codes, from ref_visit / ref_download events. -->
+      <div class="panel">
+        <h2>Referrals (?ref= codes, selected range)</h2>
+        <div id="referrals"></div>
+      </div>
+
+      <h2 style="margin-top: 26px;">App usage</h2>
       <div class="grid" id="kpis"></div>
 
       <div class="panel">
@@ -247,13 +278,76 @@ const noindex = 'noindex,nofollow,noarchive,nosnippet';
             { key: 'os', label: 'OS' },
             { key: 'count', label: 'Events', num: true, bar: true },
           ]);
+          $('referrals').innerHTML = (data.referrals || []).length
+            ? table(data.referrals, [
+                { key: 'ref', label: 'Code' },
+                { key: 'visits', label: 'Visits', num: true, bar: true },
+                { key: 'downloads', label: 'Downloads', num: true },
+                { key: 'devices', label: 'Browsers', num: true },
+              ])
+            : '<div class="empty">No referral visits in this range.</div>';
           $('locales').innerHTML = table(data.locales, [
             { key: 'locale', label: 'Locale' },
             { key: 'count', label: 'Events', num: true, bar: true },
           ]);
         }
 
-        $('reload').addEventListener('click', load);
+        async function loadDownloads() {
+          const token = getToken();
+          if (!token) return;
+          let res;
+          try {
+            res = await fetch('/api/admin/downloads', { headers: { Authorization: 'Bearer ' + token } });
+          } catch (e) {
+            $('dl-status').innerHTML = '<div class="err">Network error: ' + escapeHtml(String(e)) + '</div>';
+            return;
+          }
+          if (!res.ok) {
+            $('dl-status').innerHTML = '<div class="err">Downloads: HTTP ' + res.status + '</div>';
+            return;
+          }
+          const d = await res.json();
+          const ch = d.channels || {};
+          const full = (n) => (n == null ? '–' : Number(n).toLocaleString('en-US'));
+          const kpi = (label, n, sub) =>
+            `<div class="kpi"><div class="label">${label}</div><div class="value">${full(n)}</div>` +
+            (sub ? `<div class="sub">${escapeHtml(sub)}</div>` : '') + '</div>';
+          const since = (c) => (c && c.first_day ? 'since ' + c.first_day + ' · to ' + c.last_day : 'not collected yet');
+          $('dl-kpis').innerHTML =
+            kpi('Public total (homepage)', d.publicTotal, 'GitHub + App Store + MS Store + Play') +
+            kpi('GitHub installers', ch.github && ch.github.total, ch.github && ch.github.live ? 'live' : 'last snapshot') +
+            kpi('App Store (first-time)', ch.appstore && ch.appstore.total, since(ch.appstore)) +
+            kpi('Microsoft Store', ch.msstore && ch.msstore.total, since(ch.msstore)) +
+            kpi('Google Play', ch.play && ch.play.total, since(ch.play));
+          const bp = (ch.github && ch.github.byPlatform) || {};
+          $('dl-platforms').innerHTML = table(
+            Object.keys(bp).map((k) => ({ platform: k, count: bp[k] })).sort((a, b) => b.count - a.count),
+            [{ key: 'platform', label: 'Platform' }, { key: 'count', label: 'Downloads', num: true, bar: true }],
+          ) + '<div class="note">GitHub counts include in-app updates (the updater downloads the same files).</div>';
+          $('dl-extra').innerHTML = table(
+            [
+              { what: 'MCP CLI · web clipper · skills (GitHub)', count: ch.github && ch.github.tools },
+              { what: 'Chocolatey package (installs the GitHub MSI)', count: ch.chocolatey && ch.chocolatey.total },
+            ],
+            [{ key: 'what', label: 'What' }, { key: 'count', label: 'Downloads', num: true }],
+          ) + '<div class="note">Homebrew, winget, Scoop, Chocolatey and AUR all download from GitHub, so they are already inside the GitHub number.</div>';
+          const rows = (d.daily || []).slice(-30).reverse().map((r) => ({
+            day: r.day,
+            total: (r.github || 0) + (r.appstore || 0) + (r.msstore || 0) + (r.play || 0),
+            github: r.github, appstore: r.appstore, msstore: r.msstore, play: r.play,
+          }));
+          $('dl-daily').innerHTML = table(rows, [
+            { key: 'day', label: 'Day' },
+            { key: 'total', label: 'Total', num: true, bar: true },
+            { key: 'github', label: 'GitHub', num: true },
+            { key: 'appstore', label: 'App Store', num: true },
+            { key: 'msstore', label: 'MS Store', num: true },
+            { key: 'play', label: 'Play', num: true },
+          ]) + '<div class="note">GitHub per day = difference between daily snapshots, so it starts the day after collection begins. App Store data trails by about two days.</div>';
+          $('dl-status').innerHTML = '';
+        }
+
+        $('reload').addEventListener('click', () => { load(); loadDownloads(); });
         $('range').addEventListener('change', load);
         $('logout').addEventListener('click', () => {
           sessionStorage.removeItem(TOKEN_KEY);
@@ -261,6 +355,7 @@ const noindex = 'noindex,nofollow,noarchive,nosnippet';
         });
 
         load();
+        loadDownloads();
       })();
     </script>
   </body>

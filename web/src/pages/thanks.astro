@@ -3,6 +3,7 @@ import Layout from '../layouts/Layout.astro';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import thanksData from '../data/thanks.json';
+import { sponsors, promoters, testers } from '../lib/supporters';
 
 const lang = 'en' as const;
 
@@ -29,8 +30,8 @@ const platformLabel: Record<Donor['platform'], string> = {
 ---
 
 <Layout
-  title="Thanks — Supporters of SoloMD"
-  description="A thank-you wall for everyone who has supported SoloMD with a WeChat / Alipay tip."
+  title="Thanks — Sponsors, promoters and supporters of SoloMD"
+  description="A thank-you wall for everyone who has sponsored, promoted or tipped SoloMD."
   lang={lang}
 >
   <Header lang={lang} />
@@ -43,6 +44,45 @@ const platformLabel: Record<Donor['platform'], string> = {
         occasional Apple Developer renewal. Thank you.
       </p>
 
+
+      {sponsors.length > 0 && (
+        <section class="supporters">
+          <h2>Sponsors</h2>
+          <ul class="supporters__list">
+            {sponsors.map((x) => (
+              <li>{x.url ? <a href={x.url} target="_blank" rel="noopener">{x.name}</a> : x.name}<span class="supporters__since">{x.since}</span></li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {testers.length > 0 && (
+        <section class="supporters">
+          <h2>Testers</h2>
+          <p class="supporters__lead">People who test SoloMD carefully and send detailed bug reports — many fixes start with them.</p>
+          <ul class="supporters__list">
+            {testers.map((x) => (
+              <li>{x.github ? <a href={`https://github.com/${x.github}`} target="_blank" rel="noopener">{x.name}</a> : <strong>{x.name}</strong>}<span class="supporters__since">{x.since}</span><p class="supporters__lead">{x.contribution.en}</p></li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section class="supporters">
+        <h2>Promoters</h2>
+        <p class="supporters__lead" set:html={'People who wrote about SoloMD, made a video or recommended it. <a href="/promote">How to become one →</a>'} />
+        {promoters.length === 0 ? (
+          <p class="empty">No promoters yet — be the first.</p>
+        ) : (
+          <ul class="supporters__list">
+            {promoters.map((x) => (
+              <li><a href={x.url} target="_blank" rel="noopener">{x.name}</a><span class="supporters__since">{x.platform} · {x.since}</span></li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <h2 class="tips-heading">Tips</h2>
       {donors.length === 0 ? (
         <p class="empty">No supporters yet — be the first!</p>
       ) : (
@@ -132,4 +172,10 @@ const platformLabel: Record<Donor['platform'], string> = {
   .support h2 { margin: 0 0 12px; font-size: 1.1rem; }
   .support p { margin: 8px 0; line-height: 1.7; color: var(--text-muted, #555); }
   .privacy-note { font-size: 0.9rem; color: var(--text-faint, #888); }
+  .supporters { margin: 0 0 32px; }
+  .supporters h2, .tips-heading { font-size: 1.2rem; margin: 0 0 12px; }
+  .supporters__lead { color: var(--text-muted, #555); line-height: 1.7; margin: 0 0 12px; }
+  .supporters__list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .supporters__list li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border, #eee); font-weight: 600; }
+  .supporters__since { font-weight: 400; color: var(--text-faint, #888); font-size: 0.9rem; }
 </style>

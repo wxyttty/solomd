@@ -1,0 +1,9 @@
+Przenoś pliki i foldery bez opuszczania aplikacji. Przeciągnij notatkę na folder albo wybierz „Przenieś do…" i wpisz kilka liter, by znaleźć miejsce docelowe. Przeniesienie można cofnąć, otwarte karty podążają za plikiem, a odnośniki względne w przeniesionej notatce są ponownie zakotwiczone, więc obrazy nadal działają.
+
+Pokaż ukryte pliki. Pliki i foldery zaczynające się od kropki były z poziomu aplikacji nieosiągalne; nowe ustawienie je wyświetla, domyślnie wyłączone.
+
+Filtruj drzewo plików według typu. Lista podaje rozszerzenia, które faktycznie są w Twoim magazynie, wraz z liczbą, a foldery bez dopasowań znikają razem z nimi. Komunikat wskazuje aktywny filtr, więc nigdy nie wygląda to na brakujące pliki.
+
+Odróżnij edytor od podglądu w widoku podzielonym. Opcjonalny własny odcień podglądu, wyprowadzony z używanego motywu, dzięki czemu podział nie czyta się jak jedna szeroka kolumna.
+
+Zbyt wąskie okno nie przycina już po cichu paska narzędzi. Przy przepełnieniu przycisk rozwija cały pasek w dwa lub trzy opisane wiersze.

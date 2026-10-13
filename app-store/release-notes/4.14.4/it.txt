@@ -1,0 +1,11 @@
+Ordina l’albero dei file per nome, data di creazione o di modifica, oppure trascinando; i nuovi file vanno in fondo.
+
+Ricerca nelle impostazioni per nome e descrizione.
+
+Modifica più stabile: opzione per tenere visibili i simboli Markdown così nessuna riga salta, ed evidenziare la riga corrente. Nell’anteprima i salti dell’indice arrivano esattamente sul titolo.
+
+Il russo è ora una lingua dell’interfaccia e la barra di stato è tradotta.
+
+Esportazione: indice del PDF con titolo e numeri di pagina, colori neutri.
+
+Nuova scorciatoia ⌘⌥/ per passare tra modifica live e sola modifica.

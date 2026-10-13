@@ -260,9 +260,7 @@ fn normalize_lang(lang: &str) -> String {
 /// build (and wiped on update) and was never scanned anyway. A writable,
 /// stable directory is the supported place.
 pub fn user_dicts_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
+    let dir = super::portable::app_config_dir(app.path())
         .map_err(|e| format!("app_config_dir: {e}"))?
         .join("dictionaries");
     Ok(dir)
@@ -355,9 +353,7 @@ fn resolve_dict_paths(app: &AppHandle, lang: &str) -> Result<(PathBuf, PathBuf),
 }
 
 fn user_dict_path(app: &AppHandle, lang: &str) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
+    let dir = super::portable::app_config_dir(app.path())
         .map_err(|e| format!("app_config_dir: {e}"))?;
     Ok(dir.join(format!("user-dict-{lang}.txt")))
 }

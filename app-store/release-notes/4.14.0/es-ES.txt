@@ -1,0 +1,17 @@
+El formato tiene atajos de teclado. Negrita, cursiva, tachado, código en línea, enlace, títulos 1 a 6, cita, listas y bloque de código: una pulsación aplica, otra quita. Con teclado físico funcionan en todas partes; sin él, los mismos comandos encabezan el menú Insertar, cada uno con su tecla. ¿Prefieres ⌘B para negrita? El preajuste de escritura en Ajustes → Atajos lo cambia con un toque.
+
+Atajos que se encuentran. F1 → Atajos muestra tus atajos reales y se puede buscar por nombre o por tecla. Una línea [TOC] sola se convierte en índice. Las líneas en blanco de un bloque de código numerado conservan su fila.
+
+Una nota ya no puede ejecutar código. El HTML en línea de un archivo markdown se representaba directamente en la aplicación, sin ningún filtro, así que un script escondido en la nota de otra persona se ejecutaba dentro del editor. El markdown representado ahora se sanea en todas partes: vista previa, edición en vivo, presentación y todas las exportaciones. El HTML en línea normal sigue funcionando; los scripts, los manejadores de eventos y los enlaces javascript: no. Si has abierto markdown que no escribiste tú, esta es la actualización que conviene instalar.
+
+Los diagramas de Mermaid se representan al exportar un PDF de texto. Antes esa vía imprimía el código fuente del diagrama. La impresión tampoco descarga ya su hoja de estilos matemática de la red, así que las ecuaciones conservan su formato sin conexión.
+
+El nombre del documento ya no desaparece en ventanas estrechas, y la barra de herramientas desplegada mide un tercio de lo que medía, sin hueco en mitad de la segunda fila.
+
+Elegir un tema y que no cambie nada ahora se explica: un tema del marketplace que define a la vez los colores claros y oscuros anula el selector integrado, que ahora nombra ese tema y lo desactiva con un clic.
+
+La aplicación arranca más rápido. Todo se compilaba antes del primer fotograma: el motor de diagramas, los dos diccionarios chinos, las exportaciones a PDF y Word, la presentación. Ahora se cargan cuando algo los pide y el primer dibujado es un 30% más rápido.
+
+Ahora se detecta un archivo modificado en otro editor, incluso mientras SoloMD estaba cerrado: al iniciar y cada vez que la ventana recupera el foco. Los cambios sin guardar nunca se sobrescriben.
+
+El botón de la barra lateral derecha siempre hace algo.

@@ -104,7 +104,7 @@ static CONFIG_DIR: Lazy<Mutex<Option<PathBuf>>> = Lazy::new(|| Mutex::new(None))
 /// call on every command entry; the first non-None value wins for fallbacks
 /// that run later without an `AppHandle`.
 pub fn prime_config_dir(app: &AppHandle) {
-    if let Ok(d) = app.path().app_config_dir() {
+    if let Ok(d) = super::portable::app_config_dir(app.path()) {
         if let Ok(mut g) = CONFIG_DIR.lock() {
             *g = Some(d);
         }
@@ -116,6 +116,9 @@ fn current_config_dir() -> Option<PathBuf> {
         if let Some(p) = g.clone() {
             return Some(p);
         }
+    }
+    if let Some(p) = super::portable::config_root() {
+        return Some(p);
     }
     // Fallback heuristic — only used if no Tauri command has primed the path
     // yet. Mirrors the Tauri default for `app_config_dir` per platform.

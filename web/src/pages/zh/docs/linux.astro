@@ -1,0 +1,20 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import Header from '../../../components/Header.astro';
+import Footer from '../../../components/Footer.astro';
+import LinuxRequirements from '../../../components/LinuxRequirements.astro';
+
+const lang = 'zh' as const;
+---
+
+<Layout
+  title="Linux 系统要求 — 我的系统能装 SoloMD 吗？"
+  description="两分钟判断你的 Linux 能不能运行 SoloMD、该下载 .deb、.rpm、AUR 还是 AppImage。附常见发行版对照表和流程图。"
+  lang={lang}
+>
+  <Header lang={lang} />
+  <main id="main">
+    <LinuxRequirements lang={lang} />
+  </main>
+  <Footer lang={lang} />
+</Layout>

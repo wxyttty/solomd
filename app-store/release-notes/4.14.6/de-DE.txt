@@ -1,0 +1,9 @@
+Nummerierte Listen bleiben fortlaufend: Fügst du einen Eintrag hinzu oder löschst ihn, werden die übrigen neu nummeriert.
+
+Fett, kursiv, durchgestrichen und Code über mehrere Absätze formatieren jetzt jeden Absatz einzeln, statt eines einzigen Markierungspaars, das als Sternchen sichtbar blieb.
+
+Menüs: Suchen und Ersetzen im Menü Bearbeiten, die Zoom-Befehle im Untermenü Ansicht › Zoom, und das Hilfe-Menü führt Markdown-Spickzettel, Tastenkürzel und Befehlszeile getrennt auf. Das Einfügen-Menü bietet jetzt Überschriften 4–6.
+
+Links in gerenderten Notizen öffnen sich immer im Browser, nie innerhalb von SoloMD.
+
+Nach einigen Tagen Nutzung fragt SoloMD einmal – und nur einmal –, ob du es auf GitHub mit einem Stern versehen möchtest.

@@ -85,6 +85,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     daily,
     activeToday,
     active7d,
+    referrals,
   ] = await Promise.all([
     env.DB.prepare(
       'SELECT COUNT(*) AS events, COUNT(DISTINCT anon_id) AS unique_devices FROM events WHERE ts >= ? AND ts <= ?',
@@ -150,6 +151,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     )
       .bind(sevenDaysAgo)
       .first<{ n: number }>(),
+    // Promoter referral codes (solomd.app/?ref=<code>, see /promote).
+    env.DB.prepare(
+      `SELECT json_extract(props, '$.ref') AS ref,
+              SUM(event = 'ref_visit') AS visits,
+              SUM(event = 'ref_download') AS downloads,
+              COUNT(DISTINCT anon_id) AS devices
+         FROM events
+        WHERE event IN ('ref_visit', 'ref_download') AND ts >= ? AND ts <= ?
+        GROUP BY ref
+        ORDER BY visits DESC
+        LIMIT 200`,
+    )
+      .bind(since, until)
+      .all(),
   ]);
 
   const body = {
@@ -167,6 +182,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     os: osBreakdown.results || [],
     locales: locales.results || [],
     daily: daily.results || [],
+    referrals: referrals.results || [],
   };
 
   return new Response(JSON.stringify(body), {

@@ -76,9 +76,7 @@ impl Default for McpProfilesFile {
 // ---------------------------------------------------------------------------
 
 fn profiles_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
+    let dir = super::portable::app_config_dir(app.path())
         .map_err(|e| format!("app_config_dir: {e}"))?;
     if !dir.exists() {
         std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;

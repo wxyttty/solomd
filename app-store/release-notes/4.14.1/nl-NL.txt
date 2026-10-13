@@ -1,0 +1,11 @@
+De tabeleditor typt vooruit. Tekst in een cel kwam er achterstevoren uit — ‘abc’ werd ‘cba’ — omdat elke toetsaanslag de cel herschreef en de cursor naar het begin zette. Bij het toevoegen, verplaatsen of verwijderen van rijen en kolommen blijft de tekst van elke cel op zijn plaats.
+
+Gesplitste deelvensters kunnen dicht. Een tab naar de editor slepen geeft een tweede weergave van dezelfde notitie, en dat extra deelvenster had geen zichtbare uitweg; het kwam zelfs terug na een herstart. Nu heeft elk deelvenster een eigen sluitknop zodra er meer dan één is.
+
+Elk geopend bestand met één tik. Passen de tabs niet meer, dan toont een ⌄-knop ze allemaal, met niet-opgeslagen bestanden gemarkeerd.
+
+Bestandsboom: een nieuw bestand of nieuwe map krijgt zijn naam waar het echt verschijnt, in de map, niet bovenaan de boom. Lange bestandsnamen gebruiken de volle breedte van de zijbalk in plaats van vaste 30 tekens. Mappen met afbeeldingsbijlagen (_assets en naam.assets) zijn verborgen zolang ‘Verborgen bestanden tonen’ uit staat, zodat ze niet per ongeluk hernoemd of verplaatst worden.
+
+Tabellen: korte cellen worden naast een lange niet langer samengeperst tot een kolom van één teken breed, in de app en bij export naar PDF, HTML en afbeelding.
+
+Op de iPhone loopt de uitgevouwen werkbalk nu binnen het scherm door, zodat Instellingen en de andere knoppen aan het eind ook staand bereikbaar zijn. Menu’s gebruiken de vensterhoogte in plaats van na 360 punten te scrollen.

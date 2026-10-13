@@ -1,0 +1,9 @@
+Pasted images show up even when their folder path contains a space. Such paths made the image link invalid Markdown, so the note showed the link text instead of the picture. Older notes with these links now render in preview and export too.
+
+The file tree follows the file you are working on: switching notes expands the folders above it and selects it. You can turn this off in Settings.
+
+Exports: standalone HTML now prints on white paper, and the text PDF can start with a table-of-contents page (Settings → PDF).
+
+A quieter screen: hide the toolbar buttons with ⌘⌥⇧T, and the AI rewrite button stays hidden until AI is enabled. Community themes now apply fully whichever built-in theme is selected, and the Chinese proofreading panel title no longer repeats a character.
+
+The About screen now thanks the project's sponsors.

@@ -3,6 +3,12 @@
 /* v4.6 design-token layer. Imported FIRST so main.css + the 8 named themes
  * cascade after it and win where they must. See styles/tokens.css. */
 @import "./tokens.css";
+@import "./writing.css";
+/* 5.0 — one menu style for every dropdown / context menu / popover, and the
+ * app-wide thin scrollbars. Both are global by design: see their headers. */
+@import "./menus.css";
+@import "./scrollbars.css";
+@import "./find.css";
 
 :root {
   /* v4.3.0 issue #78 — tell native form controls (most importantly
@@ -25,13 +31,13 @@
      legible. --bg-hover / --bg-active / --text-faint stay SoloMD-tuned. */
   --bg: #ffffff;
   --bg-elev: #f7f6f3;
-  --bg-hover: #f0eee8;
-  --bg-active: #ebe9e2;
-  --border: #e9e9e7;
-  --text: #37352f;
-  --text-muted: #787774;
-  --text-faint: #b4b4b4;
-  --accent: #ff9f40;
+  --bg-hover: rgba(31, 30, 28, 0.05);
+  --bg-active: rgba(31, 30, 28, 0.08);
+  --border: #e9e8e4;
+  --text: #1f1e1c;
+  --text-muted: #5e5b55;
+  --text-faint: #9a978f;
+  --accent: #e07b39;
   --accent-fg: #1a1a1a;
   --danger: #d64545;
 
@@ -46,21 +52,21 @@
   --type-yellow: #c9a227;
 
   /* Markdown element colors (light) */
-  --md-h1: #1a1a1a;
-  --md-h2: #232323;
-  --md-h3: #2f2f2f;
-  --md-h4: #3a3a3a;
-  --md-h5: #4a4a4a;
-  --md-h6: #6a6a6a;
-  --md-strong: #1a1a1a;
-  --md-em: #444444;
-  --md-link: #ff9f40;
-  --md-url: #c97a20;
-  --md-code: #c0392b;
-  --md-code-bg: #f3efe7;
-  --md-quote: #6a6a6a;
-  --md-list: #c97a20;
-  --md-hr: #c0bdb3;
+  --md-h1: #1f1e1c;
+  --md-h2: #1f1e1c;
+  --md-h3: #1f1e1c;
+  --md-h4: #2f2e2b;
+  --md-h5: #3f3d39;
+  --md-h6: #5e5b55;
+  --md-strong: #1f1e1c;
+  --md-em: #1f1e1c;
+  --md-link: #b4561b;
+  --md-url: #78756e;
+  --md-code: #1f1e1c;
+  --md-code-bg: #f6f5f2;
+  --md-quote: #5e5b55;
+  --md-list: #78756e;
+  --md-hr: #dedcd6;
 
   /* Code block syntax (light) — gentle, not garish */
   --syn-keyword: #a626a4;
@@ -83,9 +89,10 @@
      overrode Windows YaHei everywhere with the (deliberately soft,
      handwritten) LXGW glyphs and made the UI look thin/blurry — see
      issue #43. */
-  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI Variable Text", "Segoe UI",
     "PingFang SC", "PingFang TC", "Hiragino Sans GB", "Heiti SC",
-    "Microsoft YaHei", "Inter", Roboto, "Helvetica Neue", sans-serif,
+    "Microsoft YaHei UI", "Microsoft YaHei", "Inter", Roboto, "Helvetica Neue", sans-serif,
     "SoloMD CJK", "Apple Color Emoji", "Segoe UI Emoji",
     "Noto Color Emoji";
   --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", "Menlo",
@@ -119,15 +126,15 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   /* v4.6 warm-neutral dark surfaces (plan §2.4) — warm black, not pure #000 */
-  --bg: #1f1e1b;
-  --bg-elev: #23221f;
-  --bg-hover: #2a2a2a;
-  --bg-active: #333333;
-  --border: #34322d;
-  --text: #e6e1d8;
-  --text-muted: #b8b1a6;
-  --text-faint: #7f776d;
-  --accent: #ffa54d;
+  --bg: #1c1c1e;
+  --bg-elev: #262628;
+  --bg-hover: rgba(255, 255, 255, 0.07);
+  --bg-active: rgba(255, 255, 255, 0.11);
+  --border: #333336;
+  --text: #eceae6;
+  --text-muted: #a9a6a0;
+  --text-faint: #6f6c68;
+  --accent: #f0965a;
   --accent-fg: #1a1a1a;
 
   /* v4.6 F2 — type-section accent palette (dark, slightly lifted for
@@ -140,21 +147,21 @@
   --type-yellow: #e0c350;
 
   /* Markdown element colors (dark) */
-  --md-h1: #ffffff;
-  --md-h2: #f0f0ed;
-  --md-h3: #e2e2dc;
-  --md-h4: #cccccc;
-  --md-h5: #a8a8a8;
-  --md-h6: #888888;
-  --md-strong: #ffffff;
-  --md-em: #d8d8d8;
-  --md-link: #ff9f40;
-  --md-url: #ffb874;
-  --md-code: #ff9f9f;
-  --md-code-bg: #2a2a2a;
-  --md-quote: #888888;
-  --md-list: #ff9f40;
-  --md-hr: #444444;
+  --md-h1: #f2f0ec;
+  --md-h2: #f2f0ec;
+  --md-h3: #eceae6;
+  --md-h4: #d8d6d1;
+  --md-h5: #c2bfba;
+  --md-h6: #a9a6a0;
+  --md-strong: #f2f0ec;
+  --md-em: #eceae6;
+  --md-link: #f4a26b;
+  --md-url: #8c8984;
+  --md-code: #eceae6;
+  --md-code-bg: #262628;
+  --md-quote: #a9a6a0;
+  --md-list: #8c8984;
+  --md-hr: #3a3a3d;
 
   /* Code block syntax (dark) */
   --syn-keyword: #c678dd;
@@ -340,6 +347,48 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 5.0 — the app's chrome behaves like native UI. A long press on a label in
+   the header, the tab strip, the sidebar or the phone's bottom bar selected
+   the text and, on iOS, lifted it as a drag preview instead of pressing the
+   button (found tapping through the iPhone simulator); on desktop a drag
+   across the header painted a selection. Content stays selectable: the
+   editor, the preview, panel text, Settings' copyable snippets. */
+button,
+.toolbar,
+.pane-tabbar,
+.sb,
+.ptab,
+.stats-pill,
+.telemetry-banner,
+.cfb {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* WebKit: user-select:none on an ancestor can make a field inside it
+   refuse input on iOS — fields stay editable and selectable. */
+:is(.toolbar, .pane-tabbar, .sb, .ptab, .telemetry-banner, .cfb) :is(input, textarea, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* ↑↓ / ↵ / Esc hints mean nothing on a touch screen. */
+@media (pointer: coarse) {
+  .key-hint {
+    display: none;
+  }
+}
+
+/* #367 — while the split divider is dragged, keep the resize cursor wherever
+   the pointer wanders and don't select text in either pane. */
+body.split-divider--dragging,
+body.split-divider--dragging * {
+  cursor: col-resize !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
 button {
   font: inherit;
   color: inherit;
@@ -361,20 +410,7 @@ button:disabled {
   cursor: not-allowed;
 }
 
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 5px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-faint);
-}
+/* Scrollbars: styles/scrollbars.css (5.0). */
 
 /* ============================================================
  * #168 — phone layout.
@@ -408,158 +444,17 @@ button:disabled {
 }
 :root.narrow-viewport .pane--editor {
   border-bottom: 1px solid var(--border);
+  /* #367 — the saved side-by-side ratio is a width; stacked, both halves
+     share the height evenly again (the inline style needs !important). */
+  flex: 1 1 0 !important;
 }
-
-/* Toolbar: the strip already scrolls horizontally (#134), which is what keeps
-   30+ actions reachable. What hurt on a phone was density, not count — 12px
-   hit areas beside a brand mark and a filename that together ate a quarter of
-   a 390px bar, while the filename is already in the tab strip right below.
-   Reclaim that width and give every button a finger-sized target (~44px is
-   the Apple/Material floor; 40px plus the bar's padding lands there). */
-:root.narrow-viewport .toolbar {
-  /* The bar is 36px on desktop; 40px buttons inside it were clipped by
-     `overflow-y: hidden` — caught on an iOS simulator, where the button
-     measured 40px inside a 36px bar. Raise the bar to fit them. */
-  height: 44px;
-  gap: 2px;
-  padding: 0 4px;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain;
-}
-/* A desktop window dragged under 600px is narrow too, and on macOS/Windows
-   this row IS the title bar. `.toolbar--mac`/`--win` are single-class rules,
-   so the padding above (three levels of specificity) silently won: measured
-   at 390px, the macOS traffic-light reserve dropped from 72px to 4px and the
-   lights would have sat on the first buttons. Restore both reserves. */
-:root.narrow-viewport .toolbar.toolbar--mac {
-  padding-left: 72px;
-}
-:root.narrow-viewport .toolbar.toolbar--win {
-  padding-right: 0;
-}
-:root.narrow-viewport .toolbar__brand,
-:root.narrow-viewport .toolbar__title {
+:root.narrow-viewport .split-divider {
   display: none;
 }
-:root.narrow-viewport .toolbar__group {
-  gap: 2px;
-}
-:root.narrow-viewport .toolbar__group button,
-:root.narrow-viewport .toolbar .icon-btn {
-  min-width: 40px;
-  min-height: 40px;
-  padding: 8px 10px !important;
-  justify-content: center;
-}
 
-/* Folded state: the strip carries the handful of controls a phone actually
-   needs at hand (file tree, save, the three view modes, search) plus "more".
-   The other ~23 are hidden, not removed — the same elements come back below
-   when the bar expands, so there is no second copy of any button. */
-:root.narrow-viewport .toolbar__group > *:not([data-phone-primary]),
-:root.narrow-viewport .toolbar__divider,
-:root.narrow-viewport .menubar {
-  display: none;
-}
-:root.narrow-viewport .toolbar__more {
-  margin-left: auto;
-  font-size: 18px;
-  line-height: 1;
-}
-
-/* Expanded: the bar becomes a wrapping sheet with a label under each icon.
-   Labels come from each button's own `title`, so they stay in step with the
-   tooltips and need no second translation. It grows in flow rather than
-   floating: an overlay would need a stacking context above the drawers and
-   the modals, and pushing the document down for a moment reads fine here.
-
-   #282 — this is no longer phone-only. Any window too narrow for the whole
-   strip gets the same sheet, which is what "工具栏显示不完全" actually needs:
-   the row stops being silently clipped and every control shows up with a
-   label. The phone keeps its own extra rules below (bigger tap targets, and
-   the folded state that hides all but a handful of buttons); the sheet
-   itself is shared.
-
-   The `:root` prefix is load-bearing, not decoration: Toolbar.vue's scoped
-   `.toolbar` compiles to `.toolbar[data-v-…]` (0,2,0) and is injected after
-   this file, so a bare `.toolbar--sheet` (0,1,0) loses `height` and
-   `overflow-y` to it — the bar wraps but stays clipped to one row's height,
-   which looks like the feature half-works. The phone rules above already win
-   the same fight via `:root.narrow-viewport`. */
-:root .toolbar.toolbar--sheet {
-  height: auto;
-  max-height: 55vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  align-items: flex-start;
-  padding: 6px 4px 10px;
-  gap: 4px;
-  border-bottom-width: 2px;
-}
-:root .toolbar.toolbar--sheet .toolbar__group {
-  flex-wrap: wrap;
-  gap: 4px;
-}
-:root .toolbar.toolbar--sheet .toolbar__group > * {
-  display: inline-flex;
-}
-:root .toolbar.toolbar--sheet .icon-btn {
-  flex-direction: column;
-  gap: 2px;
-  min-width: 84px;
-  min-height: 56px;
-  padding: 6px 4px !important;
-}
-:root .toolbar.toolbar--sheet .icon-btn::after {
-  /* The title carries the shortcut too ("Save (Ctrl+S)"), so give it room. */
-  content: attr(title);
-  font-size: 10px;
-  line-height: 1.1;
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-muted);
-}
-/* The dropdown triggers keep their caret; don't let the label push it out. */
-:root .toolbar.toolbar--sheet .dropdown > .icon-btn {
-  min-width: 84px;
-}
-/* Folded, "more" sits at the far right of the strip; expanded, that same
-   auto margin would strand it alone on its own row. */
-:root .toolbar.toolbar--sheet .toolbar__more {
-  margin-left: 0;
-}
-/* Windows caption buttons. Two things go wrong in a wrapping sheet, both
-   confirmed on the real Win11 VM: they stretch to the sheet's full height
-   (`align-self: stretch` by design in the one-row bar), and — worse — they
-   wrap onto the LAST row, so a frameless window's min/max/close vanish from
-   the top-right corner exactly when the user opened a panel. Pin them back
-   into the corner and reserve that corner so row one can't slide under. */
-:root .toolbar.toolbar--sheet {
-  position: relative;
-}
-:root .toolbar.toolbar--sheet .win-controls {
-  position: absolute;
-  top: 0;
-  right: 0;
-  align-self: flex-start;
-  height: var(--titlebar-h);
-  margin-left: 0;
-}
-:root .toolbar.toolbar--sheet.toolbar--win {
-  padding-right: 142px;
-}
-/* The phone's tap targets stay bigger than the desktop sheet's. */
-:root.narrow-viewport .toolbar--phone-open .icon-btn,
-:root.narrow-viewport .toolbar--phone-open .dropdown > .icon-btn {
-  min-width: 72px;
-}
-:root.narrow-viewport .toolbar--phone-open .icon-btn::after {
-  max-width: 68px;
-}
+/* 5.0 — the header (Toolbar.vue) handles narrow windows itself: tabs scroll,
+   the segmented view switch folds into "More", and every action lives in that
+   menu, so the old wrapping "sheet" (#168/#282/#309/#329) is gone. */
 
 /* Status bar: the full segment list wraps onto a second line at phone widths.
    Keep the counters that move while you type and the live pills (sync,
@@ -707,23 +602,6 @@ button:disabled {
     height: 20px;
   }
 
-  /* Toolbar: horizontal scroll on touch so all 30+ buttons remain
-     reachable even at iPad-portrait widths. Desktop intentionally
-     does NOT set this (see Toolbar.vue's .toolbar comment) because
-     overflow-x cascades to overflow-y, truncating .dropdown__menu
-     items that anchor downward (Insert / Export / Copy / etc.).
-     On touch we accept that compromise — dropdowns mostly anchor
-     down anyway and a slightly-clipped popover beats unreachable
-     buttons. Hide the scrollbar (overscan via swipe is the affordance). */
-  .toolbar {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none; /* Firefox */
-  }
-  .toolbar::-webkit-scrollbar {
-    display: none; /* WebKit (iOS Safari + Tauri's WKWebView) */
-  }
 }
 
 /* Markdown extension styles (front-matter, task list, mark, footnotes) */
@@ -798,6 +676,70 @@ button:disabled {
   accent-color: var(--accent);
 }
 
+/* `[TOC]` document table of contents. Global so the main preview, Windows
+   live-edit blocks, image/PDF capture and the print overlay share one skin. */
+.md-toc {
+  margin: 1.2em 0 1.5em;
+  padding: 0.9em 1.1em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-hover) 65%, transparent);
+}
+.md-toc .md-toc__list {
+  margin: 0.25em 0 0;
+  padding-left: 1.4em;
+}
+.md-toc > .md-toc__list {
+  margin-top: 0;
+}
+.md-toc__item {
+  margin: 0.15em 0;
+}
+.md-toc .md-toc__link {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.md-toc .md-toc__link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+/* #347 — the text PDF's table-of-contents page: a titled page rather than the
+   on-screen card, with a dotted leader to each entry's page number
+   (lib/print-pages.ts fills the numbers; an entry without one drops the
+   leader). */
+.solomd-print-content > .md-toc:first-child {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+}
+.solomd-print-content .md-toc__title {
+  font-size: 1.6em;
+  font-weight: 700;
+  margin: 0 0 0.8em;
+  text-align: center; /* #347 */
+  color: var(--md-h1, inherit);
+}
+.solomd-print-content .md-toc .md-toc__link {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  color: inherit;
+}
+.solomd-print-content .md-toc__leader {
+  flex: 1 1 auto;
+  min-width: 1em;
+  border-bottom: 1px dotted currentColor;
+  opacity: 0.45;
+}
+.solomd-print-content .md-toc__page {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.solomd-print-content .md-toc__link:not(.md-toc__link--paged) .md-toc__leader {
+  display: none;
+}
+
 mark {
   background: rgba(255, 159, 64, 0.28);
   color: inherit;
@@ -829,18 +771,52 @@ mark {
 
 /* Print: hide the app shell and show the #solomd-print-overlay instead. */
 @media print {
-  body.solomd-printing #app {
+  /* Everything under <body> except the print overlay: not just #app —
+   * dialogs, toasts and popovers are teleported to <body>, and one open
+   * while printing (e.g. "file changed on disk") printed its backdrop over
+   * every page, leaving them blank. */
+  body.solomd-printing > :not(#solomd-print-overlay) {
     display: none !important;
   }
   body.solomd-printing #solomd-print-overlay {
     display: block !important;
     position: static !important;
   }
+  /* #337 — the shell rule `html, body, #app { height: 100%; overflow: hidden }`
+   * makes the printed document exactly one page tall: everything below the
+   * first page was clipped, so "导出 PDF（文字）" came out as one page whatever
+   * the length. Paper has to grow with the content. */
+  html.solomd-printing,
+  html.solomd-printing body.solomd-printing {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  /* A table that runs onto the next page repeats its header row there, and a
+   * row is never split between two pages. */
+  body.solomd-printing .solomd-print-content thead {
+    display: table-header-group;
+  }
+  body.solomd-printing .solomd-print-content tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
   /* #293 — the same "paper can't scroll" argument for prose: a paragraph
    * whose words are joined by NO-BREAK SPACE (Word / web / chat pastes) is
    * one unbreakable run to the layout engine and runs off the page. */
   body.solomd-printing .solomd-print-content {
     overflow-wrap: break-word;
+  }
+  /* #370 — and for table cells. `break-word` above doesn't help there: it
+   * leaves a cell's min-content width at its longest unbreakable run, so an
+   * auto-layout table holding a long number / identifier / URL grows past
+   * the paper and the right side is cut off. `anywhere` (and the older
+   * `word-break: break-word` for WebKit) lets such a run break, so the table
+   * fits the page. Text with normal break points is laid out as before, and
+   * short cells keep `.cell-nowrap` (#271). */
+  body.solomd-printing .solomd-print-content th,
+  body.solomd-printing .solomd-print-content td {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   /* #178: paper can't scroll — always wrap code lines in print/PDF so
    * anything wider than the page isn't silently cut off. Applies
@@ -850,6 +826,16 @@ mark {
     overflow-wrap: break-word;
     word-break: break-word;
     overflow-x: visible !important;
+  }
+  body.solomd-printing .md-toc {
+    break-inside: avoid-page;
+    background: transparent;
+  }
+  /* #347 — a TOC at the top of the document (Settings → PDF "table of
+   * contents", or a leading [TOC]) is a page of its own. */
+  body.solomd-printing .solomd-print-content > .md-toc:first-child {
+    break-after: page;
+    page-break-after: always;
   }
 }
 /* On-screen the overlay must be invisible — @media print flips it. */
@@ -868,18 +854,22 @@ body.solomd-printing {
    itself never flashes a different palette on screen.
 
    `follow` adds no class at all — that is the pre-#print-theme behaviour,
-   kept for anyone who deliberately prints in their theme. */
+   kept for anyone who deliberately prints in their theme.
+
+   The light palette has neutral accents (#332 follow-up): bars and rules
+   dark gray, links blue, no beige code blocks. It matches the HTML export and
+   the image PDF, so every export looks like the same document. */
 #solomd-print-overlay.print-theme-light {
   --bg: #ffffff;
-  --bg-elev: #f7f6f3;
-  --bg-elevated: #f7f6f3;
+  --bg-elev: #f6f8fa;
+  --bg-elevated: #f6f8fa;
   --bg-hover: #f0eee8;
   --bg-active: #ebe9e2;
   --border: #e9e9e7;
   --text: #37352f;
   --text-muted: #787774;
   --text-faint: #b4b4b4;
-  --accent: #ff9f40;
+  --accent: #3d444d;
   --accent-fg: #1a1a1a;
   --danger: #d64545;
   --md-h1: #1a1a1a;
@@ -890,17 +880,18 @@ body.solomd-printing {
   --md-h6: #6a6a6a;
   --md-strong: #1a1a1a;
   --md-em: #444444;
-  --md-link: #b45f06;
-  --md-url: #c97a20;
-  --md-code: #c0392b;
-  --md-code-bg: #f3efe7;
+  --md-link: #0b5cad;
+  --md-url: #0b5cad;
+  --md-code: #1f2328;
+  --md-code-bg: #f6f8fa;
   --md-quote: #6a6a6a;
-  --md-list: #c97a20;
+  --md-list: #59636e;
   --md-hr: #c0bdb3;
   --syn-keyword: #a626a4;
   --syn-string: #50a14f;
   --syn-number: #986801;
-  --syn-comment: #a0a1a7;
+  /* Darker than the screen theme's #a0a1a7, which is too faint on paper. */
+  --syn-comment: #6a737d;
   --syn-function: #4078f2;
   --syn-variable: #383a42;
   --syn-type: #c18401;
@@ -949,9 +940,12 @@ body.solomd-printing {
   background: #1f1e1b;
   color: #e6e1d8;
 }
-/* Browsers drop backgrounds when printing unless told otherwise, which
-   would print dark text on white paper — unreadable. Only the dark option
-   needs it; light matches the paper anyway. */
+/* Browsers print in "economy" colour unless told otherwise: backgrounds are
+   dropped and colours washed out. The dark option needs exact colour or it
+   prints dark text on white; the light one needs it too — in the macOS text
+   PDF code blocks lost their shading and comments / quotes came out close to
+   invisible. */
+#solomd-print-overlay,
 #solomd-print-overlay.print-theme-dark,
 body.solomd-printing--dark {
   -webkit-print-color-adjust: exact;
@@ -1030,4 +1024,18 @@ body.solomd-printing--dark {
   color: var(--accent);
   border-color: var(--accent);
   outline: none;
+}
+
+/* #271 — short table cells (tagged by markdown.ts `table_short_cells`) stay on
+   one line. Global, not preview-scoped: live edit renders the same table HTML
+   outside .preview-content (CodeMirror table widgets, the Windows block
+   editor). The export stylesheets carry their own copy. */
+.cell-nowrap {
+  white-space: nowrap;
+}
+
+/* #352 — words matched by the settings search (CSS Custom Highlight API). */
+::highlight(settings-search) {
+  background-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: inherit;
 }

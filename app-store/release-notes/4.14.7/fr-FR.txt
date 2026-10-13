@@ -1,0 +1,11 @@
+Choisissez n'importe quel dossier de l'app Fichiers comme dossier de travail : iCloud Drive, Sur mon iPhone ou le dossier d'une autre app. SoloMD s'en souvient d'un lancement à l'autre.
+
+Le dossier de SoloMD apparaît désormais dans l'app Fichiers, sous Sur mon iPhone › SoloMD.
+
+Les notes ouvertes depuis Fichiers sont modifiées sur place : l'enregistrement met à jour l'original au lieu de créer une copie.
+
+Renommez, déplacez et supprimez des fichiers dans l'arborescence : appui long sur un fichier ou touchez ⋯.
+
+Les dossiers ouverts avant une mise à jour se rouvrent normalement, au lieu d'être signalés comme déplacés.
+
+SoloMD de l'App Store n'envoie aucune donnée d'utilisation et ne demande une note qu'avec la fenêtre d'évaluation d'Apple.

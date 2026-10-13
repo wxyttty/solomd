@@ -1,0 +1,9 @@
+Inklistrade bilder visas även när mappens sökväg innehåller mellanslag. Sådana sökvägar gjorde bildlänken ogiltig; äldre anteckningar med sådana länkar visas nu i förhandsgranskning och export.
+
+Filträdet följer den aktuella filen: när du byter anteckning fälls mapparna ovanför ut och filen markeras (kan stängas av).
+
+Export: fristående HTML på vitt papper; text-PDF:en kan börja med en innehållsförteckning (Inställningar → PDF).
+
+Lugnare skärm: dölj verktygsfältets knappar med ⌘⌥⇧T; AI-knappen syns först när AI är aktiverat; community-teman tillämpas fullt ut.
+
+Skärmen Om tackar nu projektets sponsorer.

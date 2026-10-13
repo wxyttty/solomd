@@ -15,7 +15,7 @@
 
 | 人群 | 卖点 | 渠道 |
 |---|---|---|
-| **隐私敏感用户** | 零网络、零遥测、文件不出本机 | Reddit r/privacy、少数派 |
+| **隐私敏感用户** | 文件不出本机、无账号、匿名统计一键可关（不要写「零遥测」：桌面端默认开启） | Reddit r/privacy、少数派 |
 | **轻量工具爱好者** | 15 MB vs 110 MB Obsidian | Hacker News、Reddit r/linux |
 | **Tauri/Rust 开发者** | 想看 Tauri 2 真实项目 | Tauri Discord、Rust 社区 |
 | **学生** | 免费 + KaTeX 数学 + 导出 PDF/DOCX 交作业 | 大学论坛、知乎 |
@@ -91,7 +91,7 @@
 > - Multi-encoding (auto-detects GBK/Big5/Shift_JIS)
 > - "Clean AI Artifacts" — strips junk from ChatGPT/Gemini copy-paste
 > - ~15 MB installed (vs Typora 70 MB / Obsidian 110 MB)
-> - MIT licensed, no telemetry, fully offline
+> - MIT licensed, notes never leave your device, works fully offline
 >
 > https://solomd.app | https://github.com/zhitongblog/solomd
 

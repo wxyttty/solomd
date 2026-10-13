@@ -14,22 +14,43 @@ import Layout from '../layouts/Layout.astro';
 
       <h2>Summary</h2>
       <p>
-        SoloMD is a local-first Markdown editor that collects <strong>no personal data of any kind</strong>.
-        Your notes never leave your device.
+        SoloMD is a local-first Markdown editor. <strong>Your notes never leave your device</strong>
+        unless you send them somewhere yourself. The versions downloaded from our website and other
+        stores send anonymous usage statistics, described below, which you can switch off at any time;
+        the App Store versions send none.
       </p>
 
       <h2>Data We Collect</h2>
       <p>
-        <strong>None.</strong> SoloMD does not collect, store, transmit, or share any personal data
-        or device identifiers. The app has no account system, no analytics, no advertising, and no
-        telemetry.
+        <strong>Anonymous usage statistics.</strong> Unless you turn it off — Settings → Advanced →
+        <em>Send anonymous usage data</em> — SoloMD sends a small event to our own server
+        (solomd.app) when it starts and when you use certain features: which export format, view mode
+        or theme you picked, and the Chinese proofreading tool. Each event carries the event name, the
+        app version, the operating system, the interface language and a random identifier generated
+        on your device (it changes if you clear the app's data). It never contains your notes, file
+        names or paths, and the server does not store your IP address or user agent. The app shows a
+        notice about this on first launch.
+      </p>
+      <p>
+        <strong>The App Store versions (iPhone, iPad and the Mac App Store) send no usage data at
+        all</strong> — the code that sends it is switched off in those builds, and they have no such
+        setting.
+      </p>
+      <p>
+        There is no account system and no advertising, and nothing is shared with or sold to third
+        parties.
       </p>
 
       <h2>Data You Create</h2>
       <p>
         All text, images, and files you create or open in SoloMD are stored locally on your device —
         inside the app's sandbox on iOS, or in folders you choose on macOS, Windows, and Linux.
-        SoloMD does not transmit this content to any server.
+        SoloMD does not upload this content to us.
+      </p>
+      <p>
+        Features you set up yourself send what you choose directly to the service you chose: the AI
+        provider you configure with your own key (or a local Ollama), GitHub / Gitea sync to your own
+        repository, and an image host you configure. We never see that traffic.
       </p>
 
       <h2>Permissions We Request</h2>
@@ -44,6 +65,16 @@ import Layout from '../layouts/Layout.astro';
       <p>
         We do not request contacts, location, microphone, camera, calendar, Bluetooth, or any
         other permission.
+      </p>
+
+      <h2>This Website</h2>
+      <p>
+        solomd.app sets no cookies and runs no third-party analytics. One exception, used only when
+        you arrive through a promoter's referral link (a link ending in <code>?ref=&lt;code&gt;</code>,
+        see <a href="/promote">/promote</a>): the site records that a visit — and, within 30 days, a
+        download — came from that code, together with the page path and a random identifier kept in
+        your browser's local storage. No IP address, user agent or other device information is
+        stored. Visits without a referral code send nothing.
       </p>
 
       <h2>Third Parties</h2>

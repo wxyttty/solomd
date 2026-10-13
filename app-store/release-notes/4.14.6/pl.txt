@@ -1,0 +1,9 @@
+Listy numerowane zachowują kolejność: dodaj lub usuń pozycję, a pozostałe same się przenumerują.
+
+Pogrubienie, kursywa, przekreślenie i kod na kilku akapitach formatują teraz każdy akapit osobno, zamiast jednej pary znaczników, która pokazywała się jako gwiazdki.
+
+Menu: Znajdź i zamień w menu Edycja, polecenia powiększenia w podmenu Widok › Powiększenie, a menu Pomoc pokazuje osobno ściągę Markdown, skróty klawiszowe i wiersz poleceń. Menu Wstaw zyskuje nagłówki 4–6.
+
+Linki w notatkach zawsze otwierają się w przeglądarce, nigdy wewnątrz SoloMD.
+
+Po kilku dniach używania SoloMD zapyta raz — i tylko raz — czy zechcesz dać mu gwiazdkę na GitHubie.

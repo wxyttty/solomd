@@ -28,6 +28,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useToastsStore } from '../stores/toasts';
 import { useWorkspaceStore } from '../stores/workspace';
+import { useFiles } from '../composables/useFiles';
 import {
   useMcpProfilesStore,
   type McpProfile,
@@ -38,6 +39,7 @@ import { useI18n } from '../i18n';
 const { t } = useI18n();
 const toasts = useToastsStore();
 const workspace = useWorkspaceStore();
+const files = useFiles();
 const store = useMcpProfilesStore();
 
 interface McpPath {
@@ -109,7 +111,10 @@ async function pickPathForEntry(d: DraftProfile, idx: number) {
   const selected = await openDialog({
     directory: true,
     multiple: false,
-    defaultPath: d.entries[idx].path || workspace.currentFolder || undefined,
+    // The entry's own path when it still exists — otherwise the shared
+    // starting-directory chain. A path that is gone would be dropped by the
+    // dialog layer and strand the picker on an unusable location.
+    defaultPath: await files.pickerStartDir(d.entries[idx].path),
   });
   if (typeof selected === 'string' && selected) {
     d.entries[idx].path = selected;

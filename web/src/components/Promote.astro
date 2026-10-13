@@ -1,0 +1,270 @@
+---
+/**
+ * /promote and /zh/promote — the invitation to help spread SoloMD, and the
+ * rules that keep it honest. Promoters and sponsors are recognised the same
+ * way: the /thanks wall, the app's About dialog and the README contributors
+ * table, all read from public/sponsors.json (see lib/supporters.ts).
+ */
+import { promoters, PROMOTE_ISSUE_URL, PROMOTE_GITEE_URL, PROMOTE_EMAIL } from '../lib/supporters';
+
+interface Props { lang: 'en' | 'zh' }
+const { lang } = Astro.props;
+const zh = lang === 'zh';
+const home = zh ? '/zh/' : '/';
+const thanksHref = zh ? '/zh/thanks' : '/thanks';
+
+const C = zh
+  ? {
+      h1: '帮 SoloMD 推广',
+      lead: 'SoloMD 免费、开源，由一个人开发维护，没有广告预算，也不打算有。它能被更多人用上，靠的是用过的人愿意说一句「这个好用」。如果你有文章、视频、公众号、社群或任何能被看到的地方，这里是帮忙的方法——以及我们怎么感谢你。',
+      getH: '你会得到什么',
+      get: [
+        ['官网感谢墙', '名字和你那篇文章或视频的链接，一起放在 <a href="/zh/thanks">鸣谢页</a> 上——这条回链会给你带去读者。'],
+        ['应用「关于」窗口', 'SoloMD 每一位用户打开「关于」都能看到你的名字。'],
+        ['GitHub 贡献者名单', '按 <a href="https://allcontributors.org" target="_blank" rel="noopener">All Contributors</a> 规范，以 📣「推广」身份出现在 README 的贡献者表格里，带头像。'],
+        ['发版致谢', '新加入的推广者会在下一个版本的更新说明里被点名感谢。'],
+        ['首页精选', '写得特别好的，会作为「大家怎么说」放到官网首页。'],
+      ],
+      sponsorNote: '赞助过的朋友享有同样的待遇（在 README 里以 💵 身份出现）。<a href="/zh/#sponsor">赞助方式在这里</a>。',
+      countH: '什么样的推广算数',
+      count: [
+        '真实使用后写的文章、博客、测评（少数派、知乎、掘金、个人博客……）',
+        '视频或直播里的介绍（B 站、YouTube、抖音……）',
+        '公众号、newsletter、播客里的推荐',
+        '课程、讲座、分享会里的介绍',
+        'V2EX、Reddit、Hacker News 等社区里真诚的帖子或回答',
+        '提交到软件目录或 awesome 列表，翻译文档',
+      ],
+      notH: '什么不算——请不要这样做',
+      not: [
+        ['应用商店评分和评论', 'Apple 和 Google 都禁止用任何好处换评分，这会危及 SoloMD 的上架。想评分请照常评，但它不计入推广。'],
+        ['刷 Star、互换 Star', '违反 GitHub 的使用规则。'],
+        ['刷屏、批量转发、夸大或不实的描述', '这只会让人反感，也会连累 SoloMD 的名声。'],
+      ],
+      disclose: '不需要写得像广告。如果愿意，可以顺带提一句你在 SoloMD 的致谢名单上——坦诚比什么都有说服力。',
+      howH: '怎么参与',
+      how: [
+        ['用一用，写你真实的感受', '优点缺点都可以写，真实的评价比夸奖更有用。'],
+        ['给链接加上你的专属代码', '把 <code>?ref=你的代码</code> 加在 SoloMD 链接后面（小写字母、数字或连字符，比如 <code>solomd.app/?ref=xiaoming</code>）。这样我们能看到你带来了多少访问和下载，不收集任何个人信息。'],
+        ['发布后来登记', '把链接告诉我们，一周内加入名单并回复你。'],
+      ],
+      regH: '登记方式',
+      regGh: '在 GitHub 填写登记表',
+      regGitee: '没有 GitHub？在 Gitee 提 issue',
+      regMail: '或者发邮件',
+      regFields: '登记时请告诉我们：展示的名字、推广链接、平台、你的 ref 代码（如果用了），以及 GitHub 用户名（可选，用于 README 头像）。',
+      kitH: '推广素材',
+      kitLead: '随意使用，不必注明出处。',
+      blurbShortH: '一句话介绍',
+      blurbShort: 'SoloMD：免费开源的 Markdown 编辑器，Typora 能做的它都能做，还有 AI 改写、文件夹同步和原生 iOS / Android 应用。',
+      blurbLongH: '一段话介绍',
+      blurbLong: 'SoloMD 是一款免费、开源（MIT）的 Markdown 编辑器，支持 macOS、Windows、Linux、iOS 和 Android。所见即所得的实时预览、多标签、主题、PDF / Word 导出一应俱全，还内置 AI 改写（自带 Key 或本地 Ollama）、本地语义搜索、Git 自动版本和 MCP 服务器。无账号、无订阅、无广告，笔记就是你文件夹里的 .md 文件。官网：solomd.app',
+      assets: [
+        ['Logo（SVG）', '/favicon.svg'],
+        ['主界面截图', '/demo/solomd-hero.png'],
+        ['分享图（中文）', '/og-image-zh.png'],
+        ['完整产品资料（给 AI 也给人看）', '/llms.txt'],
+      ],
+      faqH: '常见问题',
+      faq: [
+        ['有报酬吗？', '没有。SoloMD 没有付费版，我们能给的就是署名、回链和真诚的感谢。'],
+        ['多久能加入名单？', '一周内。我们会打开你的链接确认，然后在 issue 或邮件里回复你。'],
+        ['可以不公开名字，或者以后撤下吗？', '可以用昵称，也可以随时要求撤下，说一声就行。'],
+        ['写了缺点也算吗？', '算。真实的评价本来就会有缺点。'],
+      ],
+      listH: '已经在帮忙的朋友',
+      listEmpty: '还没有人——欢迎成为第一位。',
+      thanks: '查看完整鸣谢页 →',
+      copy: '复制',
+      copied: '已复制',
+    }
+  : {
+      h1: 'Help spread SoloMD',
+      lead: 'SoloMD is free, open source and built by one developer. There is no ad budget and there will not be one. It reaches new people when someone who uses it says “this is good”. If you have a blog, a channel, a newsletter, a community — anywhere people listen to you — here is how to help, and how we thank you.',
+      getH: 'What you get',
+      get: [
+        ['The thank-you wall', 'Your name with a link to your article or video on the <a href="/thanks">thanks page</a> — a backlink that sends readers your way.'],
+        ['The app’s About dialog', 'Every SoloMD user who opens About sees your name.'],
+        ['GitHub contributors', 'Listed with 📣 Promotion in the README contributors table, avatar included, following the <a href="https://allcontributors.org" target="_blank" rel="noopener">All Contributors</a> spec.'],
+        ['A thank-you in the release notes', 'New promoters are named in the next version’s notes.'],
+        ['A spot on the homepage', 'The pieces people love most are featured under “What people are saying”.'],
+      ],
+      sponsorNote: 'Sponsors are recognised exactly the same way (as 💵 in the README). <a href="/#sponsor">Ways to sponsor</a>.',
+      countH: 'What counts',
+      count: [
+        'An article, blog post or review written after actually using it',
+        'A video or stream segment (YouTube, Bilibili, …)',
+        'A recommendation in your newsletter or podcast',
+        'A mention in a course, talk or workshop',
+        'An honest post or answer in a community (Reddit, Hacker News, forums, …)',
+        'Submitting it to a software directory or awesome list, translating the docs',
+      ],
+      notH: 'What doesn’t — please don’t',
+      not: [
+        ['App Store / Google Play ratings or reviews', 'Both stores forbid rewarding ratings in any way, and it would put SoloMD’s listing at risk. Rate it if you want to — it just doesn’t count here.'],
+        ['Buying or swapping GitHub stars', 'It breaks GitHub’s acceptable-use rules.'],
+        ['Spam, mass reposting, exaggerated or false claims', 'It annoys people and hurts SoloMD’s name.'],
+      ],
+      disclose: 'It doesn’t need to read like an ad. If you like, mention that you’re on SoloMD’s thank-you list — being upfront is more convincing than anything.',
+      howH: 'How to take part',
+      how: [
+        ['Use it, write what you really think', 'Pros and cons both — an honest review is worth more than praise.'],
+        ['Add your own code to the link', 'Put <code>?ref=your-code</code> after a SoloMD link (lowercase letters, digits or hyphens, e.g. <code>solomd.app/?ref=alex</code>). It shows us how many visits and downloads you brought; nothing personal is collected.'],
+        ['Register it once it’s published', 'Send us the link and you’re on the list within a week.'],
+      ],
+      regH: 'Register',
+      regGh: 'Fill in the form on GitHub',
+      regGitee: 'No GitHub account? Open an issue on Gitee',
+      regMail: 'or email',
+      regFields: 'Tell us: the name to show, the link, the platform, your ref code (if you used one), and your GitHub username (optional, for the README avatar).',
+      kitH: 'Press kit',
+      kitLead: 'Use freely, no attribution needed.',
+      blurbShortH: 'One line',
+      blurbShort: 'SoloMD: a free, open-source Markdown editor that does everything Typora does — plus AI rewrite, folder sync and native iOS & Android apps.',
+      blurbLongH: 'One paragraph',
+      blurbLong: 'SoloMD is a free, open-source (MIT) Markdown editor for macOS, Windows, Linux, iOS and Android. Live WYSIWYG preview, tabs, themes and PDF / Word export are all there, plus built-in AI rewrite (bring your own key or run Ollama locally), local semantic search, automatic Git history and an MCP server. No account, no subscription, no ads — your notes are plain .md files in your own folders. solomd.app',
+      assets: [
+        ['Logo (SVG)', '/favicon.svg'],
+        ['Main screenshot', '/demo/solomd-hero.png'],
+        ['Share image', '/og-image.png'],
+        ['Full product facts (for people and AI)', '/llms.txt'],
+      ],
+      faqH: 'FAQ',
+      faq: [
+        ['Is it paid?', 'No. SoloMD has no paid tier; what we can give is credit, a backlink and a sincere thank-you.'],
+        ['How long until I’m listed?', 'Within a week. We open your link, check it, and reply on the issue or by email.'],
+        ['Can I use a nickname, or be removed later?', 'Yes to both — just ask.'],
+        ['Does it count if I mention downsides?', 'Yes. Honest reviews have them.'],
+      ],
+      listH: 'Already helping',
+      listEmpty: 'Nobody yet — be the first.',
+      thanks: 'See the full thanks page →',
+      copy: 'Copy',
+      copied: 'Copied',
+    };
+---
+
+<section class="container promote-page">
+  <p class="promote-page__eyebrow">📣 {zh ? '推广计划' : 'Promoter program'}</p>
+  <h1>{C.h1}</h1>
+  <p class="promote-page__lead">{C.lead}</p>
+
+  <h2>{C.getH}</h2>
+  <ul class="pp-get">
+    {C.get.map(([t, d]) => (
+      <li><strong>{t}</strong><span set:html={d} /></li>
+    ))}
+  </ul>
+  <p class="pp-note" set:html={C.sponsorNote} />
+
+  <div class="pp-cols">
+    <div>
+      <h2>{C.countH}</h2>
+      <ul class="pp-list pp-list--yes">
+        {C.count.map((x) => <li>{x}</li>)}
+      </ul>
+    </div>
+    <div>
+      <h2>{C.notH}</h2>
+      <ul class="pp-list pp-list--no">
+        {C.not.map(([t, d]) => <li><strong>{t}</strong> — {d}</li>)}
+      </ul>
+    </div>
+  </div>
+  <p class="pp-note">{C.disclose}</p>
+
+  <h2>{C.howH}</h2>
+  <ol class="pp-steps">
+    {C.how.map(([t, d]) => (
+      <li><strong>{t}</strong><span set:html={d} /></li>
+    ))}
+  </ol>
+
+  <h2 id="register">{C.regH}</h2>
+  <div class="pp-register">
+    <a class="btn btn--primary" href={PROMOTE_ISSUE_URL} target="_blank" rel="noopener">{C.regGh}</a>
+    <a class="btn btn--secondary" href={PROMOTE_GITEE_URL} target="_blank" rel="noopener">{C.regGitee}</a>
+    <span class="pp-mail">{C.regMail} <a href={`mailto:${PROMOTE_EMAIL}?subject=${encodeURIComponent(zh ? 'SoloMD 推广登记' : 'SoloMD promotion')}`}>{PROMOTE_EMAIL}</a></span>
+  </div>
+  <p class="pp-note">{C.regFields}</p>
+
+  <h2>{C.kitH}</h2>
+  <p class="pp-note">{C.kitLead}</p>
+  <div class="pp-blurb">
+    <div class="pp-blurb__head"><strong>{C.blurbShortH}</strong><button type="button" class="pp-copy" data-copy={C.blurbShort} data-done={C.copied}>{C.copy}</button></div>
+    <p>{C.blurbShort}</p>
+  </div>
+  <div class="pp-blurb">
+    <div class="pp-blurb__head"><strong>{C.blurbLongH}</strong><button type="button" class="pp-copy" data-copy={C.blurbLong} data-done={C.copied}>{C.copy}</button></div>
+    <p>{C.blurbLong}</p>
+  </div>
+  <ul class="pp-assets">
+    {C.assets.map(([t, href]) => <li><a href={href} target="_blank" rel="noopener">{t}</a></li>)}
+  </ul>
+
+  <h2>{C.faqH}</h2>
+  <dl class="pp-faq">
+    {C.faq.map(([q, a]) => (<><dt>{q}</dt><dd>{a}</dd></>))}
+  </dl>
+
+  <h2>{C.listH}</h2>
+  {promoters.length === 0 ? (
+    <p class="pp-note">{C.listEmpty}</p>
+  ) : (
+    <ul class="pp-promoters">
+      {promoters.map((p) => (
+        <li><a href={p.url} target="_blank" rel="noopener">{p.name}</a> <span>· {p.platform}</span></li>
+      ))}
+    </ul>
+  )}
+  <p><a href={thanksHref}>{C.thanks}</a> · <a href={home}>solomd.app</a></p>
+</section>
+
+<script is:inline>
+  document.querySelectorAll('.pp-copy').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var text = b.getAttribute('data-copy') || '';
+      var done = b.getAttribute('data-done') || 'Copied';
+      var orig = b.textContent;
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+        .then(function () { b.textContent = done; setTimeout(function () { b.textContent = orig; }, 1500); })
+        .catch(function () {});
+    });
+  });
+</script>
+
+<style>
+  .promote-page { max-width: 780px; padding: 40px 20px 80px; }
+  .promote-page__eyebrow { margin: 0; font-size: 13px; letter-spacing: 0.04em; color: var(--accent, #ff9f40); font-weight: 600; }
+  .promote-page h1 { font-size: 2.1rem; margin: 6px 0 14px; }
+  .promote-page h2 { font-size: 1.25rem; margin: 36px 0 12px; }
+  .promote-page__lead { font-size: 1.05rem; line-height: 1.75; color: var(--text-muted, #555); }
+  .pp-get, .pp-steps { padding-left: 0; list-style: none; margin: 0; display: grid; gap: 10px; }
+  .pp-steps { counter-reset: s; }
+  .pp-get li, .pp-steps li {
+    display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 10px;
+    border: 1px solid var(--border, rgba(127,127,127,0.25)); line-height: 1.6;
+  }
+  .pp-steps li { counter-increment: s; }
+  .pp-steps li strong::before { content: counter(s) '. '; color: var(--accent, #ff9f40); }
+  .pp-get li span, .pp-steps li span { color: var(--text-muted, #555); font-size: 0.95rem; }
+  .pp-note { color: var(--text-muted, #555); line-height: 1.7; font-size: 0.95rem; }
+  .pp-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 720px) { .pp-cols { grid-template-columns: 1fr; } }
+  .pp-list { padding-left: 1.2em; line-height: 1.7; margin: 0; }
+  .pp-list li { margin-bottom: 6px; }
+  .pp-list--yes li::marker { content: '✓  '; color: #2e9d55; }
+  .pp-list--no li::marker { content: '✗  '; color: #d14b4b; }
+  .pp-register { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .pp-mail { font-size: 0.95rem; color: var(--text-muted, #555); }
+  .pp-blurb { border: 1px solid var(--border, rgba(127,127,127,0.25)); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .pp-blurb p { margin: 8px 0 0; line-height: 1.7; }
+  .pp-blurb__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .pp-copy { border: 1px solid var(--border, rgba(127,127,127,0.35)); background: none; color: inherit; border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+  .pp-assets { display: flex; flex-wrap: wrap; gap: 8px 18px; padding-left: 1.2em; }
+  .pp-faq dt { font-weight: 600; margin-top: 12px; }
+  .pp-faq dd { margin: 4px 0 0; color: var(--text-muted, #555); line-height: 1.7; }
+  .pp-promoters { padding-left: 1.2em; line-height: 1.9; }
+  .pp-promoters span { color: var(--text-faint, #888); font-size: 0.9rem; }
+  .promote-page code { font-size: 0.9em; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--accent, #ff9f40) 10%, transparent); }
+</style>

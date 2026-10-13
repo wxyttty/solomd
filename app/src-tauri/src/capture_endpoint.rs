@@ -285,7 +285,7 @@ async fn serve(app: AppHandle) -> Result<(), String> {
 /// their script. Best-effort — we don't fail the boot if the write fails.
 fn write_port_token(app: &AppHandle, port: u16) {
     let token = STATE.lock().expect("capture state lock").token.clone();
-    let dir = match app.path().app_config_dir() {
+    let dir = match super::portable::app_config_dir(app.path()) {
         Ok(d) => d,
         Err(_) => return,
     };
@@ -306,7 +306,7 @@ fn write_port_token(app: &AppHandle, port: u16) {
 }
 
 fn cleanup_port_token(app: &AppHandle) {
-    if let Ok(dir) = app.path().app_config_dir() {
+    if let Ok(dir) = super::portable::app_config_dir(app.path()) {
         let _ = std::fs::remove_file(dir.join("capture-endpoint.port"));
         let _ = std::fs::remove_file(dir.join("capture-endpoint.token"));
     }

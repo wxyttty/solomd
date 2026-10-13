@@ -127,6 +127,9 @@ fn current_config_dir() -> Option<PathBuf> {
     if let Some(p) = CONFIG_DIR.lock().unwrap().clone() {
         return Some(p);
     }
+    if let Some(p) = super::portable::config_root() {
+        return Some(p);
+    }
     // Fallback heuristic — only used when no Tauri command has primed the
     // path yet. Mirrors the Tauri default for `app_config_dir` on each
     // platform: macOS = ~/Library/Application Support/<bundle>, Linux =
@@ -230,7 +233,7 @@ pub fn record(provider: &str, tokens_in: u64, tokens_out: u64, cost_usd: f64) {
 
 #[tauri::command]
 pub fn cost_meter_get(app: AppHandle) -> CostMeter {
-    if let Ok(d) = app.path().app_config_dir() {
+    if let Ok(d) = super::portable::app_config_dir(app.path()) {
         set_config_dir(d);
     }
     read_meter()
@@ -238,7 +241,7 @@ pub fn cost_meter_get(app: AppHandle) -> CostMeter {
 
 #[tauri::command]
 pub fn cost_meter_reset(app: AppHandle) -> CostMeter {
-    if let Ok(d) = app.path().app_config_dir() {
+    if let Ok(d) = super::portable::app_config_dir(app.path()) {
         set_config_dir(d);
     }
     let meter = CostMeter {
@@ -252,7 +255,7 @@ pub fn cost_meter_reset(app: AppHandle) -> CostMeter {
 
 #[tauri::command]
 pub fn cost_meter_set_enabled(app: AppHandle, enabled: bool) -> CostMeter {
-    if let Ok(d) = app.path().app_config_dir() {
+    if let Ok(d) = super::portable::app_config_dir(app.path()) {
         set_config_dir(d);
     }
     let mut meter = read_meter();

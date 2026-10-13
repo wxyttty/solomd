@@ -1,0 +1,9 @@
+Eingefügte Bilder erscheinen auch dann, wenn der Ordnerpfad ein Leerzeichen enthält. Solche Pfade machten den Bildlink ungültig; ältere Notizen mit diesen Links werden jetzt in Vorschau und Export angezeigt.
+
+Der Dateibaum folgt der aktuellen Datei: Beim Wechseln der Notiz werden die übergeordneten Ordner aufgeklappt und die Datei markiert (abschaltbar).
+
+Export: eigenständiges HTML auf weißem Papier; das Text-PDF kann mit einer Inhaltsverzeichnis-Seite beginnen (Einstellungen → PDF).
+
+Ruhigere Oberfläche: Symbolleisten-Schaltflächen mit ⌘⌥⇧T ausblenden; die KI-Schaltfläche erscheint erst mit aktivierter KI; Community-Themes greifen vollständig.
+
+Der Info-Bildschirm dankt jetzt den Unterstützern des Projekts.

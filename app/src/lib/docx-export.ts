@@ -4,6 +4,7 @@
  *
  * Supports: headings (h1-h6), paragraphs, bold, italic, inline code, links,
  * fenced code blocks, ordered/bullet lists, blockquotes, horizontal rules,
+ * math (as LaTeX source),
  * tables, and embedded images (local + remote).
  */
 
@@ -29,7 +30,7 @@ import {
   TableOfContents,
   LineRuleType,
 } from 'docx';
-import { invoke } from '@tauri-apps/api/core';
+import { mermaidToPng } from './diagram-export';
 import { md, extractImageRoot, preprocessMarkdown } from './markdown';
 import {
   resolveDocxTemplate,
@@ -38,6 +39,8 @@ import {
   type DocxTemplate,
 } from './docx-template';
 import { resolveImagePath } from './image-resolve';
+import { blobToPng, loadImageBlob } from './image-clipboard';
+import { isPlantumlLang, plantumlSvgUrl } from './plantuml';
 import type Token from 'markdown-it/lib/token.mjs';
 
 type BlockChild = Paragraph | Table;
@@ -59,44 +62,105 @@ const HEADING_LEVELS: Record<string, (typeof HeadingLevel)[keyof typeof HeadingL
   h6: HeadingLevel.HEADING_6,
 };
 
-/** Image cache: absolute path → { data, width, height, type } */
+/** A loaded image, ready for an ImageRun. */
 interface ImageCache {
   data: Uint8Array;
   width: number;
   height: number;
   type: 'jpg' | 'png' | 'gif' | 'bmp';
 }
-const imageCache = new Map<string, ImageCache>();
 
-function imageTypeFromPath(path: string): 'jpg' | 'png' | 'gif' | 'bmp' {
-  const ext = path.split('.').pop()?.toLowerCase() ?? '';
-  if (ext === 'jpg' || ext === 'jpeg') return 'jpg';
-  if (ext === 'gif') return 'gif';
-  if (ext === 'bmp') return 'bmp';
-  return 'png';
+
+/**
+ * Every image in the document, keyed by its markdown `src`, loaded BEFORE the
+ * body is built (buildRuns is synchronous). Before this, only an image alone
+ * in its paragraph AND on the local disk made it into the .docx: remote
+ * (image-host) URLs, `data:` URIs, images inside a sentence / list / table
+ * cell and HTML `<img>` tags all became "[image …]" text — "导出的 word 文档
+ * 没有图片".
+ */
+const srcImages = new Map<string, ImageCache | null>();
+
+/** Image type from the file header, not the name: image-host URLs often
+ *  have no extension, and a .png that is really a JPEG is common. */
+function sniffImageType(b: Uint8Array): ImageCache['type'] | null {
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'png';
+  if (b[0] === 0xff && b[1] === 0xd8) return 'jpg';
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'gif';
+  if (b[0] === 0x42 && b[1] === 0x4d) return 'bmp';
+  return null; // webp / svg / avif / … → converted to PNG
 }
 
-async function fetchImageBytes(absPath: string): Promise<ImageCache | null> {
-  const cached = imageCache.get(absPath);
-  if (cached) return cached;
+const HTML_IMG_RE = /<img\b[^>]*?\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi;
 
+function htmlImageSrcs(html: string): string[] {
+  const out: string[] = [];
+  for (const m of html.matchAll(HTML_IMG_RE)) {
+    const src = m[1] ?? m[2] ?? m[3] ?? '';
+    if (src) out.push(src);
+  }
+  return out;
+}
+
+/** Set per export run; buildBody's fence branch reads it. */
+let plantumlServerForRun: string | null = null;
+
+function plantumlUrlFor(tok: Token): string | null {
+  if (!plantumlServerForRun || tok.type !== 'fence') return null;
+  if (!isPlantumlLang((tok.info || '').trim().split(/\s+/)[0])) return null;
+  return plantumlSvgUrl(plantumlServerForRun, (tok.content || '').trim());
+}
+
+function collectImageSrcs(tokens: Token[], into: Set<string>) {
+  for (const tok of tokens) {
+    const puml = plantumlUrlFor(tok);
+    if (puml) into.add(puml);
+    if (tok.type === 'image') {
+      const src = tok.attrGet('src');
+      if (src) into.add(src);
+    } else if (tok.type === 'html_inline' || tok.type === 'html_block') {
+      for (const src of htmlImageSrcs(tok.content || '')) into.add(src);
+    }
+    if (tok.children) collectImageSrcs(tok.children, into);
+  }
+}
+
+async function loadDocxImage(src: string, imageRoot: string | null, filePath?: string): Promise<ImageCache | null> {
   try {
-    const data = await invoke<number[]>('read_binary_file', { path: absPath });
-    const bytes = new Uint8Array(data);
-
+    const isUrl = /^(https?|data|blob):/i.test(src);
+    const local = isUrl ? null : resolveImagePath(src, imageRoot, filePath);
+    const blob = await loadImageBlob(local && !/^(https?|data|blob|asset|tauri):/i.test(local) ? local : src,
+      local && !/^(https?|data|blob|asset|tauri):/i.test(local) ? local : null);
+    let bytes = new Uint8Array(await blob.arrayBuffer());
+    let type = sniffImageType(bytes);
+    if (!type) {
+      bytes = new Uint8Array(await (await blobToPng(blob)).arrayBuffer());
+      type = 'png';
+    }
     const { width, height } = readImageDimensions(bytes) ?? { width: 400, height: 300 };
-
-    const result: ImageCache = {
-      data: bytes,
-      width,
-      height,
-      type: imageTypeFromPath(absPath),
-    };
-    imageCache.set(absPath, result);
-    return result;
-  } catch {
+    return { data: bytes, width, height, type };
+  } catch (e) {
+    console.warn('[docx] image not embedded', src, e);
     return null;
   }
+}
+
+async function prefetchImages(tokens: Token[], imageRoot: string | null, filePath?: string) {
+  const srcs = new Set<string>();
+  collectImageSrcs(tokens, srcs);
+  await Promise.all(
+    [...srcs].map(async (src) => srcImages.set(src, await loadDocxImage(src, imageRoot, filePath))),
+  );
+}
+
+function imageRun(img: ImageCache, alt: string, maxWidth = MAX_IMG_WIDTH): ImageRun {
+  const dim = scaleDimensions(img.width, img.height, maxWidth);
+  return new ImageRun({
+    type: img.type,
+    data: img.data,
+    transformation: { width: dim.width, height: dim.height },
+    altText: { name: alt || 'image', description: alt || 'image' },
+  });
 }
 
 /** Read width/height from PNG/JPEG/GIF/BMP headers without decoding the full image. */
@@ -141,17 +205,17 @@ function readImageDimensions(data: Uint8Array): { width: number; height: number 
 /** Max image width in the DOCX (pixels at 96dpi). */
 const MAX_IMG_WIDTH = 580;
 
-function scaleDimensions(w: number, h: number): { width: number; height: number } {
-  if (w > MAX_IMG_WIDTH) {
-    const ratio = MAX_IMG_WIDTH / w;
-    w = MAX_IMG_WIDTH;
+function scaleDimensions(w: number, h: number, max = MAX_IMG_WIDTH): { width: number; height: number } {
+  if (w > max) {
+    const ratio = max / w;
+    w = max;
     h = Math.round(h * ratio);
   }
   return { width: w, height: h };
 }
 
-function buildRuns(inlineToken: Token, style: RunStyle = {}): (TextRun | ExternalHyperlink)[] {
-  const out: (TextRun | ExternalHyperlink)[] = [];
+function buildRuns(inlineToken: Token, style: RunStyle = {}): (TextRun | ImageRun | ExternalHyperlink)[] {
+  const out: (TextRun | ImageRun | ExternalHyperlink)[] = [];
   if (!inlineToken.children) {
     if (inlineToken.content) {
       out.push(new TextRun({ text: inlineToken.content, ...toRunOpts(style) }));
@@ -160,9 +224,9 @@ function buildRuns(inlineToken: Token, style: RunStyle = {}): (TextRun | Externa
   }
 
   const stack: RunStyle[] = [{ ...style }];
-  let pendingLink: { href: string; runs: (TextRun | ExternalHyperlink)[] } | null = null;
+  let pendingLink: { href: string; runs: (TextRun | ImageRun | ExternalHyperlink)[] } | null = null;
 
-  const push = (run: TextRun) => {
+  const push = (run: TextRun | ImageRun) => {
     if (pendingLink) {
       pendingLink.runs.push(run);
     } else {
@@ -210,6 +274,11 @@ function buildRuns(inlineToken: Token, style: RunStyle = {}): (TextRun | Externa
       case 'code_inline':
         push(new TextRun({ text: tok.content, ...toRunOpts({ ...cur, code: true }) }));
         break;
+      case 'math_inline':
+        // LaTeX source in a math font, so it reads as a formula rather than
+        // as stray prose (Word has no KaTeX).
+        push(new TextRun({ text: tok.content, ...toRunOpts(cur), font: MATH_FONT }));
+        break;
       case 'link_open': {
         const href = tok.attrGet('href') ?? '';
         pendingLink = { href, runs: [] };
@@ -220,22 +289,56 @@ function buildRuns(inlineToken: Token, style: RunStyle = {}): (TextRun | Externa
           out.push(
             new ExternalHyperlink({
               link: pendingLink.href,
-              children: pendingLink.runs as TextRun[],
+              children: pendingLink.runs as (TextRun | ImageRun)[],
             })
           );
           pendingLink = null;
         }
         break;
-      case 'image':
-        // Images are handled at the block level (see buildBody), but if an
-        // image appears inline we emit a placeholder.
-        push(new TextRun({ text: `[${tok.content || 'image'}]`, italics: true, color: '888888' }));
+      case 'image': {
+        // An image inside running text (or a list item / table cell). Alone
+        // in its paragraph it is handled by buildBody (centered block).
+        const src = tok.attrGet('src') || '';
+        const img = srcImages.get(src);
+        if (img) push(imageRun(img, tok.content || ''));
+        else push(new TextRun({ text: `[${tok.content || 'image'}]`, italics: true, color: '888888' }));
         break;
+      }
+      case 'html_inline': {
+        // A task item's checkbox (markdown.ts task_lists rule): Word has no
+        // checkbox run, so write the ballot glyph — readable in Word, and
+        // what the DOCX importer turns back into `- [ ]` / `- [x]`.
+        if (/task-list-item-checkbox/.test(tok.content || '')) {
+          push(new TextRun({ text: /\bchecked\b/.test(tok.content) ? '☑ ' : '☐ ', ...toRunOpts(cur) }));
+          break;
+        }
+        const srcs = htmlImageSrcs(tok.content || '');
+        for (const src of srcs) {
+          const img = srcImages.get(src);
+          if (img) push(imageRun(img, ''));
+        }
+        break;
+      }
       default:
         if (tok.content) push(new TextRun({ text: tok.content, ...toRunOpts(cur) }));
     }
   }
   return out;
+}
+
+const MATH_FONT = 'Cambria Math';
+
+/** Display math as its LaTeX source: centred, one line per source line. */
+function mathBlockParagraph(latex: string): Paragraph {
+  const lines = latex.trim().split('\n');
+  return new Paragraph({
+    children: lines.flatMap((line, idx) => [
+      ...(idx > 0 ? [new TextRun({ break: 1 })] : []),
+      new TextRun({ text: line, font: MATH_FONT }),
+    ]),
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 160, after: 160 },
+  });
 }
 
 function toRunOpts(s: RunStyle) {
@@ -278,14 +381,6 @@ function findMatchingClose(tokens: Token[], start: number, openType: string, clo
   return tokens.length - 1;
 }
 
-/** Resolve an image src from markdown to an absolute local path. Returns null for remote URLs. */
-function resolveLocalImagePath(src: string, imageRoot: string | null, filePath?: string): string | null {
-  if (!src || /^(https?|data|blob|asset|tauri):/i.test(src)) return null;
-  const resolved = resolveImagePath(src, imageRoot, filePath);
-  if (/^(https?|data|blob|asset|tauri):/i.test(resolved)) return null;
-  return resolved;
-}
-
 async function buildBody(tokens: Token[], imageRoot: string | null, filePath?: string): Promise<BlockChild[]> {
   const out: BlockChild[] = [];
   let i = 0;
@@ -318,31 +413,19 @@ async function buildBody(tokens: Token[], imageRoot: string | null, filePath?: s
           const imgTok = inline.children!.find(c => c.type === 'image')!;
           const src = imgTok.attrGet('src') || '';
           const alt = imgTok.content || imgTok.attrGet('alt') || '';
-          const absPath = resolveLocalImagePath(src, imageRoot, filePath);
-
-          if (absPath) {
-            const img = await fetchImageBytes(absPath);
-            if (img) {
-              const dim = scaleDimensions(img.width, img.height);
-              out.push(
-                new Paragraph({
-                  children: [
-                    new ImageRun({
-                      type: img.type,
-                      data: img.data,
-                      transformation: { width: dim.width, height: dim.height },
-                      altText: { name: alt, description: alt },
-                    }),
-                  ],
-                  alignment: AlignmentType.CENTER,
-                  spacing: { before: 160, after: 160 },
-                })
-              );
-              break;
-            }
+          const img = srcImages.get(src);
+          if (img) {
+            out.push(
+              new Paragraph({
+                children: [imageRun(img, alt)],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 160, after: 160 },
+              })
+            );
+            break;
           }
 
-          // Fallback: placeholder for remote or unreadable images
+          // Fallback: placeholder for an image that could not be read
           out.push(
             new Paragraph({
               children: [
@@ -379,6 +462,45 @@ async function buildBody(tokens: Token[], imageRoot: string | null, filePath?: s
       }
       case 'fence':
       case 'code_block': {
+        // #256 — a mermaid fence becomes the diagram, as a PNG (Word has no
+        // reliable SVG support). If it cannot be rendered the source falls
+        // through to the ordinary code block below.
+        // PlantUML (#163): the diagram from the configured server, fetched
+        // with the other images before the body is built.
+        const pumlImg = srcImages.get(plantumlUrlFor(tok) ?? '');
+        if (pumlImg) {
+          out.push(
+            new Paragraph({
+              children: [imageRun(pumlImg, 'PlantUML diagram')],
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 160, after: 160 },
+            })
+          );
+          i += 1;
+          break;
+        }
+        if (tok.type === 'fence' && (tok.info || '').trim().split(/\s+/)[0].toLowerCase() === 'mermaid') {
+          const png = await mermaidToPng(tok.content || '');
+          if (png) {
+            const dim = scaleDimensions(png.width, png.height);
+            out.push(
+              new Paragraph({
+                children: [
+                  new ImageRun({
+                    type: 'png',
+                    data: png.data,
+                    transformation: { width: dim.width, height: dim.height },
+                    altText: { name: 'Mermaid diagram', description: 'Mermaid diagram' },
+                  }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 160, after: 160 },
+              })
+            );
+            i += 1;
+            break;
+          }
+        }
         const lines = (tok.content || '').replace(/\n$/, '').split('\n');
         const last = lines.length - 1;
         lines.forEach((line, idx) => {
@@ -403,6 +525,33 @@ async function buildBody(tokens: Token[], imageRoot: string | null, filePath?: s
             })
           );
         });
+        i += 1;
+        break;
+      }
+      case 'html_block': {
+        // A pasted `<img>` block (common when copying from the web). Other
+        // raw HTML still has no DOCX equivalent and is skipped as before.
+        const imgs = htmlImageSrcs(tok.content || '')
+          .map((src) => srcImages.get(src))
+          .filter((x): x is ImageCache => !!x);
+        if (imgs.length) {
+          out.push(
+            new Paragraph({
+              children: imgs.map((img) => imageRun(img, '')),
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 160, after: 160 },
+            })
+          );
+        }
+        i += 1;
+        break;
+      }
+      case 'math_block':
+      case 'math_block_eqno': {
+        // Word has no KaTeX: keep display math as its LaTeX source, one
+        // centred Cambria Math line per source line, rather than dropping it
+        // (same choice as the CLI exporter, scripts/solomd-export.mjs).
+        out.push(mathBlockParagraph(tok.content || ''));
         i += 1;
         break;
       }
@@ -631,13 +780,17 @@ export async function markdownToDocxBlob(
   /** Heading printed above the table of contents. Passed in because this
    *  module has no access to the i18n store. */
   contentsLabel = 'Contents',
+  /** PlantUML server when PlantUML is on (#163); fences become diagrams. */
+  plantumlServer: string | null = null,
 ): Promise<Blob> {
-  imageCache.clear();
+  srcImages.clear();
+  plantumlServerForRun = plantumlServer;
   // Apply the same leniency preprocessors the HTML render path uses (malformed
   // table delimiters, list re-indent, inline-HTML blocks) so DOCX export
   // doesn't silently drop tables/lists the preview shows correctly.
   const tokens = md.parse(preprocessMarkdown(source ?? ''), {});
   const imageRoot = extractImageRoot(source || '');
+  await prefetchImages(tokens, imageRoot, filePath);
   const blocks = await buildBody(tokens, imageRoot, filePath);
   if (blocks.length === 0) blocks.push(new Paragraph({ text: '' }));
 

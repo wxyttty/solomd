@@ -1,0 +1,11 @@
+Escolha qualquer pasta do app Arquivos como pasta de trabalho — iCloud Drive, No Meu iPhone ou a pasta de outro app. O SoloMD lembra dela entre as aberturas.
+
+A pasta do SoloMD agora aparece no app Arquivos em No Meu iPhone › SoloMD.
+
+Notas abertas pelo app Arquivos são editadas no lugar: salvar atualiza o original em vez de criar uma cópia.
+
+Renomeie, mova e apague arquivos na árvore de arquivos: toque e segure um arquivo ou toque em ⋯.
+
+Pastas abertas antes de uma atualização voltam a abrir, em vez de dizer que não estão mais lá.
+
+O SoloMD da App Store não envia dados de uso e só pede avaliação com a janela de avaliação da Apple.

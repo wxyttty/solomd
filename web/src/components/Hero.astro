@@ -1,32 +1,36 @@
 ---
 import { getT, type Lang } from '../i18n/translations';
+import { fetchGithubDownloads } from '../lib/download-channels';
 interface Props { lang: Lang }
 const { lang } = Astro.props;
 const tr = getT(lang);
 
-const VERSION = '4.12.1';
+const VERSION = '5.0.0';
 const REPO = 'zhitongblog/solomd';
 const baseUrl = `https://github.com/${REPO}/releases/download/v${VERSION}`;
+const GITHUB_URL = `https://github.com/${REPO}`;
 const langPrefix = lang === 'en' ? '' : `/${lang}`;
 const whatsNewHref = `${langPrefix}/whats-new/`;
 // /agents/ sub-page exists only in en + zh; ja/ko link to en.
 const agentsHref = lang === 'zh' ? '/zh/agents/' : '/agents/';
-const brandStoryHref = lang === 'zh' ? '/zh/blog/v4-11-3-new-logo/' : '/blog/v4-11-3-new-logo/';
-const BRAND_UPDATE = {
-  en: { eyebrow: 'A NEW FACE FOR SOLOMD', title: 'The # became a portal.', cta: 'Read the design story' },
-  zh: { eyebrow: 'SOLOMD 全新品牌形象', title: '这个 #，现在是一扇入口。', cta: '看看新 Logo 背后的想法' },
-  ja: { eyebrow: 'SOLOMD の新しい顔', title: '「#」がポータルになりました。', cta: 'デザインストーリーを読む' },
-  ko: { eyebrow: 'SOLOMD의 새로운 얼굴', title: '#이 하나의 포털이 되었습니다.', cta: '디자인 이야기 보기' },
-  de: { eyebrow: 'DAS NEUE GESICHT VON SOLOMD', title: 'Aus dem # wurde ein Portal.', cta: 'Die Designgeschichte lesen' },
-  fr: { eyebrow: 'LE NOUVEAU VISAGE DE SOLOMD', title: 'Le # est devenu un portail.', cta: 'Lire l’histoire du design' },
-  es: { eyebrow: 'LA NUEVA CARA DE SOLOMD', title: 'El # se convirtió en un portal.', cta: 'Leer la historia del diseño' },
-  pt: { eyebrow: 'A NOVA CARA DO SOLOMD', title: 'O # virou um portal.', cta: 'Ler a história do design' },
-  it: { eyebrow: 'IL NUOVO VOLTO DI SOLOMD', title: 'Il # è diventato un portale.', cta: 'Leggi la storia del design' },
-  pl: { eyebrow: 'NOWA TWARZ SOLOMD', title: 'Znak # stał się portalem.', cta: 'Poznaj historię projektu' },
-  nl: { eyebrow: 'HET NIEUWE GEZICHT VAN SOLOMD', title: 'De # werd een portaal.', cta: 'Lees het ontwerpverhaal' },
-  tr: { eyebrow: "SOLOMD'NİN YENİ YÜZÜ", title: '# artık bir portal.', cta: 'Tasarım hikâyesini oku' },
-  sv: { eyebrow: 'SOLOMDS NYA ANSIKTE', title: '# blev en portal.', cta: 'Läs designberättelsen' },
-  uk: { eyebrow: 'НОВЕ ОБЛИЧЧЯ SOLOMD', title: '# став порталом.', cta: 'Прочитати історію дизайну' },
+// The banner above the hero invites people into the promoter program
+// (/promote). It replaced the v4.11.3 new-logo announcement.
+const promoteHref = lang === 'zh' ? '/zh/promote' : '/promote';
+const PROMOTE_BANNER = {
+  en: { eyebrow: 'PROMOTER PROGRAM', title: 'Tell people about SoloMD — your name goes in it.', cta: 'How it works' },
+  zh: { eyebrow: '推广者计划', title: '帮 SoloMD 说句话，你的名字就会写进它里面。', cta: '看看怎么参与' },
+  ja: { eyebrow: 'プロモーター・プログラム', title: 'SoloMD を紹介すると、あなたの名前が刻まれます。', cta: '参加方法を見る' },
+  ko: { eyebrow: '프로모터 프로그램', title: 'SoloMD를 알려 주세요 — 이름이 함께 실립니다.', cta: '참여 방법 보기' },
+  de: { eyebrow: 'PROMOTER-PROGRAMM', title: 'Erzähl von SoloMD — und dein Name steht drin.', cta: 'So funktioniert es' },
+  fr: { eyebrow: 'PROGRAMME AMBASSADEURS', title: 'Parlez de SoloMD — votre nom y figurera.', cta: 'Comment ça marche' },
+  es: { eyebrow: 'PROGRAMA DE DIFUSIÓN', title: 'Habla de SoloMD y tu nombre quedará en él.', cta: 'Cómo funciona' },
+  pt: { eyebrow: 'PROGRAMA DE DIVULGAÇÃO', title: 'Fale do SoloMD e seu nome fica nele.', cta: 'Como funciona' },
+  it: { eyebrow: 'PROGRAMMA PROMOTORI', title: 'Parla di SoloMD: il tuo nome ci resterà.', cta: 'Come funziona' },
+  pl: { eyebrow: 'PROGRAM PROMOTORÓW', title: 'Opowiedz o SoloMD — Twoje imię w nim zostanie.', cta: 'Jak to działa' },
+  nl: { eyebrow: 'PROMOTERPROGRAMMA', title: 'Vertel over SoloMD — je naam komt erin.', cta: 'Zo werkt het' },
+  tr: { eyebrow: 'TANITIM PROGRAMI', title: "SoloMD'yi anlat, adın onda yer alsın.", cta: 'Nasıl çalışır' },
+  sv: { eyebrow: 'PROMOTORPROGRAM', title: 'Berätta om SoloMD — ditt namn hamnar i den.', cta: 'Så funkar det' },
+  uk: { eyebrow: 'ПРОГРАМА ПРОМОУТЕРІВ', title: 'Розкажіть про SoloMD — і ваше ім’я буде в ньому.', cta: 'Як це працює' },
 }[lang];
 const ONE_LINE_LABEL = {
   en: 'Or one-line install',
@@ -64,64 +68,70 @@ const GH_HEADERS: Record<string, string> = {
   Accept: 'application/vnd.github+json',
 };
 if (GH_TOKEN) GH_HEADERS.Authorization = `Bearer ${GH_TOKEN}`;
+// The all-channel total (GitHub + App Store + Microsoft Store + Play) lives
+// behind the production /api/stats, which reads the store numbers from D1.
+// Fall back to GitHub alone if the live endpoint can't be reached at build.
 try {
-  const [repoRes, relRes] = await Promise.all([
-    fetch(`https://api.github.com/repos/${REPO}`, { headers: GH_HEADERS }),
-    fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`, { headers: GH_HEADERS }),
-  ]);
-  if (repoRes.ok) {
-    const r = await repoRes.json();
-    initialStars = r.stargazers_count || 0;
-  }
-  if (relRes.ok) {
-    const rels = await relRes.json();
-    if (Array.isArray(rels)) {
-      for (const rel of rels) {
-        for (const a of rel.assets || []) {
-          initialDownloads += a.download_count || 0;
-        }
-      }
-    }
+  const live = await fetch('https://solomd.app/api/stats', { headers: { 'User-Agent': 'SoloMD-build-stats' } });
+  if (live.ok) {
+    const j = (await live.json()) as { stars?: number | null; downloads?: number | null };
+    if (typeof j.stars === 'number') initialStars = j.stars;
+    if (typeof j.downloads === 'number') initialDownloads = j.downloads;
   }
 } catch {
-  // Build will just render empty badges; JS will try to fill them.
+  /* fall through to GitHub */
 }
+if (!initialDownloads || !initialStars) {
+  try {
+    const gh = await fetchGithubDownloads(REPO, GH_HEADERS);
+    if (gh) {
+      if (!initialStars && gh.stars) initialStars = gh.stars;
+      if (!initialDownloads) initialDownloads = gh.installers;
+    }
+  } catch {
+    // Build will just render empty badges; JS will try to fill them.
+  }
+}
+
+// "74.8k downloads" used to be English on every locale; CJK readers count in 万.
+const DL_WORD: Record<string, string> = {
+  en: 'downloads', zh: '次下载', ja: 'ダウンロード', ko: '다운로드', de: 'Downloads', fr: 'téléchargements',
+  es: 'descargas', pt: 'downloads', it: 'download', pl: 'pobrań', nl: 'downloads', tr: 'indirme',
+  sv: 'nedladdningar', ru: 'загрузок', uk: 'завантажень',
+};
+const dlWord = DL_WORD[lang] ?? 'downloads';
+const dlWan = lang === 'zh' || lang === 'ja' ? '万' : lang === 'ko' ? '만' : '';
 
 function fmtStars(n: number): string {
   return n >= 1000 ? `⭐ ${(n / 1000).toFixed(1)}k` : `⭐ ${n}`;
 }
+/** Same rule as the inline script below: 7.5万次下载 / 7.5만 다운로드 / 74.8k downloads. */
 function fmtDownloads(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k downloads` : `${n} downloads`;
+  if (dlWan && n >= 10000) return `${(n / 10000).toFixed(1)}${dlWan}${dlWan === '만' ? ' ' : ''}${dlWord}`;
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k ${dlWord}` : `${n} ${dlWord}`;
 }
 const initialStarsText = initialStars > 0 ? fmtStars(initialStars) : '';
 const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownloads) : '';
 ---
 
-<a class="brand-update-banner" href={brandStoryHref}>
+<a class="brand-update-banner" href={promoteHref}>
   <img class="brand-update-banner__mark" src="/favicon.svg?v=4.11.4" alt="" width="46" height="46" />
   <span class="brand-update-banner__copy">
-    <span class="brand-update-banner__eyebrow">{BRAND_UPDATE.eyebrow}</span>
-    <span class="brand-update-banner__title">{BRAND_UPDATE.title}</span>
+    <span class="brand-update-banner__eyebrow">{PROMOTE_BANNER.eyebrow}</span>
+    <span class="brand-update-banner__title">{PROMOTE_BANNER.title}</span>
   </span>
-  <span class="brand-update-banner__cta">{BRAND_UPDATE.cta} <span aria-hidden="true">→</span></span>
+  <span class="brand-update-banner__cta">{PROMOTE_BANNER.cta} <span aria-hidden="true">→</span></span>
 </a>
 
-<a class="android-beta-banner" href="https://groups.google.com/g/solomd-android-testers/about" target="_blank" rel="noopener">
-  <span class="android-beta-banner__text">{tr.hero.androidBeta}</span>
-  <span class="android-beta-banner__arrow" aria-hidden="true">→</span>
-</a>
 
 <section class="hero">
   <div class="container hero__inner">
-    <div class="hero__badge">{tr.hero.badge} · <span id="hero-stars">{initialStarsText}</span> · <span id="hero-dl-count">{initialDownloadsText}</span></div>
+    <div class="hero__badge">{tr.hero.badge} · <span id="hero-stars">{initialStarsText}</span> · <span id="hero-dl-count" data-word={dlWord} data-wan={dlWan}>{initialDownloadsText}</span></div>
     <h1>
       {tr.hero.title1}<br />
       <span class="hero__accent">{tr.hero.title2}</span>
     </h1>
     <p class="hero__subtagline">{tr.hero.subtagline}</p>
-    <div class="hero__whatsnew-row">
-      <a href={whatsNewHref} class="hero__whatsnew">{tr.hero.ctaWhatsNew}</a>
-    </div>
     <div class="hero__cta">
       <a
         id="hero-download"
@@ -138,21 +148,49 @@ const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownload
       >
         ⬇ {tr.hero.ctaPrimary}
       </a>
+      <!-- Stars are how a free project gets found; the second button asks
+           for one, with the live count (filled by Header's [data-stars]). -->
       <a
-        href="#features"
-        class="btn btn--secondary btn--lg"
+        href={GITHUB_URL}
+        class="btn btn--secondary btn--lg hero__star"
+        target="_blank"
+        rel="noopener"
+        data-star-cta="hero"
       >
-        {tr.hero.ctaSecondary}
+        <svg class="hero__star-gh" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span>{tr.hero.ctaStar}</span>
+        <span class="hero__star-count" data-stars>{initialStars > 0 ? fmtStars(initialStars) : '⭐'}</span>
       </a>
     </div>
     <p class="hero__trust">
       {(lang === 'zh'
-        ? ['开源 · MIT', '已签名 · 已公证', '无需账号', '零遥测', '永久免费']
-        : ['Open source · MIT', 'Signed & notarized', 'No account', 'Zero telemetry', 'Free forever']
+        ? ['开源 · MIT', '已签名 · 已公证', '无需账号', '无广告', '永久免费']
+        : ['Open source · MIT', 'Signed & notarized', 'No account', 'No ads', 'Free forever']
       ).map((t, i) => (
         <span class="hero__trust-item">{i > 0 && <span class="hero__trust-dot">·</span>}{t}</span>
       ))}
     </p>
+    <!-- 5.0: the product, straight under the call to action — light or
+         dark to match the visitor's system. The screenshots keep the
+         window's own transparent rounded corners, so the shadow is a
+         drop-shadow that follows them. -->
+    <div class="hero__demo">
+      <picture>
+        <source srcset={lang === 'zh' ? '/v5/mac-dark.webp' : '/v5/en/mac-dark.webp'} media="(prefers-color-scheme: dark)" type="image/webp" />
+        <img
+          class="hero__demo-media"
+          src={lang === 'zh' ? '/v5/mac-light.webp' : '/v5/en/mac-light.webp'}
+          alt={tr.hero.demoAlt}
+          width="2400"
+          height="1474"
+          loading="eager"
+          fetchpriority="high"
+        />
+      </picture>
+    </div>
+    <div class="hero__whatsnew-row">
+      <a href={whatsNewHref} class="hero__whatsnew">{tr.hero.ctaWhatsNew}</a>
+    </div>
     <div class="hero__install">
       <div class="hero__install-label">
         ⚡ {ONE_LINE_LABEL}
@@ -184,25 +222,63 @@ const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownload
       {tr.hero.chips.map((c) => <span class="chip">{c}</span>)}
     </div>
 
-    <div class="hero__demo">
-      <!-- Lossless WebP (40 KB) with the PNG (117 KB) as the fallback for any
-           engine without WebP. Verified pixel-identical to the PNG, so this is
-           purely a transfer-size win on the LCP image. -->
-      <picture>
-        <source srcset="/demo/solomd-hero.webp" type="image/webp" />
-        <img
-          class="hero__demo-media"
-          src="/demo/solomd-hero.png"
-          alt={tr.hero.demoAlt}
-          width="1920"
-          height="873"
-          loading="eager"
-          fetchpriority="high"
-        />
-      </picture>
-    </div>
   </div>
 </section>
+
+<!-- Post-download star prompt: the moment someone has just chosen SoloMD is
+     the one moment asking for a star is reasonable. Shown once; "later"
+     hides it for 30 days, starring hides it for good. -->
+<aside class="star-nudge" id="star-nudge" hidden aria-live="polite">
+  <button class="star-nudge__close" type="button" aria-label={tr.hero.starNudgeLater} data-star-later>×</button>
+  <p class="star-nudge__title">{tr.hero.starNudgeTitle}</p>
+  <p class="star-nudge__body">{tr.hero.starNudgeBody}</p>
+  <div class="star-nudge__actions">
+    <a class="btn btn--primary star-nudge__cta" href={GITHUB_URL} target="_blank" rel="noopener" data-star-go>
+      {tr.hero.starNudgeCta} <span class="star-nudge__count" data-stars></span>
+    </a>
+    <button class="star-nudge__later" type="button" data-star-later>{tr.hero.starNudgeLater}</button>
+  </div>
+</aside>
+
+<script is:inline>
+  (function () {
+    var KEY = 'solomd.starNudge';
+    var LATER_MS = 30 * 24 * 3600 * 1000;
+    var card = document.getElementById('star-nudge');
+    if (!card) return;
+    function read() { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } }
+    function write(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* private mode */ } }
+    function suppressed() {
+      var v = read();
+      if (!v) return false;
+      if (v.state === 'starred') return true;
+      return v.state === 'later' && Date.now() - v.at < LATER_MS;
+    }
+    var shown = false;
+    function show() {
+      if (shown || suppressed()) return;
+      shown = true;
+      setTimeout(function () { card.hidden = false; card.classList.add('star-nudge--in'); }, 700);
+    }
+    function hide(state) {
+      write({ state: state, at: Date.now() });
+      card.classList.remove('star-nudge--in');
+      card.hidden = true;
+    }
+    // Any way of getting SoloMD counts: an installer, a store page, the
+    // Gitee mirror, or copying the one-line install command.
+    var DOWNLOAD = /\/releases\/download\/|apps\.apple\.com|play\.google\.com\/store|apps\.microsoft\.com|gitee\.com\/[^/]+\/solomd\/releases/;
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.closest) return;
+      if (t.closest('[data-star-go]')) { hide('starred'); return; }
+      if (t.closest('[data-star-later]')) { hide('later'); return; }
+      if (t.closest('[data-star-cta]')) { write({ state: 'starred', at: Date.now() }); return; }
+      var a = t.closest('a[href]');
+      if ((a && DOWNLOAD.test(a.href)) || t.closest('.hi-copy')) show();
+    }, true);
+  })();
+</script>
 
 <script is:inline>
   // Fetch live stars + downloads from our own /api/stats endpoint.
@@ -229,11 +305,18 @@ const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownload
           }
         }
         if (typeof stats.downloads === 'number' && stats.downloads > 0) {
-          var text = stats.downloads >= 1000
-            ? (stats.downloads / 1000).toFixed(1) + 'k downloads'
-            : stats.downloads + ' downloads';
+          // All channels: GitHub installers + App Store + Microsoft Store +
+          // Google Play (src/lib/download-channels.ts). Wording and 万 grouping
+          // come from the element, so this matches the build-time text.
           var el2 = document.getElementById('hero-dl-count');
-          if (el2) el2.textContent = text;
+          if (el2) {
+            var word = el2.getAttribute('data-word') || 'downloads';
+            var wan = el2.getAttribute('data-wan') || '';
+            var n = stats.downloads;
+            el2.textContent = wan && n >= 10000
+              ? (n / 10000).toFixed(1) + wan + (wan === '만' ? ' ' : '') + word
+              : n >= 1000 ? (n / 1000).toFixed(1) + 'k ' + word : n + ' ' + word;
+          }
           var el3 = document.getElementById('dl-section-count');
           if (el3) el3.textContent = stats.downloads.toLocaleString() + '+';
         }
@@ -384,32 +467,6 @@ const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownload
 
   /* Keep Android tester recruitment visible while the temporary brand story
      occupies the primary announcement slot. */
-  .android-beta-banner {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 12px 20px;
-    background: linear-gradient(90deg, #d97706 0%, #f59e0b 50%, #d97706 100%);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-    color: #1a1a1a;
-    font-size: 14px;
-    font-weight: 800;
-    letter-spacing: 0.01em;
-    text-align: center;
-    text-decoration: none;
-    transition: filter 0.15s;
-  }
-  .android-beta-banner:hover { filter: brightness(1.08); }
-  .android-beta-banner__arrow {
-    display: inline-block;
-    font-weight: 900;
-    transition: transform 0.15s;
-  }
-  .android-beta-banner:hover .android-beta-banner__arrow { transform: translateX(4px); }
-  @media (max-width: 640px) {
-    .android-beta-banner { gap: 8px; padding: 11px 14px; font-size: 13px; }
-  }
 
   /* v4.7 release announcement — a calmer info bar under the orange Android
      banner. Calls out the Windows-only editor rebuild so visitors learn
@@ -452,36 +509,46 @@ const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownload
      across the top of the page made the whole site read as a marketing
      splash. The H1 + serif typography now carries the visual weight. */
   .hero {
-    padding: 56px 0 72px;
+    padding: 72px 0 80px;
     text-align: center;
     background: var(--bg);
+    overflow-x: clip;
   }
-  .hero__inner { max-width: 880px; }
+  .hero__inner { max-width: 960px; }
+  /* Inline text, not inline-flex: as flex items the star and download
+     spans became separate columns once the badge wrapped on a phone. */
   .hero__badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
+    display: inline-block;
+    max-width: 100%;
+    line-height: 1.5;
+    text-wrap: balance;
+    word-break: keep-all;
     padding: 6px 14px;
     border-radius: 999px;
-    background: var(--bg-elev);
-    border: 1px solid var(--border);
-    font-size: 12px;
+    background: var(--fill-1);
+    border: 0;
+    font-size: 12.5px;
+    font-weight: 500;
     color: var(--text-muted);
     margin-bottom: 28px;
-    font-family: var(--font-mono);
-    letter-spacing: 0.01em;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
   }
   /* H1 size now comes from global.css clamp(2.6rem, 6vw, 4.8rem). */
   .hero h1 {
-    margin-bottom: 24px;
-    max-width: 14ch;
+    margin-bottom: 22px;
+    max-width: 20ch;
+    font-size: clamp(2.5rem, 5.6vw, 4.4rem);
+    text-wrap: balance;
     margin-left: auto;
     margin-right: auto;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.08;
   }
+  /* Upright: a slanted CJK face is a synthetic oblique, and it looked it. */
   .hero__accent {
     color: var(--accent);
-    font-style: italic;
-    font-weight: 400;
   }
   /* Subtagline kept but the orange-pill chrome dropped; now just an
      italic serif phrase under the H1, in the same color family. */
@@ -489,11 +556,12 @@ const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownload
     max-width: 640px;
     margin: 0 auto 14px;
     color: var(--text-muted);
-    font-family: var(--font-serif);
-    font-size: clamp(1.1rem, 2.2vw, 1.4rem);
-    font-style: italic;
-    line-height: 1.45;
+    font-family: var(--font-ui);
+    font-size: clamp(1.05rem, 2vw, 1.25rem);
+    line-height: 1.55;
+    text-wrap: balance;
     letter-spacing: -0.005em;
+    margin-bottom: 32px;
   }
   .hero__whatsnew-row {
     margin: 0 0 22px;
@@ -647,6 +715,7 @@ const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownload
   }
   .hero__trust {
     margin: 16px 0 0;
+    justify-content: center;
     font-size: 13px;
     color: var(--text-muted, #6b6b60);
     display: flex;
@@ -656,30 +725,104 @@ const initialDownloadsText = initialDownloads > 0 ? fmtDownloads(initialDownload
   }
   .hero__trust-item { white-space: nowrap; font-weight: 500; }
   .hero__trust-dot { margin-right: 8px; opacity: 0.5; }
+  /* Wider than the text column: the product is the hero. */
   .hero__demo {
-    margin: 56px auto 0;
-    max-width: 1100px;
-    width: 100%;
-    border-radius: 14px;
-    overflow: hidden;
-    /* Softer shadow — the previous 30px / 0.35-opacity drop felt heavy
-       against the calmer cream bg. Anthropic-style flat aesthetic. */
-    box-shadow: 0 16px 40px -22px rgba(20, 20, 15, 0.18);
-    border: 1px solid var(--border);
-    background: var(--bg-elev);
-    aspect-ratio: 1920 / 873;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    position: relative;
+    left: 50%;
+    width: min(1200px, calc(100vw - 48px));
+    margin: 56px 0 8px;
+    transform: translateX(-50%);
   }
   .hero__demo-media {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: top left;
     display: block;
+    width: 100%;
+    height: auto;
+    filter: drop-shadow(0 28px 48px rgba(31, 30, 28, 0.22)) drop-shadow(0 6px 14px rgba(31, 30, 28, 0.12));
+  }
+  @media (prefers-color-scheme: dark) {
+    .hero__demo-media {
+      filter: drop-shadow(0 28px 56px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 0.5px rgba(255, 255, 255, 0.25));
+    }
   }
   @media (max-width: 720px) {
-    .hero__demo { margin-top: 32px; aspect-ratio: 1920 / 873; }
+    .hero__demo { margin-top: 36px; width: calc(100vw - 24px); }
+  }
+  .hero__whatsnew-row { margin: 40px 0 0; }
+
+  .hero__star {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .hero__star-count {
+    padding-left: 8px;
+    border-left: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+    font-variant-numeric: tabular-nums;
+    opacity: 0.85;
+  }
+  .star-nudge {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 60;
+    width: min(360px, calc(100vw - 32px));
+    padding: 18px 18px 16px;
+    border-radius: 14px;
+    background: var(--bg-elev, var(--bg, #fff));
+    color: var(--text);
+    border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  .star-nudge--in {
+    opacity: 1;
+    transform: none;
+  }
+  .star-nudge__close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    border: 0;
+    background: none;
+    color: var(--text-muted, inherit);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .star-nudge__title {
+    margin: 0 0 6px;
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .star-nudge__body {
+    margin: 0 0 14px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text-muted, inherit);
+  }
+  .star-nudge__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .star-nudge__cta {
+    display: inline-flex;
+    gap: 6px;
+  }
+  .star-nudge__later {
+    border: 0;
+    background: none;
+    color: var(--text-muted, inherit);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  @media (max-width: 480px) {
+    .star-nudge { right: 16px; bottom: 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .star-nudge { transition: none; }
   }
 </style>

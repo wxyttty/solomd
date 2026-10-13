@@ -1,0 +1,11 @@
+Edytor tabel pisze do przodu. Tekst wpisany w komórce wychodził odwrócony — „abc” zamieniało się w „cba” — bo każde naciśnięcie klawisza przepisywało komórkę i cofało kursor na początek. Przy dodawaniu, przenoszeniu i usuwaniu wierszy oraz kolumn tekst każdej komórki zostaje na swoim miejscu.
+
+Podzielone panele można zamknąć. Przeciągnięcie karty na edytor tworzy drugi widok tej samej notatki, a dodatkowy panel nie miał żadnego widocznego wyjścia; wracał nawet po ponownym uruchomieniu. Teraz, gdy paneli jest więcej niż jeden, każdy ma własny przycisk zamykania.
+
+Każdy otwarty plik na jedno dotknięcie. Gdy karty się nie mieszczą, przycisk ⌄ pokazuje je wszystkie, z oznaczeniem niezapisanych.
+
+Drzewo plików: nowy plik lub folder nazywa się tam, gdzie naprawdę się pojawi, w swoim folderze, a nie na górze drzewa. Długie nazwy wykorzystują całą szerokość panelu zamiast stałych 30 znaków. Foldery z załącznikami graficznymi (_assets i nazwa.assets) są ukryte, dopóki opcja „Pokaż ukryte pliki” jest wyłączona, więc nie da się ich przypadkiem przemianować ani przenieść.
+
+Tabele: krótkie komórki nie są już ściskane do kolumny szerokiej na jeden znak obok długiej — w aplikacji i przy eksporcie do PDF, HTML i obrazu.
+
+Na iPhonie rozwinięty pasek narzędzi zawija się w obrębie ekranu, więc Ustawienia i pozostałe przyciski na końcu są dostępne także w pionie. Menu wykorzystują wysokość okna zamiast przewijać się po 360 punktach.

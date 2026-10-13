@@ -1,0 +1,11 @@
+« Exporter en PDF (texte) » enregistre désormais directement dans un fichier sur Mac : sans boîte d’impression ni imprimante.
+
+L’export Word conserve toutes les images, y compris les images web et celles placées dans une phrase, un tableau ou une liste. Les diagrammes PlantUML apparaissent dans Word et les PDF, et le PDF image garde les images web.
+
+PDF texte : les signes d’intégrale s’impriment correctement et le code n’est plus pâle.
+
+La recherche des réglages passe d’un résultat à l’autre et masque les catégories vides. Dans l’arborescence, ⌘⌫ supprime, F2 renomme, et le glisser indique ce que fera le dépôt.
+
+La boîte « modifications non enregistrées » répond à ⌘S, ⌘D et Échap. ⌘1 fonctionne sur une première ligne vide.
+
+La vue partagée peut ne plus se synchroniser : l’aperçu se met alors à jour à l’enregistrement. Choisir A4 ajoute les numéros de page à la table des matières du PDF.

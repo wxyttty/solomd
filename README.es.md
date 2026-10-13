@@ -5,6 +5,7 @@
 [![Latest release](https://img.shields.io/github/v/release/zhitongblog/solomd)](https://github.com/zhitongblog/solomd/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/zhitongblog/solomd?color=orange)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/zhitongblog/solomd/total)](https://github.com/zhitongblog/solomd/releases)
+[![GitHub stars](https://img.shields.io/github/stars/zhitongblog/solomd?style=flat&logo=github&color=yellow)](https://github.com/zhitongblog/solomd/stargazers)
 [![Website](https://img.shields.io/badge/website-solomd.app-ff9f40.svg)](https://solomd.app)
 
 🌐 **[English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Português](README.pt.md) · [Italiano](README.it.md) · [Polski](README.pl.md) · [Nederlands](README.nl.md) · [Türkçe](README.tr.md) · [Svenska](README.sv.md) · [Українська](README.uk.md)**
@@ -12,6 +13,17 @@
 [**Descargar v4.0**](https://github.com/zhitongblog/solomd/releases/latest) · [**Post de lanzamiento**](https://solomd.app/blog/v4-0-0-agent-native-author/) · [**Sitio web**](https://solomd.app) · [**Seguridad**](https://solomd.app/security)
 
 ![Editor SoloMD](web/public/demo/solomd-demo.svg)
+
+> ### 🤖 Desarrollado y mantenido por Claude
+>
+> SoloMD lo escribe, prueba y publica casi por completo **Claude Code**, el agente de
+> programación de Anthropic, bajo un mantenedor humano que marca el rumbo y decide qué se
+> publica. **Las issues y los pull requests también los clasifica y responde Claude**: las
+> respuestas que recibes aquí las escribe una IA, no las teclea una persona.
+>
+> Lo contamos por dos razones. Debes saber a qué le confías tus notas: el código es MIT y
+> es todo público, léelo. Y cuando una respuesta sea rotunda pero errónea —ocurre— dilo en
+> el hilo. Esa corrección es el mecanismo.
 
 Tus notas viven en una carpeta. **SoloMD es el editor encima — con una superficie de agente de primera clase dentro del editor, y el endpoint MCP que Claude Code / Cursor pueden manejar desde fuera.** Los mismos archivos `.md`. Chatea con tu vault. Programa recipes que se ejecutan cuando no estás al teclado. Entrega el mismo vault a cualquier cliente MCP.
 
@@ -60,7 +72,7 @@ solomd mcp-config
 {
   "mcpServers": {
     "solomd": {
-      "command": "/Applications/SoloMD.app/Contents/Resources/solomd-mcp",
+      "command": "/Applications/SoloMD.app/Contents/MacOS/solomd-mcp",
       "args": ["--workspace", "/Users/me/Documents/SoloMD"]
     }
   }

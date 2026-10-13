@@ -1,0 +1,11 @@
+The table editor types forwards. Typing into a cell came out reversed — "abc" became "cba" — because every keystroke rewrote the cell and sent the cursor back to its start. Rows and columns you add, move or delete still keep every cell's text in place.
+
+Split panes can be closed. Dragging a tab onto the editor splits it into two views of the same note, and the extra pane had no visible way out; it even came back after a restart. Every pane now has its own close button while there is more than one.
+
+Every open file is one tap away. When the tabs no longer fit, a ⌄ button lists them all, with unsaved ones marked.
+
+The file tree: a new file or folder is named where it will actually appear, inside its folder, not at the top of the tree. Long file names use the full width of the sidebar instead of a fixed 30 characters. Image attachment folders (_assets and name.assets) are hidden unless "Show hidden files" is on, so they can't be renamed or moved by accident.
+
+Tables: short cells no longer get squeezed into a one-character column beside a long one, in the app and in PDF, HTML and image export.
+
+On iPhone, the expanded toolbar now wraps inside the screen, so Settings and the other buttons at the end can be reached in portrait. Toolbar menus use the window's height instead of scrolling after 360 points.

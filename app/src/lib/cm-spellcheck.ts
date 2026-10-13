@@ -28,6 +28,7 @@ import {
   ViewUpdate,
 } from '@codemirror/view';
 import type { DecorationSet } from '@codemirror/view';
+import { SPELL_DICT_CHANGED_EVENT } from './spell-suggest';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,7 +92,15 @@ export function spellcheckExtension(opts: SpellcheckOptions): Extension {
       private timer: ReturnType<typeof setTimeout> | null = null;
       private destroyed = false;
 
+      // A word added to the personal dictionary (#376) makes cached verdicts
+      // stale — drop them all and re-check what's on screen.
+      private onDictChanged = () => {
+        this.cache.clear();
+        this.schedule();
+      };
+
       constructor(private view: EditorView) {
+        window.addEventListener(SPELL_DICT_CHANGED_EVENT, this.onDictChanged);
         this.schedule();
       }
 
@@ -109,6 +118,7 @@ export function spellcheckExtension(opts: SpellcheckOptions): Extension {
 
       destroy() {
         this.destroyed = true;
+        window.removeEventListener(SPELL_DICT_CHANGED_EVENT, this.onDictChanged);
         if (this.timer) {
           clearTimeout(this.timer);
           this.timer = null;
@@ -128,7 +138,7 @@ export function spellcheckExtension(opts: SpellcheckOptions): Extension {
         if (!opts.enabled()) {
           if (this.decorations.size > 0) {
             this.decorations = Decoration.none;
-            this.view.requestMeasure();
+            this.redraw();
           }
           return;
         }
@@ -206,9 +216,21 @@ export function spellcheckExtension(opts: SpellcheckOptions): Extension {
           }
         }
         this.decorations = builder.finish();
-        // Trigger a redraw — `update()` itself doesn't run after we mutate
-        // outside its lifecycle, so we ask CM to re-measure.
-        this.view.requestMeasure();
+        this.redraw();
+      }
+
+      /** Make CodeMirror pick up `decorations` set outside its update cycle.
+       *  A measure request alone doesn't re-read plugin decorations, so the
+       *  underline only appeared on the next keystroke or click (and a word
+       *  just added to the dictionary stayed underlined, #376). An empty
+       *  transaction runs a normal update. */
+      private redraw() {
+        if (this.destroyed) return;
+        try {
+          this.view.dispatch({});
+        } catch {
+          this.view.requestMeasure();
+        }
       }
     },
     {

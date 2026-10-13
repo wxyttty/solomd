@@ -90,8 +90,12 @@ export function measureLineHeights(el: HTMLTextAreaElement, text: string): numbe
   }
 }
 
-/** Y offset (px, from content top) of the caret placed at `pos` in `text`. */
-function caretTopAt(mirror: HTMLDivElement, text: string, pos: number): number {
+/** X/Y offset (px, from content top-left) of the caret placed at `pos`. */
+function caretPointAt(
+  mirror: HTMLDivElement,
+  text: string,
+  pos: number,
+): { left: number; top: number } {
   mirror.textContent = '';
   const before = document.createElement('span');
   before.textContent = text.slice(0, pos);
@@ -100,7 +104,12 @@ function caretTopAt(mirror: HTMLDivElement, text: string, pos: number): number {
   const after = document.createElement('span');
   after.textContent = text.slice(pos);
   mirror.append(before, marker, after);
-  return marker.offsetTop;
+  return { left: marker.offsetLeft, top: marker.offsetTop };
+}
+
+/** Y offset (px, from content top) of the caret placed at `pos` in `text`. */
+function caretTopAt(mirror: HTMLDivElement, text: string, pos: number): number {
+  return caretPointAt(mirror, text, pos).top;
 }
 
 /**
@@ -115,6 +124,100 @@ export function caretTopPx(el: HTMLTextAreaElement, text: string, pos: number): 
   const mirror = createMirror(el);
   try {
     return caretTopAt(mirror, text, pos);
+  } finally {
+    mirror.remove();
+  }
+}
+
+export interface CaretPoint {
+  /** Px from the left edge of the text flow (padding excluded). */
+  left: number;
+  /** Px from the top of the text flow (padding and scroll excluded). */
+  top: number;
+  /** Row height at the caret — the drawn caret's height. */
+  height: number;
+}
+
+/**
+ * Where to draw a caret of our own. The native <textarea> caret always
+ * blinks — no CSS turns that off — so 实心光标 (#316) hides it and paints a
+ * non-blinking bar at these coordinates, the same 2px accent bar that
+ * CodeMirror's drawSelection() gives the other editor path.
+ *
+ * Callers add back the textarea's padding and subtract its scroll offsets.
+ * Pass the *current logical line* rather than the whole document when the
+ * textarea holds a large one: the mirror lays out every character it is
+ * given, and this runs on every keystroke.
+ */
+export function caretPointPx(el: HTMLTextAreaElement, text: string, pos: number): CaretPoint {
+  const mirror = createMirror(el);
+  const lh = lineHeightPx(el);
+  try {
+    const at = Math.max(0, Math.min(pos, text.length));
+    mirror.textContent = '';
+    const before = document.createElement('span');
+    before.textContent = text.slice(0, at);
+    const marker = document.createElement('span');
+    marker.textContent = '​';
+    const after = document.createElement('span');
+    after.textContent = text.slice(at);
+    mirror.append(before, marker, after);
+    // Rects, not offsetTop/offsetLeft: those are integers, and a caret that
+    // rounds is a caret that sits half a pixel off its own glyphs. The marker
+    // spans the *glyph* box, so lift it by the half-leading to get the top of
+    // the line box — where a full-line-height caret starts, same as the
+    // CodeMirror one.
+    const base = mirror.getBoundingClientRect();
+    const rect = marker.getBoundingClientRect();
+    return {
+      left: rect.left - base.left,
+      top: rect.top - base.top - Math.max(0, (lh - rect.height) / 2),
+      height: lh,
+    };
+  } finally {
+    mirror.remove();
+  }
+}
+
+export interface SelectionBoxPx {
+  /** All four in px from the top-left of the text flow (padding and scroll excluded). */
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * The bounding box of `text[from, to)` as the textarea lays it out — what the
+ * 5.0 selection bubble centres itself on (the textarea path has no
+ * coordsAtPos()). Callers add back the padding and subtract the scroll.
+ */
+export function selectionBoxPx(el: HTMLTextAreaElement, text: string, from: number, to: number): SelectionBoxPx {
+  const mirror = createMirror(el);
+  try {
+    const a = Math.max(0, Math.min(from, to, text.length));
+    const b = Math.max(a, Math.min(Math.max(from, to), text.length));
+    const before = document.createElement('span');
+    before.textContent = text.slice(0, a);
+    const mid = document.createElement('span');
+    mid.textContent = text.slice(a, b) || '​';
+    const after = document.createElement('span');
+    after.textContent = text.slice(b);
+    mirror.append(before, mid, after);
+    const base = mirror.getBoundingClientRect();
+    const rects = Array.from(mid.getClientRects()).filter((r) => r.width > 0 || r.height > 0);
+    if (!rects.length) rects.push(mid.getBoundingClientRect());
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const r of rects) {
+      left = Math.min(left, r.left);
+      right = Math.max(right, r.right);
+      top = Math.min(top, r.top);
+      bottom = Math.max(bottom, r.bottom);
+    }
+    return { left: left - base.left, top: top - base.top, right: right - base.left, bottom: bottom - base.top };
   } finally {
     mirror.remove();
   }
@@ -189,6 +292,43 @@ export function firstVisualRowEnd(el: HTMLTextAreaElement, text: string): number
       else hi = mid - 1;
     }
     return lo;
+  } finally {
+    mirror.remove();
+  }
+}
+
+/**
+ * The text offset under viewport point (x, y) inside `el` — what
+ * `caretRangeFromPoint` gives for ordinary text but not for a textarea
+ * (Chromium's `caretPositionFromPoint` answers the end of the value for every
+ * point). A transparent mirror is laid exactly over the textarea's content box
+ * for one hit test. Points outside the text clamp to its start / end.
+ */
+export function offsetAtPoint(el: HTMLTextAreaElement, text: string, x: number, y: number): number {
+  const rect = el.getBoundingClientRect();
+  if (y < rect.top) return 0;
+  if (y > rect.bottom) return text.length;
+  const cs = getComputedStyle(el);
+  const mirror = createMirror(el);
+  const left = rect.left + el.clientLeft + parseFloat(cs.paddingLeft || '0') - el.scrollLeft;
+  const top = rect.top + el.clientTop + parseFloat(cs.paddingTop || '0') - el.scrollTop;
+  Object.assign(mirror.style, {
+    position: 'fixed',
+    left: `${left}px`,
+    top: `${top}px`,
+    visibility: 'visible',
+    opacity: '0',
+    zIndex: '2147483647',
+    pointerEvents: 'auto',
+  });
+  const node = document.createTextNode(text + '​');
+  mirror.appendChild(node);
+  try {
+    const doc = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null };
+    const r = doc.caretRangeFromPoint?.(x, y) ?? null;
+    if (r && r.startContainer === node) return Math.min(r.startOffset, text.length);
+    // Beside the text (left of a row / past the last row): nearest end.
+    return y > top + mirror.getBoundingClientRect().height / 2 ? text.length : 0;
   } finally {
     mirror.remove();
   }

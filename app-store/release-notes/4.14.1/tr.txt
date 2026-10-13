@@ -1,0 +1,11 @@
+Tablo düzenleyici artık ileri doğru yazıyor. Bir hücreye yazılanlar tersten çıkıyordu — “abc” “cba” oluyordu — çünkü her tuş vuruşu hücreyi yeniden yazıp imleci başa gönderiyordu. Satır ve sütun eklerken, taşırken ya da silerken her hücrenin metni yerinde kalıyor.
+
+Bölünmüş paneller kapatılabiliyor. Bir sekmeyi düzenleyiciye sürüklemek aynı notun ikinci bir görünümünü açar; bu ek panelin görünür bir çıkışı yoktu ve yeniden başlatmadan sonra bile geri geliyordu. Artık birden fazla panel olduğunda her panelin kendi kapatma düğmesi var.
+
+Her açık dosya bir dokunuş uzakta. Sekmeler sığmadığında bir ⌄ düğmesi hepsini listeler; kaydedilmemiş olanlar işaretlidir.
+
+Dosya ağacı: yeni bir dosya ya da klasör, ağacın en üstünde değil, gerçekten görüneceği klasörün içinde adlandırılır. Uzun dosya adları sabit 30 karakter yerine kenar çubuğunun tüm genişliğini kullanır. Görsel eki klasörleri (_assets ve ad.assets), “Gizli dosyaları göster” kapalıyken gizlenir; böylece yanlışlıkla yeniden adlandırılmaz ya da taşınmazlar.
+
+Tablolar: kısa hücreler artık uzun bir sütunun yanında tek karakter genişliğinde bir sütuna sıkıştırılmıyor; uygulamada ve PDF, HTML, görsel dışa aktarımda.
+
+iPhone’da genişletilmiş araç çubuğu artık ekranın içinde alt satıra geçiyor; Ayarlar ve sondaki diğer düğmelere dikey konumda da ulaşılabiliyor. Menüler 360 noktadan sonra kaydırmak yerine pencere yüksekliğini kullanıyor.

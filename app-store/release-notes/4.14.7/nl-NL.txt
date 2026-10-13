@@ -1,0 +1,11 @@
+Kies elke map uit de Bestanden-app als werkmap: iCloud Drive, Op mijn iPhone of de map van een andere app. SoloMD onthoudt hem tussen sessies.
+
+De eigen map van SoloMD verschijnt nu in de Bestanden-app onder Op mijn iPhone › SoloMD.
+
+Notities die je vanuit Bestanden opent, bewerk je ter plekke: bewaren werkt het origineel bij in plaats van een kopie te maken.
+
+Bestanden hernoemen, verplaatsen en verwijderen in de bestandsboom: houd een bestand ingedrukt of tik op ⋯.
+
+Mappen die je vóór een update had geopend, gaan weer open in plaats van te melden dat ze verplaatst zijn.
+
+SoloMD uit de App Store verstuurt geen gebruiksgegevens en vraagt alleen met Apples eigen venster om een beoordeling.

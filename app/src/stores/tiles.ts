@@ -185,6 +185,10 @@ export const useTilesStore = defineStore('tiles', {
     },
 
     setFocusedPane(paneId: string) {
+      // A click that closed its own pane still bubbles to that pane's focus
+      // handler; focusing a pane that no longer exists would leave every
+      // later split/close aimed at nothing.
+      if (!findLeaf(this.root, paneId)) return;
       this.focusedPaneId = paneId;
       this.syncActiveTab();
     },

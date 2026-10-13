@@ -1,0 +1,9 @@
+Genummerde lijsten blijven op volgorde: voeg een item toe of verwijder er een, en de rest wordt opnieuw genummerd.
+
+Vet, cursief, doorgehaald en code over meerdere alinea's maken nu elke alinea apart op, in plaats van één paar markeringen dat als losse sterretjes zichtbaar bleef.
+
+Menu's: Zoeken en vervangen in het menu Bewerken, de zoomopdrachten in het submenu Weergave › Zoomen, en het menu Help toont het Markdown-spiekbriefje, de sneltoetsen en de opdrachtregel apart. Het menu Invoegen krijgt koppen 4–6.
+
+Links in notities openen altijd in je browser, nooit binnen SoloMD.
+
+Na een paar dagen gebruik vraagt SoloMD één keer — en maar één keer — of je het een ster op GitHub wilt geven.

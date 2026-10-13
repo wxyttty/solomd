@@ -19,10 +19,12 @@ import { useSettingsStore } from '../stores/settings';
 import { useToastsStore } from '../stores/toasts';
 import { useI18n } from '../i18n';
 import { usePandocExport } from '../composables/usePandocExport';
+import { useFiles } from '../composables/useFiles';
 
 const { t } = useI18n();
 const settings = useSettingsStore();
 const toasts = useToastsStore();
+const files = useFiles();
 const { invalidateCitationsCache } = usePandocExport();
 
 // Cast: parent must add these fields. Keeping the cast local so we don't
@@ -63,6 +65,7 @@ function applySetting(key: 'workspaceBibliography' | 'workspaceCsl', value: stri
 async function pickBibliography() {
   const path = await openFileDialog({
     multiple: false,
+    defaultPath: await files.filePickerStartDir(),
     filters: [
       { name: 'BibTeX / CSL-JSON', extensions: ['bib', 'json', 'cslj', 'csl-json'] },
     ],
@@ -77,6 +80,7 @@ async function pickBibliography() {
 async function pickCsl() {
   const path = await openFileDialog({
     multiple: false,
+    defaultPath: await files.filePickerStartDir(),
     filters: [{ name: 'CSL Style', extensions: ['csl', 'xml'] }],
   });
   if (path && typeof path === 'string') {

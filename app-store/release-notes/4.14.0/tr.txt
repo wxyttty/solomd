@@ -1,0 +1,17 @@
+Biçimlendirmenin artık klavye kısayolları var. Kalın, italik, üstü çizili, satır içi kod, bağlantı, başlık 1–6, alıntı, listeler ve kod bloğu — bir kez basınca uygulanır, tekrar basınca kaldırılır. Donanım klavyesiyle her yerde çalışır; klavye yoksa aynı komutlar Ekle menüsünün başında, her biri kendi tuşuyla yer alır. Kalın için ⌘B mi istiyorsunuz? Ayarlar → Kısayollar’daki yazar ön ayarı tek dokunuşla değiştirir.
+
+Bulunabilen kısayollar. F1 → Kısayollar gerçek, geçerli kısayollarınızı listeler; ada veya tuşa göre aranabilir. Tek başına bir [TOC] satırı içindekiler tablosuna dönüşür. Numaralı kod bloğundaki boş satırlar kendi satırını korur.
+
+Bir not artık kod çalıştıramaz. Markdown dosyasındaki satır içi HTML hiçbir filtreden geçmeden doğrudan uygulamada işleniyordu; başkasının notuna gizlenmiş bir betik editörün içinde çalışıyordu. İşlenen markdown artık göründüğü her yerde temizleniyor — önizleme, canlı düzenleme, slayt gösterisi ve tüm dışa aktarmalar. Sıradan satır içi HTML çalışmaya devam ediyor; betikler, olay işleyicileri ve javascript: bağlantıları çalışmıyor. Kendi yazmadığınız bir markdown açtıysanız, bu güncellemeyi alın.
+
+Metin PDF'i dışa aktarırken Mermaid diyagramları çiziliyor. Bu yol daha önce diyagramın kaynak kodunu basıyordu. Yazdırma, matematik stil dosyasını da artık ağdan çekmiyor; denklemler çevrimdışıyken de biçimini koruyor.
+
+Belge adı dar pencerelerde kaybolmuyor ve taşan araç çubuğu eski yüksekliğinin üçte biri kadar; ikinci satırın ortasındaki boşluk da yok.
+
+Bir tema seçip hiçbir şeyin değişmemesi artık açıklanıyor: açık ve koyu renkleri birlikte tanımlayan bir mağaza teması yerleşik geçişi eziyor; açılır menü artık o temanın adını veriyor ve tek tıkla kapatıyor.
+
+Uygulama daha hızlı açılıyor. Her şey ilk kareden önce derleniyordu: diyagram motoru, iki Çince sözlük, PDF ve Word dışa aktarımı, slayt gösterisi. Artık istendiğinde yükleniyorlar ve ilk çizim yaklaşık %30 daha hızlı.
+
+Başka bir düzenleyicide — ya da SoloMD kapalıyken — değişen bir dosya artık fark ediliyor: açılışta ve pencere her geri geldiğinde. Kaydedilmemiş düzenlemelerin üzerine asla yazılmaz.
+
+Sağ kenar çubuğu düğmesi her zaman bir şey yapıyor.

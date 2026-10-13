@@ -1,0 +1,11 @@
+Sort the file tree by name, creation date or modification date, or drag files into your own order. New files go at the end.
+
+Search in Settings: filter every settings page by name or description.
+
+Steadier editing: optionally keep Markdown markers visible so lines never jump as you move the cursor, and tint the current line. In preview, outline jumps land exactly on the heading, and the outline follows what you are reading.
+
+Russian is now an interface language, and the status bar is translated.
+
+Exports: the PDF table of contents gets a title and page numbers, and all exports use neutral colours.
+
+A new shortcut, ⌘⌥/, flips between live edit and edit only.

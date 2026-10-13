@@ -1,0 +1,11 @@
+Wybierz dowolny folder z aplikacji Pliki jako folder roboczy — iCloud Drive, Na moim iPhonie lub folder innej aplikacji. SoloMD zapamiętuje go między uruchomieniami.
+
+Własny folder SoloMD jest teraz widoczny w aplikacji Pliki w Na moim iPhonie › SoloMD.
+
+Notatki otwarte z aplikacji Pliki edytujesz na miejscu: zapisanie aktualizuje oryginał zamiast tworzyć kopię.
+
+Zmieniaj nazwy, przenoś i usuwaj pliki w drzewie plików: przytrzymaj plik lub stuknij ⋯.
+
+Foldery otwarte przed aktualizacją otwierają się ponownie, zamiast zgłaszać, że ich już nie ma.
+
+SoloMD z App Store nie wysyła danych o użytkowaniu i prosi o ocenę tylko systemowym oknem Apple.

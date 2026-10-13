@@ -78,6 +78,27 @@ export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$TOOLCHAIN/armv7a-linux-andr
 export CARGO_TARGET_I686_LINUX_ANDROID_LINKER="$TOOLCHAIN/i686-linux-android24-clang"
 export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TOOLCHAIN/x86_64-linux-android24-clang"
 
+# Android 15 uses 16 KB memory pages, and Play now REFUSES to save a release
+# whose native libraries are still aligned to 4 KB — for 4.12.0 it was an error
+# you could wave through, by 4.13.0 it greys out the Save button on the review
+# screen. The NDK's own prebuilts are fine; ours were not, because Rust links
+# `libapp_lib.so` itself and never passes the flag.
+#
+# These are env vars rather than `[target.*] rustflags` in .cargo/config.toml:
+# the Gradle plugin invokes cargo from a directory where that file is not on
+# the config search path, so the config version silently did nothing (verified
+# — the .so came out 0x1000 aligned anyway). The linker exports above already
+# take this route, so the flags travel with them.
+#
+# Verify after a build:
+#   llvm-readelf -l target/aarch64-linux-android/release/libapp_lib.so
+# every LOAD segment must read 0x4000.
+ANDROID_PAGE_FLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="$ANDROID_PAGE_FLAGS"
+export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_RUSTFLAGS="$ANDROID_PAGE_FLAGS"
+export CARGO_TARGET_I686_LINUX_ANDROID_RUSTFLAGS="$ANDROID_PAGE_FLAGS"
+export CARGO_TARGET_X86_64_LINUX_ANDROID_RUSTFLAGS="$ANDROID_PAGE_FLAGS"
+
 cd app
 
 echo "==> SoloMD Android build ($([ "$DEBUG" -eq 1 ] && echo debug || echo release))"
@@ -98,6 +119,65 @@ find "$OUT_DIR" -name "*.apk" -o -name "*.aab" 2>/dev/null | sort | while read -
   size=$(du -h "$f" | cut -f1)
   echo "    $size  $f"
 done
+
+# Signing is not something to take on trust. Gradle emits an unsigned release
+# artifact without a word when the keystore env is missing, and the first thing
+# that notices is the Play Console, after a 39 MB upload, with 「所有上传的软件包
+# 都必须签名」. Assert it here, on every release artifact, before anyone ships.
+if [ "$DEBUG" -eq 0 ]; then
+  unsigned=0
+  while read -r f; do
+    if ! python3 - "$f" <<'PYCHECK'
+import sys, zipfile, struct
+
+# An APK and an AAB are signed differently, and checking only one way reports a
+# perfectly good build as unsigned — which is exactly what this check did on its
+# first real run. An AAB carries a JAR signature (META-INF/*.RSA). An APK built
+# today carries APK Signature Scheme v2/v3, which is a block appended just
+# before the central directory and leaves NOTHING in META-INF. Accept either.
+path = sys.argv[1]
+
+with zipfile.ZipFile(path) as z:
+    jar_signed = any(
+        n.startswith("META-INF/") and n.upper().endswith((".RSA", ".EC", ".DSA"))
+        for n in z.namelist()
+    )
+
+def apk_sig_block(path):
+    """True if the APK Signing Block magic sits right before the central directory."""
+    with open(path, "rb") as fh:
+        fh.seek(0, 2)
+        size = fh.tell()
+        # Walk back over the End Of Central Directory record (22 bytes + comment).
+        window = min(size, 65535 + 22)
+        fh.seek(size - window)
+        tail = fh.read(window)
+        i = tail.rfind(b"PK\x05\x06")
+        if i < 0:
+            return False
+        cd_offset = struct.unpack_from("<I", tail, i + 16)[0]
+        if cd_offset < 16 or cd_offset > size:
+            return False
+        fh.seek(cd_offset - 16)
+        return fh.read(16) == b"APK Sig Block 42"
+
+sys.exit(0 if jar_signed or apk_sig_block(path) else 1)
+PYCHECK
+    then
+      echo "    UNSIGNED: $f" >&2
+      unsigned=1
+    fi
+  done < <(find "$OUT_DIR" \( -name "*.apk" -o -name "*.aab" \) 2>/dev/null | sort)
+  if [ "$unsigned" -ne 0 ]; then
+    echo "" >&2
+    echo "ERROR: release artifacts above carry no JAR signature. They cannot be" >&2
+    echo "       uploaded to Play and cannot update an installed sideload." >&2
+    echo "       Check that ANDROID_KEYSTORE_PATH / ANDROID_KEYSTORE_PASS /" >&2
+    echo "       ANDROID_KEY_ALIAS / ANDROID_KEY_PASS reached gradle." >&2
+    exit 1
+  fi
+  echo "    (all release artifacts carry a JAR signature)"
+fi
 
 if [ "$DEBUG" -eq 0 ]; then
   echo ""

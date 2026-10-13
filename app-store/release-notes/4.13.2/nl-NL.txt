@@ -1,0 +1,9 @@
+Een notitie kan geen code meer uitvoeren. Inline HTML in een markdownbestand werd zonder filter rechtstreeks in de app weergegeven, waardoor een script in andermans notitie binnen de editor draaide. Weergegeven markdown wordt nu overal opgeschoond — voorbeeld, live bewerken, presentatie en elke export. Gewone inline HTML werkt nog; scripts, event handlers en javascript:-links niet. Heb je markdown geopend die je niet zelf schreef, neem dan deze update.
+
+Mermaid-diagrammen worden weergegeven bij het exporteren naar een tekst-PDF. Die route drukte eerder de broncode van het diagram af. Afdrukken haalt zijn wiskundestylesheet ook niet meer van het netwerk, dus formules behouden offline hun opmaak.
+
+De documentnaam verdwijnt niet meer in smalle vensters, en de uitgeklapte werkbalk is een derde van de vorige hoogte, zonder gat midden in de tweede rij.
+
+Een thema kiezen waarbij niets verandert, wordt nu uitgelegd: een marketplace-thema dat zowel lichte als donkere kleuren vastlegt, overschrijft de ingebouwde schakelaar — die noemt nu het thema en zet het met één klik uit.
+
+De app start sneller. Alles werd vóór het eerste beeld gecompileerd: de diagramrenderer, beide Chinese woordenboeken, de PDF- en Word-export, de presentatie. Ze laden nu wanneer iets erom vraagt en het eerste beeld verschijnt ongeveer 30% eerder.

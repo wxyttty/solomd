@@ -1,0 +1,9 @@
+« Ouvrir avec l’app par défaut » fonctionne de nouveau. Une règle d’autorisation mal placée bloquait toute ouverture avec une autre app : bouton de la barre, PDF et fichiers Office liés, dossier des dictionnaires. Tout document s’ouvre désormais ; les programmes et scripts restent refusés.
+
+Les PDF imprimés contiennent toutes les pages. Le PDF texte s’arrêtait après la première ; les longs tableaux répètent leur en-tête. Le PDF image ne coupe plus de ligne ni de rangée de tableau.
+
+Le HTML exporté est autonome : diagrammes Mermaid, polices mathématiques et images locales intégrés, sans attendre de téléchargement. L’export Word inclut les diagrammes Mermaid en images.
+
+Arborescence : confirmation avant suppression (toujours vers la Corbeille), icônes de dossier et guides d’indentation, la sélection surlignée décide où créer un fichier, double-clic optionnel pour les dossiers, nouveau raccourci pour une note dans le dossier sélectionné, « Afficher dans l’arborescence » défile jusqu’au fichier.
+
+Et aussi : Échap ferme la visionneuse d’images, ``` propose des langages.

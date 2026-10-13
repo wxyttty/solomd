@@ -98,14 +98,9 @@ const ogImage = lang === 'zh' ? 'https://solomd.app/og-image-zh.png' : 'https://
 
     <link rel="icon" href="/favicon.svg?v=4.11.4" type="image/svg+xml" />
 
-    <!-- Marketing-site display serif. Source Serif 4 by Adobe, OFL — used
-         only on /landing and /blog headings; the desktop app does not
-         load any external font. preconnect keeps the round-trips off
-         the critical path. font-display: swap means the page renders
-         immediately in system serif if the network is slow. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" />
+    <!-- 5.0: no web font. Headings use the system display face, as the app
+         does (styles/global.css --font-serif), so nothing waits on a font
+         file — which also mattered for visitors who cannot reach a CDN. -->
 
     <!-- Sitemap discovery hint -->
     <link rel="sitemap" type="application/xml" href="/sitemap-index.xml" />
@@ -142,9 +137,9 @@ const ogImage = lang === 'zh' ? 'https://solomd.app/og-image-zh.png' : 'https://
       "applicationCategory": "ProductivityApplication",
       "applicationSubCategory": "Markdown Editor",
       "operatingSystem": "macOS, Windows, Linux, Android, iOS",
-      "softwareVersion": "4.12.1",
+      "softwareVersion": "5.0.0",
       "datePublished": "2026-05-17",
-      "dateModified": "2026-08-29",
+      "dateModified": "2026-10-12",
       "releaseNotes": "https://solomd.app/whats-new/",
       "fileSize": "15MB",
       "url": "https://solomd.app",
@@ -191,7 +186,7 @@ const ogImage = lang === 'zh' ? 'https://solomd.app/og-image-zh.png' : 'https://
         "Chinese-first: CJK word count, Simplified ↔ Traditional, pinyin export",
         "Multi-window + tabs + file tree + ripgrep global search",
         "Command palette (Cmd+Shift+K)",
-        "Zero telemetry by default",
+        "Notes stay on your device; anonymous usage stats can be turned off",
         "Offline-first: no accounts, no cloud lock-in",
       ],
       "inLanguage": ["en", "zh-CN", "ja", "ko", "de", "fr", "es", "pt", "it", "pl", "nl", "tr", "sv", "uk"],
@@ -218,22 +213,22 @@ const ogImage = lang === 'zh' ? 'https://solomd.app/og-image-zh.png' : 'https://
           "@type": "HowToStep",
           "position": 2,
           "name": "Windows — one-line install",
-          "text": "Open PowerShell and run: irm https://solomd.app/install.ps1 | iex. Downloads SoloMD_4.12.1_x64_en-US.msi from GitHub Releases and runs the installer.",
+          "text": "Open PowerShell and run: irm https://solomd.app/install.ps1 | iex. Downloads SoloMD_5.0.0_x64_en-US.msi from GitHub Releases and runs the installer.",
           "url": "https://solomd.app/install.ps1",
         },
         {
           "@type": "HowToStep",
           "position": 3,
-          "name": "Android — sideload or Play Store",
-          "text": "Download SoloMD_4.12.1_universal.apk from https://github.com/zhitongblog/solomd/releases/latest and tap to install (Settings → enable Install from Unknown Sources). Or join the Play Store beta: join the group at groups.google.com/g/solomd-android-testers, then opt in at play.google.com/apps/testing/app.solomd.",
-          "url": "https://github.com/zhitongblog/solomd/releases/latest",
+          "name": "Android — Google Play or sideload",
+          "text": "Install SoloMD from Google Play (https://play.google.com/store/apps/details?id=app.solomd), or download SoloMD_5.0.0_universal.apk from https://github.com/zhitongblog/solomd/releases/latest and tap to install (allow installs from unknown sources).",
+          "url": "https://play.google.com/store/apps/details?id=app.solomd",
         },
         {
           "@type": "HowToStep",
           "position": 4,
-          "name": "iOS — App Store",
-          "text": "Search 'SoloMD' on the App Store and tap Install. iOS 15+ required.",
-          "url": "https://apps.apple.com/app/solomd",
+          "name": "iOS, iPadOS and Mac — App Store",
+          "text": "Install SoloMD from the App Store (iPhone and iPad need iOS 15+; the same listing serves the Mac).",
+          "url": "https://apps.apple.com/app/id6762498874",
         },
       ],
     })} />
@@ -247,5 +242,58 @@ const ogImage = lang === 'zh' ? 'https://solomd.app/og-image-zh.png' : 'https://
          whole header in one Tab. Visually hidden until focused. -->
     <a class="skip-link" href="#main">{lang === 'zh' ? '跳到主要内容' : 'Skip to main content'}</a>
     <slot />
-  </body>
+      <!-- Promoter referral codes (solomd.app/?ref=<code>, see /promote). Does
+         nothing for a visit without a code. With one: the code is kept for 30
+         days so a later download counts too, and two events go to /api/track —
+         ref_visit and ref_download — carrying only the code, the page path and
+         a random per-browser id. No IP, user agent or cookie is stored. -->
+    <script is:inline>
+      (function () {
+        var KEY = 'solomd.ref', ANON = 'solomd.anon', WINDOW = 30 * 24 * 3600 * 1000;
+        var CODE = /^[a-z0-9-]{1,40}$/;
+        function get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+        function set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+        function anon() {
+          var id = get(ANON);
+          if (!id && window.crypto && crypto.randomUUID) { id = crypto.randomUUID(); set(ANON, id); }
+          return id;
+        }
+        function send(event, props) {
+          var id = anon();
+          if (!id) return;
+          var body = JSON.stringify({ event: event, anon_id: id, os: 'web', props: props });
+          try {
+            if (navigator.sendBeacon) navigator.sendBeacon('/api/track', new Blob([body], { type: 'application/json' }));
+            else fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true });
+          } catch (e) {}
+        }
+        var url;
+        try { url = new URL(location.href); } catch (e) { return; }
+        var fresh = (url.searchParams.get('ref') || '').trim().toLowerCase();
+        if (CODE.test(fresh)) {
+          set(KEY, JSON.stringify({ ref: fresh, at: Date.now() }));
+          send('ref_visit', { ref: fresh, path: location.pathname });
+          // Keep shared URLs clean: drop the code from the address bar.
+          url.searchParams.delete('ref');
+          try { history.replaceState(null, '', url.pathname + url.search + url.hash); } catch (e) {}
+        }
+        function current() {
+          try {
+            var v = JSON.parse(get(KEY) || 'null');
+            return v && CODE.test(v.ref) && Date.now() - v.at < WINDOW ? v.ref : null;
+          } catch (e) { return null; }
+        }
+        var DOWNLOAD = /\/releases\/download\/|apps\.apple\.com|play\.google\.com\/store|apps\.microsoft\.com|gitee\.com\/[^/]+\/solomd\/releases/;
+        document.addEventListener('click', function (e) {
+          var ref = current();
+          if (!ref || !e.target || !e.target.closest) return;
+          var a = e.target.closest('a[href]');
+          var copy = e.target.closest('.hi-copy');
+          if ((a && DOWNLOAD.test(a.href)) || copy) {
+            send('ref_download', { ref: ref, kind: copy ? 'install-command' : a.hostname });
+          }
+        }, true);
+      })();
+    </script>
+</body>
 </html>

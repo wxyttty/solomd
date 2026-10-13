@@ -1,0 +1,17 @@
+Formatting has keyboard shortcuts. Bold, italic, strikethrough, inline code, link, headings 1–6, quote, lists and code block — press once on a selection to apply, again to remove. With a hardware keyboard they work everywhere; without one, the same commands lead the Insert menu, each with its key beside it. Prefer ⌘B for bold? The Writer preset in Settings → Shortcuts swaps it in with one tap.
+
+Shortcuts you can find. F1 → Shortcuts now lists your real, current bindings and can be searched by name or by key. A standalone [TOC] line expands into a table of contents. Blank lines in a numbered code block keep their own row.
+
+A note can no longer run code. Inline HTML in a markdown file was rendered straight into the app with nothing filtering it, so a script hidden in someone else's note ran inside the editor. Rendered markdown is now sanitised everywhere it appears — preview, live edit, slideshow and every export. Ordinary inline HTML still works; scripts, event handlers and javascript: links do not. If you have opened markdown you did not write, this is the update to take.
+
+Mermaid diagrams render when exporting a text PDF. The text path used to print the diagram's source instead of the picture. Printing also stopped fetching its maths stylesheet from the network, so equations keep their styling offline.
+
+The document name no longer disappears on a narrow window, and the overflow toolbar is a third of the height it was, with no gap in the middle of the second row.
+
+Choosing a theme that appears to do nothing now explains itself: an installed marketplace theme that defines both light and dark colours overrides the built-in dropdown, which now names it and offers one click to turn it off.
+
+The app starts faster. Everything used to be compiled before the first frame — the diagram renderer, both Chinese dictionaries, the PDF and Word exporters, the slideshow. They now load when something asks for them, and first paint is about 30% quicker.
+
+A file changed by another editor — or while SoloMD was closed — is noticed now, on launch and whenever the window comes back. Unsaved edits are never overwritten.
+
+The button that shows and hides the right sidebar always does something. It used to flip a flag that changed nothing whenever every panel in the strip was switched off.

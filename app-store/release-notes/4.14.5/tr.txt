@@ -1,0 +1,11 @@
+Mac’te “PDF (metin) olarak dışa aktar” artık doğrudan bir dosyaya kaydediyor: yazdırma penceresi ve yazıcı gerekmiyor.
+
+Word dışa aktarımı web görselleri ve cümle, tablo ya da liste içindeki görseller dahil tüm görselleri koruyor. PlantUML diyagramları Word ve PDF’te görünüyor, görsel PDF web görsellerini koruyor.
+
+Metin PDF: formüllerdeki integral işaretleri doğru basılıyor, kod artık soluk çıkmıyor.
+
+Ayar araması sonuçlar arasında geziniyor ve boş kategorileri gizliyor. Dosya ağacında ⌘⌫ siler, F2 yeniden adlandırır, sürükleme bırakınca ne olacağını gösterir.
+
+Kaydedilmemiş değişiklikler penceresi ⌘S, ⌘D ve Esc’ye yanıt veriyor. ⌘1 boş ilk satırda da çalışıyor.
+
+Bölünmüş görünümde eşitleme kapatılabiliyor; önizleme o zaman kaydedince yenileniyor. A4 seçilince PDF içindekiler sayfasında sayfa numaraları çıkıyor.

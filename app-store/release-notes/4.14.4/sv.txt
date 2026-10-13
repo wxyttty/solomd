@@ -1,0 +1,11 @@
+Sortera filträdet efter namn, skapat- eller ändringsdatum, eller dra filerna i egen ordning; nya filer hamnar sist.
+
+Sök i inställningarna på namn och beskrivning.
+
+Lugnare redigering: alternativ att alltid visa Markdown-tecken så att inga rader hoppar, och att markera aktuell rad. I förhandsgranskningen landar hopp från dispositionen exakt på rubriken.
+
+Ryska är nu ett gränssnittsspråk och statusfältet är översatt.
+
+Export: PDF-innehållsförteckning med rubrik och sidnummer, neutrala färger.
+
+Nytt kortkommando ⌘⌥/ växlar mellan liveredigering och endast redigering.

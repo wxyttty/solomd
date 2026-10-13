@@ -1,0 +1,11 @@
+”Exportera som PDF (text)” sparar nu direkt till en fil på Mac: ingen utskriftsdialog och ingen skrivare behövs.
+
+Word-exporten behåller alla bilder, även webbilder och bilder i en mening, tabell eller lista. PlantUML-diagram syns i Word och PDF, och bild-PDF:en behåller webbilder.
+
+Text-PDF: integraltecken i formler skrivs ut korrekt och kod blir inte längre blek.
+
+Sökningen i inställningar stegar mellan träffar och döljer tomma kategorier. I filträdet tar ⌘⌫ bort, F2 byter namn och dragning visar vad släppet gör.
+
+Dialogen för osparade ändringar svarar på ⌘S, ⌘D och Esc. ⌘1 fungerar på en tom första rad.
+
+Delad vy kan sluta synkronisera; förhandsvisningen uppdateras då när du sparar. Väljer du A4 får PDF:ens innehållsförteckning sidnummer.

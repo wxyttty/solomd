@@ -1,0 +1,9 @@
+Déplacez fichiers et dossiers sans quitter l'application. Faites glisser une note sur un dossier, ou choisissez « Déplacer vers… » et tapez quelques lettres pour trouver la destination. Le déplacement est annulable, les onglets ouverts suivent le fichier, et les liens relatifs de la note déplacée sont réancrés pour que ses images continuent de fonctionner.
+
+Afficher les fichiers masqués. Les fichiers et dossiers commençant par un point étaient hors d'atteinte depuis l'application ; un nouveau réglage les affiche, désactivé par défaut.
+
+Filtrer l'arborescence par type de fichier. La liste propose les extensions que votre coffre contient réellement, avec leur nombre, et les dossiers sans correspondance disparaissent avec elles. Un bandeau nomme le filtre actif pour qu'il ne ressemble jamais à des fichiers manquants.
+
+Distinguer l'éditeur de l'aperçu en vue divisée. Une teinte propre facultative pour l'aperçu, dérivée de votre thème, pour que la division ne se lise plus comme une seule colonne.
+
+Une fenêtre trop étroite ne rogne plus la barre d'outils en silence. En cas de débordement, un bouton déplie toute la barre sur deux ou trois lignes légendées.

@@ -1,0 +1,17 @@
+La formattazione ha le scorciatoie. Grassetto, corsivo, barrato, codice in linea, link, titoli 1–6, citazione, elenchi e blocco di codice: una pressione applica, un’altra rimuove. Con una tastiera fisica funzionano ovunque; senza, gli stessi comandi aprono il menu Inserisci, ciascuno con il suo tasto. Preferisci ⌘B per il grassetto? La preimpostazione scrittura in Impostazioni → Scorciatoie lo scambia con un tocco.
+
+Scorciatoie che si trovano. F1 → Scorciatoie mostra le tue scorciatoie reali e si può cercare per nome o per tasto. Una riga [TOC] da sola diventa un indice. Le righe vuote in un blocco di codice numerato mantengono la propria riga.
+
+Una nota non può più eseguire codice. L'HTML inline di un file markdown veniva reso direttamente nell'app, senza alcun filtro: uno script nascosto nella nota di qualcun altro girava dentro l'editor. Il markdown reso viene ora sanificato ovunque compaia — anteprima, modifica live, presentazione e tutte le esportazioni. L'HTML inline normale continua a funzionare; script, gestori di eventi e link javascript: no. Se hai aperto markdown che non hai scritto tu, è l'aggiornamento da installare.
+
+I diagrammi Mermaid vengono resi quando esporti un PDF testuale. Prima quel percorso stampava il sorgente del diagramma. La stampa non scarica più il foglio di stile matematico dalla rete, così le equazioni mantengono la formattazione offline.
+
+Il nome del documento non sparisce più nelle finestre strette e la barra degli strumenti espansa è alta un terzo di prima, senza vuoto in mezzo alla seconda riga.
+
+Scegliere un tema e non vedere alcun cambiamento ora viene spiegato: un tema del marketplace che definisce insieme i colori chiari e scuri ha la meglio sul selettore integrato, che adesso lo nomina e lo disattiva con un clic.
+
+L'app si avvia più in fretta. Prima veniva compilato tutto prima del primo fotogramma: il motore dei diagrammi, entrambi i dizionari cinesi, le esportazioni PDF e Word, la presentazione. Ora si caricano quando servono e il primo disegno è circa il 30% più rapido.
+
+Un file modificato in un altro editor — o mentre SoloMD era chiuso — viene ora rilevato, all'avvio e ogni volta che la finestra torna in primo piano. Le modifiche non salvate non vengono mai sovrascritte.
+
+Il pulsante della barra laterale destra fa sempre qualcosa.

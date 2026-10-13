@@ -10,6 +10,10 @@
  */
 import { ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { useI18n } from '../i18n';
+import Icon from './Icons.vue';
+
+const { t } = useI18n();
 
 const props = defineProps<{ open: boolean; start?: string }>();
 const emit = defineEmits<{
@@ -60,7 +64,10 @@ watch(
   },
 );
 
-// Show the path below the root as a friendly breadcrumb.
+// Show the path below the root as a friendly breadcrumb. The root label is
+// kept in English as the literal device path's stand-in — "Internal storage"
+// is what the OS itself calls it, and a translated root that doesn't match the
+// real path would be more confusing than helpful.
 function shortCwd(): string {
   return cwd.value === ROOT ? 'Internal storage' : cwd.value.replace(ROOT, 'Internal storage');
 }
@@ -70,36 +77,37 @@ function shortCwd(): string {
   <div v-if="open" class="afp-backdrop" @click.self="emit('close')">
     <div class="afp">
       <div class="afp__head">
-        <span class="afp__title">Choose a folder</span>
+        <span class="afp__title">{{ t('folderPicker.title') }}</span>
         <button class="afp__x" @click="emit('close')">✕</button>
       </div>
       <div class="afp__crumb">
-        <button class="afp__up" :disabled="cwd === ROOT" @click="up">↑ Up</button>
+        <button class="afp__up" :disabled="cwd === ROOT" @click="up">↑ {{ t('folderPicker.up') }}</button>
         <span class="afp__path" :title="cwd">{{ shortCwd() }}</span>
       </div>
       <div class="afp__list">
-        <div v-if="loading" class="afp__msg">Loading…</div>
+        <div v-if="loading" class="afp__msg">{{ t('folderPicker.loading') }}</div>
         <div v-else-if="permDenied" class="afp__msg afp__perm">
-          <p>需要「所有文件访问」权限才能浏览手机里的文件夹。</p>
+          <p>{{ t('folderPicker.permNeeded') }}</p>
           <button class="afp__btn afp__btn--primary" @click="emit('request-permission')">
-            去开启权限
+            {{ t('folderPicker.permGrant') }}
           </button>
         </div>
         <div v-else-if="error" class="afp__msg afp__msg--err">{{ error }}</div>
-        <div v-else-if="!dirs.length" class="afp__msg">No sub-folders here.</div>
+        <div v-else-if="!dirs.length" class="afp__msg">{{ t('folderPicker.empty') }}</div>
         <button
           v-for="d in dirs"
           :key="d.path"
           class="afp__item"
           @click="load(d.path)"
         >
-          📁 {{ d.name }}
+          <Icon name="folder-sm" :size="18" class="afp__icon" />
+          <span>{{ d.name }}</span>
         </button>
       </div>
       <div class="afp__foot">
-        <button class="afp__btn" @click="emit('close')">Cancel</button>
+        <button class="afp__btn" @click="emit('close')">{{ t('folderPicker.cancel') }}</button>
         <button class="afp__btn afp__btn--primary" @click="emit('pick', cwd)">
-          Use this folder
+          {{ t('folderPicker.use') }}
         </button>
       </div>
     </div>
@@ -155,8 +163,14 @@ function shortCwd(): string {
 .afp__up:disabled { opacity: 0.4; cursor: default; }
 .afp__path { font-size: 13px; color: var(--text-muted, #666); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .afp__list { overflow-y: auto; flex: 1; padding: 6px 0; }
+.afp__icon {
+  color: var(--text-3);
+  flex: none;
+}
 .afp__item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   text-align: left;
   border: none;

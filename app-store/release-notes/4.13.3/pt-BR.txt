@@ -1,0 +1,13 @@
+Uma nota não pode mais executar código. O HTML embutido em um arquivo markdown era renderizado direto no aplicativo, sem nenhum filtro, então um script escondido na nota de outra pessoa rodava dentro do editor. O markdown renderizado agora é higienizado em todos os lugares — visualização, edição ao vivo, apresentação e todas as exportações. HTML embutido comum continua funcionando; scripts, manipuladores de eventos e links javascript: não. Se você já abriu markdown que não escreveu, esta é a atualização a instalar.
+
+Diagramas Mermaid são renderizados ao exportar um PDF de texto. Antes esse caminho imprimia o código-fonte do diagrama. A impressão também deixou de buscar sua folha de estilos matemática na rede, então as equações mantêm a formatação offline.
+
+O nome do documento não desaparece mais em janelas estreitas, e a barra de ferramentas expandida tem um terço da altura anterior, sem vão no meio da segunda linha.
+
+Escolher um tema e nada mudar agora se explica: um tema do marketplace que define cores claras e escuras ao mesmo tempo sobrepõe o seletor embutido, que agora nomeia esse tema e o desliga com um clique.
+
+O aplicativo inicia mais rápido. Tudo era compilado antes do primeiro quadro — o renderizador de diagramas, os dois dicionários chineses, as exportações para PDF e Word, a apresentação. Agora carregam quando algo os pede, e a primeira pintura é cerca de 30% mais rápida.
+
+Um arquivo alterado em outro editor — ou enquanto o SoloMD estava fechado — agora é detectado, ao iniciar e sempre que a janela volta. Alterações não salvas nunca são sobrescritas.
+
+O botão da barra lateral direita sempre faz algo.

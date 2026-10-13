@@ -1,0 +1,17 @@
+Formatering har kortkommandon. Fet, kursiv, genomstruken, infogad kod, länk, rubrik 1–6, citat, listor och kodblock – ett tryck lägger till, ett till tar bort. Med ett fysiskt tangentbord fungerar de överallt; utan ligger samma kommandon överst i menyn Infoga, vart och ett med sin tangent. Föredrar du ⌘B för fetstil? Skrivförvalet i Inställningar → Kortkommandon byter med ett tryck.
+
+Kortkommandon som går att hitta. F1 → Kortkommandon visar dina faktiska kortkommandon och går att söka i efter namn eller tangent. En ensam rad [TOC] blir en innehållsförteckning. Tomma rader i ett numrerat kodblock behåller sin egen rad.
+
+En anteckning kan inte längre köra kod. Inline-HTML i en markdownfil renderades rakt in i appen utan något filter, så ett skript gömt i någon annans anteckning kördes inne i redigeraren. Renderad markdown saneras nu överallt — förhandsvisning, liveredigering, bildspel och varje export. Vanlig inline-HTML fungerar fortfarande; skript, händelsehanterare och javascript:-länkar gör det inte. Har du öppnat markdown som du inte skrivit själv är det här uppdateringen att ta.
+
+Mermaid-diagram renderas vid export till text-PDF. Tidigare skrev den vägen ut diagrammets källkod. Utskrift hämtar inte längre sitt matematikstilmall från nätet, så ekvationer behåller sin formatering offline.
+
+Dokumentnamnet försvinner inte längre i smala fönster, och den utfällda verktygsraden är en tredjedel så hög som förut, utan lucka mitt i andra raden.
+
+Att välja ett tema utan att något händer förklaras nu: ett marketplace-tema som definierar både ljusa och mörka färger åsidosätter den inbyggda växlingen — som nu namnger temat och stänger av det med ett klick.
+
+Appen startar snabbare. Allt kompilerades före första bilden: diagrammotorn, båda kinesiska ordböckerna, PDF- och Word-exporten, bildspelet. Nu laddas de när något efterfrågar dem, och första ritningen är omkring 30 % snabbare.
+
+En fil som ändrats i en annan redigerare — även medan SoloMD var stängt — upptäcks nu, vid start och varje gång fönstret kommer tillbaka. Osparade ändringar skrivs aldrig över.
+
+Knappen för högerpanelen gör alltid något.

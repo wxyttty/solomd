@@ -1,0 +1,9 @@
+Wklejone obrazy wyświetlają się nawet wtedy, gdy ścieżka folderu zawiera spację. Takie ścieżki psuły link do obrazu; starsze notatki z takimi linkami wyświetlają się teraz w podglądzie i eksporcie.
+
+Drzewo plików podąża za bieżącym plikiem: zmiana notatki rozwija foldery nadrzędne i zaznacza plik (można wyłączyć).
+
+Eksport: samodzielny HTML na białym papierze; PDF tekstowy może zaczynać się od spisu treści (Ustawienia → PDF).
+
+Spokojniejszy ekran: ukryj przyciski paska skrótem ⌘⌥⇧T; przycisk AI pojawia się dopiero po włączeniu AI; motywy społeczności działają w pełni.
+
+Ekran „O aplikacji” dziękuje teraz sponsorom projektu.

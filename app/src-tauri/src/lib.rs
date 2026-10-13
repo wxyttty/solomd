@@ -1,4 +1,7 @@
 pub mod app_build;
+// App Store builds ask for a rating with Apple's own sheet (iOS starts here).
+pub mod store_review;
+pub mod ios_folder;
 pub mod commands;
 // Image-bed (图床) upload: PicGo / shell command / sm.ms / S3-compatible / GitHub.
 pub mod image_upload;
@@ -24,6 +27,9 @@ pub mod rag;
 // v2.4 inbound HTTP capture endpoint — production-grade, opt-in via Settings.
 pub mod capture_endpoint;
 pub mod quick_capture;
+// Window-label classification for the close / quit / relaunch lifecycle in
+// runner.rs; declared here too so `cargo test --lib` covers it.
+pub mod window_labels;
 // v4.0 — public REST API mirroring the agent_tools surface for non-MCP
 // clients (Alfred / Raycast / n8n / shell scripts). Localhost-only,
 // bearer-token auth, opt-in via Settings → Integrations. Same wire shape
@@ -98,9 +104,13 @@ pub mod cookbook;
 // v2.3 dev WebDriver bridge — debug builds only.
 #[cfg(debug_assertions)]
 pub mod dev_bridge;
+pub mod portable;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before any webview exists: moves WebView2 data next to the exe when a
+    // portable `data` folder is present (#295). No-op everywhere else.
+    portable::init();
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -135,11 +145,21 @@ pub fn run() {
     let builder = builder.manage(watcher::WatcherState::new());
     #[cfg(not(target_os = "android"))]
     let builder = builder.manage(recipe_runner::RecipesState::new());
-    builder
+    let app = builder
         .setup(|app| {
             #[cfg(debug_assertions)]
             {
                 dev_bridge::spawn(app.handle().clone());
+            }
+            // iOS: reopen the security scope of the folder picked last time
+            // before the UI lists it — without it the first read fails. And
+            // catch documents opened in place from the Files app before tao
+            // drops their security scope (setup runs inside
+            // didFinishLaunching, ahead of a cold launch's open-URL call).
+            #[cfg(target_os = "ios")]
+            {
+                let _ = ios_folder::ios_restore_folder(app.handle().clone());
+                ios_folder::hook_open_url();
             }
             // Show the window only after first paint to suppress the
             // position-jump flicker on Windows (issue #60). The window
@@ -170,11 +190,17 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_build::app_build_info,
+            store_review::request_store_review,
+            ios_folder::ios_pick_folder,
+            ios_folder::ios_restore_folder,
+            ios_folder::ios_scoped_files,
             commands::read_file,
             commands::read_binary_file,
+            commands::fetch_image_bytes,
             commands::write_file,
             commands::write_binary_file,
             commands::print_webview,
+            commands::print_webview_to_pdf,
             commands::copy_file,
             storage_android::android_has_all_files_access,
             storage_android::android_request_all_files_access,
@@ -196,6 +222,7 @@ pub fn run() {
             commands::fs_create_dir,
             commands::fs_delete,
             commands::fs_dir_exists,
+            commands::webview_runtime_version,
             commands::fs_rename,
             commands::fs_move,
             commands::fs_list_dirs,
@@ -388,6 +415,12 @@ pub fn run() {
             commands::update_frontmatter_property,
             commands::delete_frontmatter_property,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+    // iOS: TaoSceneDelegate exists now (build created the event loop) and the
+    // first scene connects inside App::run — so this is the only window to
+    // wrap its open-URL handling (see ios_folder::hook_scene_delegate).
+    #[cfg(target_os = "ios")]
+    ios_folder::hook_scene_delegate();
+    app.run(|_, _| {});
 }

@@ -122,6 +122,11 @@ jobs:
           releaseBody: |
             ## SoloMD ${{ github.ref_name }}
 
+            > ⭐ **Like SoloMD? [Star it on GitHub](https://github.com/zhitongblog/solomd)** — it's free, made by one developer, and stars are how other people find it.
+            > 觉得好用？请[去 GitHub 点个 Star](https://github.com/zhitongblog/solomd) —— 免费开源、一个人维护，Star 能让更多人发现它。
+            >
+            > 📣 Wrote about SoloMD or recommended it? [Get listed as a promoter](https://solomd.app/promote) · 写过、推荐过 SoloMD？[登记成为推广者](https://solomd.app/zh/promote)
+
             ### What's new / 更新内容
 
             https://solomd.app/whats-new · [中文](https://solomd.app/zh/whats-new)
@@ -330,7 +335,14 @@ jobs:
           SoloMD ${version} — portable build (${arch})
 
           Just run SoloMD.exe. No installation required.
-          Settings + recents are stored in %APPDATA%\app.solomd as usual.
+
+          Settings are stored in your Windows profile by default. To keep them
+          next to SoloMD.exe instead (so copying this folder to another PC
+          carries them along), create an empty folder named "data" here, next
+          to SoloMD.exe, before starting it. On the first start with "data",
+          SoloMD copies your existing settings into it. API keys stay in
+          Windows Credential Manager and must be entered again on a new PC.
+          (Scoop users: don't create "data" — Scoop manages this folder.)
 
           Requires Microsoft Edge WebView2 (preinstalled on Windows 10/11).
           If launch fails with a WebView2 missing error, install from

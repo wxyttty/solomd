@@ -1,0 +1,11 @@
+Dateibaum sortieren nach Name, Erstellungs- oder Änderungsdatum, oder per Drag in eigene Reihenfolge; neue Dateien kommen ans Ende.
+
+Suche in den Einstellungen nach Name und Beschreibung.
+
+Ruhigeres Bearbeiten: Markdown-Zeichen optional sichtbar lassen, damit keine Zeile springt, und die aktuelle Zeile hervorheben. Gliederungssprünge in der Vorschau landen genau auf der Überschrift.
+
+Russisch ist jetzt Oberflächensprache; die Statusleiste ist übersetzt.
+
+Export: PDF-Inhaltsverzeichnis mit Titel und Seitenzahlen, neutrale Farben.
+
+Neues Tastenkürzel ⌘⌥/ wechselt zwischen Live-Bearbeitung und Nur-Bearbeiten.

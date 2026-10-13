@@ -1,0 +1,9 @@
+Gli elenchi numerati restano in ordine: aggiungi o elimina una voce e le altre si rinumerano da sole.
+
+Grassetto, corsivo, barrato e codice su più paragrafi ora formattano ogni paragrafo separatamente, invece di un'unica coppia di marcatori che appariva come asterischi.
+
+Menu: Trova e sostituisci nel menu Modifica, i comandi di zoom nel sottomenu Vista › Zoom, e il menu Aiuto elenca separatamente la guida rapida Markdown, le scorciatoie da tastiera e la riga di comando. Il menu Inserisci aggiunge i titoli 4–6.
+
+I link nelle note si aprono sempre nel browser, mai dentro SoloMD.
+
+Dopo qualche giorno di utilizzo, SoloMD chiede una volta — una sola — se vuoi mettergli una stella su GitHub.

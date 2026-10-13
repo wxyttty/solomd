@@ -45,6 +45,14 @@ echo "==> SoloMD v${VERSION} — local Mac build with file-icon injection"
 echo "==> Installing frontend deps"
 pnpm install --frozen-lockfile
 
+echo "==> Building a matching universal MCP sidecar"
+../scripts/build-mcp-sidecar.sh aarch64-apple-darwin
+../scripts/build-mcp-sidecar.sh x86_64-apple-darwin
+lipo -create \
+  src-tauri/binaries/solomd-mcp-aarch64-apple-darwin \
+  src-tauri/binaries/solomd-mcp-x86_64-apple-darwin \
+  -output src-tauri/binaries/solomd-mcp-universal-apple-darwin
+
 echo "==> Building .app (no dmg yet)"
 # Every credential Tauri would notarize with is unset here on purpose: it must
 # skip notarization, because the .app is still going to be patched (file icons,
@@ -66,9 +74,28 @@ for i in 0 1; do
   /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:${i}:CFBundleTypeIconFile string file_icon.icns" "$PLIST"
 done
 
+echo "==> Embedding the Quick Look extension (#351)"
+# Finder's space-bar preview renders .md with it instead of showing plain text.
+# Built unsigned here; it is signed below, after the --deep pass.
+mkdir -p "$APP/Contents/PlugIns"
+src-tauri/quicklook/build.sh "$VERSION" "$APP/Contents/PlugIns"
+QL_APPEX="$APP/Contents/PlugIns/SoloMDQuickLook.appex"
+
 echo "==> Re-signing .app (signature must cover patched plist)"
 codesign --force --deep --options runtime \
   --sign "$APPLE_SIGNING_IDENTITY" "$APP"
+
+# --deep just re-signed the extension without entitlements, and PlugInKit
+# refuses an extension that isn't sandboxed. Sign it again with its own
+# entitlements, then seal the app over it (not --deep, which would undo it).
+codesign --force --options runtime --timestamp \
+  --entitlements src-tauri/quicklook/QuickLook.entitlements \
+  --sign "$APPLE_SIGNING_IDENTITY" "$QL_APPEX"
+codesign --force --options runtime \
+  --sign "$APPLE_SIGNING_IDENTITY" "$APP"
+codesign -d --entitlements - "$QL_APPEX" 2>/dev/null | grep -q app-sandbox \
+  || { echo "ERROR: Quick Look extension lost its sandbox entitlement" >&2; exit 1; }
+codesign --verify --deep --strict "$APP"
 
 echo "==> Notarizing .app"
 ZIP="/tmp/SoloMD-${VERSION}.zip"

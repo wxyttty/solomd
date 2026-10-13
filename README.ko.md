@@ -5,6 +5,7 @@
 [![Latest release](https://img.shields.io/github/v/release/zhitongblog/solomd)](https://github.com/zhitongblog/solomd/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/zhitongblog/solomd?color=orange)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/zhitongblog/solomd/total)](https://github.com/zhitongblog/solomd/releases)
+[![GitHub stars](https://img.shields.io/github/stars/zhitongblog/solomd?style=flat&logo=github&color=yellow)](https://github.com/zhitongblog/solomd/stargazers)
 [![Website](https://img.shields.io/badge/website-solomd.app-ff9f40.svg)](https://solomd.app)
 
 🌐 **[English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · [Português](README.pt.md) · [Italiano](README.it.md) · [Polski](README.pl.md) · [Nederlands](README.nl.md) · [Türkçe](README.tr.md) · [Svenska](README.sv.md) · [Українська](README.uk.md)**
@@ -12,6 +13,18 @@
 [**v4.0 다운로드**](https://github.com/zhitongblog/solomd/releases/latest) · [**런치 글**](https://solomd.app/ko/blog/) · [**웹사이트**](https://solomd.app/ko/) · [**보안**](https://solomd.app/ko/security/)
 
 ![SoloMD 에디터](web/public/demo/solomd-demo.svg)
+
+> ### 🤖 Claude가 개발하고 유지보수합니다
+>
+> SoloMD의 코드, 테스트, 릴리스는 대부분 Anthropic의 코딩 에이전트 **Claude Code**가
+> 수행하며, 방향과 출시 여부는 사람 메인테이너가 결정합니다. **이슈와 풀 리퀘스트의
+> 분류와 답변도 Claude가 합니다** — 여기서 받는 답변은 사람이 직접 쓴 것이 아니라
+> AI가 작성한 것입니다.
+>
+> 이를 밝히는 이유는 두 가지입니다. 자신의 노트를 무엇에 맡기는지 알 권리가 있기
+> 때문입니다(코드는 MIT로 전부 공개되어 있으니 직접 읽어보세요). 그리고 답변이
+> 자신만만하게 틀렸을 때 — 실제로 일어납니다 — 스레드에서 지적해 주세요. 그것이
+> 바로 교정 장치입니다.
 
 당신의 노트는 폴더에 있습니다. **SoloMD는 그 위의 에디터 — 에디터 내부에 일등 시민 Agent 표면, 외부에서는 Claude Code / Cursor가 호출할 수 있는 MCP 엔드포인트.** 같은 `.md` 파일. vault와 채팅. 키보드 앞에 없을 때 실행되는 Recipe. 같은 vault를 어떤 MCP 클라이언트에든 넘길 수 있습니다.
 
@@ -60,7 +73,7 @@ solomd mcp-config
 {
   "mcpServers": {
     "solomd": {
-      "command": "/Applications/SoloMD.app/Contents/Resources/solomd-mcp",
+      "command": "/Applications/SoloMD.app/Contents/MacOS/solomd-mcp",
       "args": ["--workspace", "/Users/me/Documents/SoloMD"]
     }
   }

@@ -126,3 +126,39 @@ curl -s --noproxy '*' http://127.0.0.1:9399/api/v1/openapi.json
 Note the `--noproxy '*'`: the local proxy mangles loopback calls, and it is
 also why store uploads through the browser stall — see
 `reference_release_upload_watchdog` in memory.
+
+## ★ `text` lies when the window is not on screen
+
+`unzoo.sh text` and any `innerText` read need layout, and Chrome skips layout
+for a browser window that is not actually being painted. The Play Console page
+then reads as ~550 characters of loading splash **while it is fully rendered** —
+a screenshot shows the real content. This is silent: no error, just a short
+string that looks like "still loading".
+
+Anything unattended (a watcher, a poll loop, a cron) must read
+`unzoo.sh dom-text`, which returns `document.body.textContent` and does not
+depend on layout. Two caveats that come with it:
+
+- `textContent` includes hidden and collapsed elements, so match on markers you
+  expect to *appear*; do not conclude something is gone because a string is
+  absent from a freshly loaded page.
+- Loading-splash text stays in `textContent` permanently, so judge "page ready"
+  by length plus a content anchor, never by the absence of the splash string.
+
+When a read disagrees with what you think is on screen, take a screenshot —
+that forces a paint and settles it.
+
+## ★ `eval` used to share one scope, and a collision looked like `null`
+
+Every `unzoo.sh eval` landed in the *same* top-level context, so the second
+`const b = ...` in a session threw "Identifier 'b' has already been declared" —
+and that throw came back as a plain `null` result, indistinguishable from "the
+selector matched nothing". It sent this session chasing imaginary DOM changes
+more than once, and it is visible in the page console as a stray SyntaxError
+that has nothing to do with the page.
+
+`eval` now wraps every expression in its own arrow scope, so redeclaration is
+impossible. Three input shapes are handled: a bare expression, several
+statements where you write your own `return`, and several statements where you
+do not (the last one is returned for you). A `;` inside a string literal is the
+one case that misfires — and it fails as a visible syntax error, not silence.
