@@ -558,7 +558,7 @@ impl NotePanel {
                     })
                     .unwrap_or(false)
             }) {
-                if let Some(rel) = import_to_assets(path) {
+                if let Some(rel) = import_to_assets(path, &self.vault.root) {
                     let name = file_stem(&rel);
                     let md = format!("\n![{name}]({rel})\n");
                     self.state
@@ -580,7 +580,11 @@ impl NotePanel {
             return;
         };
         let rel = format!("_assets/paste-{}.{ext}", now_compact());
-        match std::fs::write(&rel, &bytes) {
+        // 落盘到 vault 根（Finder 启动时 cwd 是只读的 /，不能依赖 cwd）。
+        let abs = self.vault.root.join(&rel);
+        match std::fs::create_dir_all(abs.parent().unwrap_or(&self.vault.root))
+            .and_then(|()| std::fs::write(&abs, &bytes))
+        {
             Ok(()) => {
                 let name = file_stem(&rel);
                 let md = format!("\n![{name}]({rel})\n");
@@ -589,7 +593,7 @@ impl NotePanel {
                 cx.notify();
             }
             Err(e) => {
-                eprintln!("[paste] 写盘失败 {rel}: {e}");
+                eprintln!("[paste] 写盘失败 {}: {e}", abs.display());
                 cx.propagate();
             }
         }
@@ -611,9 +615,9 @@ fn now_compact() -> u64 {
 }
 
 /// 拷贝外部图片文件进 vault 的 `_assets/`（按文件名去重）。
-fn import_to_assets(src: &std::path::Path) -> Option<String> {
-    let dest_dir = std::path::Path::new("_assets");
-    std::fs::create_dir_all(dest_dir).ok()?;
+fn import_to_assets(src: &std::path::Path, vault_root: &std::path::Path) -> Option<String> {
+    let dest_dir = vault_root.join("_assets");
+    std::fs::create_dir_all(&dest_dir).ok()?;
     let name = src.file_name()?.to_str()?.to_string();
     let dest = dest_dir.join(&name);
     if !dest.exists() {

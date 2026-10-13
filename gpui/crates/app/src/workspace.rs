@@ -11,7 +11,7 @@ use gpui::{
     Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::dock::{DockArea, DockLayout, DockPlacement, DockSkin};
+use gpui_component::dock::{panel_handle, DockArea, DockLayout, DockPlacement, DockSkin};
 use gpui_component::command::{Command, CommandItem, CommandState};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
@@ -179,7 +179,7 @@ impl Workspace {
         let mt_baseline = vault.mtimes();
         let this_vault = vault.clone();
         let mut this = Self {
-            vault,
+            vault: vault.clone(),
             dock_area,
             tabs: Vec::new(),
             pending_welcome: false,
@@ -205,9 +205,7 @@ impl Workspace {
             pandoc_status: None,
             mt_baseline,
             file_tree: file_tree.clone(),
-            images: Rc::new(RefCell::new(ImageStore::new(
-                std::env::current_dir().unwrap_or_default(),
-            ))),
+            images: Rc::new(RefCell::new(ImageStore::new(vault.root.clone()))),
             mermaid: Rc::new(RefCell::new(MermaidStore::default())),
             math: Rc::new(RefCell::new(crate::math::MathStore::default())),
         };
@@ -271,24 +269,36 @@ impl Workspace {
             // [[wikilink]] 点击 → 打开/新建目标笔记（解析在 core workspace_index）。
             let weak_open = weak_ws.clone();
             np.on_open_note_notify(Box::new(move |window, app, path| {
-                if let Some(ws) = weak_open.upgrade() {
-                    let _ = ws.update(app, |ws, cx| ws.open_note(path, window, cx));
-                }
+                // defer：wikilink 点击发生在编辑器事件里，Workspace 可能仍在
+                // update 栈上，直接 update 会重入 panic。window.defer 把窗口
+                // 句柄带进延迟闭包，绕开借用生命周期。
+                let weak = weak_open.clone();
+                window.defer(app, move |window, app| {
+                    if let Some(ws) = weak.upgrade() {
+                        let _ = ws.update(app, |ws, cx| ws.open_note(path, window, cx));
+                    }
+                });
             }));
         });
         panel.update(cx, |np, _| {
             np.on_removed_notify(Box::new(move |app| {
-                if let Some(ws) = weak_ws.upgrade() {
-                    let _ = ws.update(app, |ws, cx| {
-                        ws.tabs.retain(|(p, _)| *p != close_path);
-                        // dock 设计：最后一个面板不可关。空了就置标记，
-                        // 下一帧 render 里自动开 welcome（render 有 window）。
-                        if ws.tabs.is_empty() {
-                            ws.pending_welcome = true;
-                        }
-                        cx.notify();
-                    });
-                }
+                // defer：on_removed 在 dock_area.update 栈内同步触发（activate 的
+                // remove+re-add、UI 关闭），此时 ws.update 重入会 panic。
+                let weak = weak_ws.clone();
+                let close = close_path.clone();
+                app.defer(move |app| {
+                    if let Some(ws) = weak.upgrade() {
+                        let _ = ws.update(app, |ws, cx| {
+                            ws.tabs.retain(|(p, _)| *p != close);
+                            // dock 设计：最后一个面板不可关。空了就置标记，
+                            // 下一帧 render 里自动开 welcome（render 有 window）。
+                            if ws.tabs.is_empty() {
+                                ws.pending_welcome = true;
+                            }
+                            cx.notify();
+                        });
+                    }
+                });
             }));
         });
 
@@ -297,16 +307,28 @@ impl Workspace {
         let active_path = path.clone();
         panel.update(cx, |np, _| {
             np.on_activated_notify(Box::new(move |app| {
-                if let Some(ws) = weak_ws.upgrade() {
-                    let _ = ws.update(app, |ws, cx| ws.note_activated(active_path.clone(), cx));
-                }
+                // defer：add_panel 自动激活在 dock_area.update 栈内同步触发。
+                let weak = weak_ws.clone();
+                let active = active_path.clone();
+                app.defer(move |app| {
+                    if let Some(ws) = weak.upgrade() {
+                        let _ = ws.update(app, |ws, cx| ws.note_activated(active, cx));
+                    }
+                });
             }));
         });
 
         self.tabs.push((path, panel.clone()));
         self.dock_area.update(cx, |area, cx| {
-            // add_panel 落到中央首个 tab 组并自动激活（activate: true）。
-            area.add_panel(panel.clone(), DockPlacement::Center, None, window, cx);
+            // add_panel_view + panel_handle：皮肤从 handle 恢复 title()；
+            // 裸 Entity 只能退到 panel_name（tab 全显 "note" 的根因）。
+            area.add_panel_view(
+                panel_handle(panel.clone()),
+                DockPlacement::Center,
+                None,
+                window,
+                cx,
+            );
         });
     }
 
@@ -333,7 +355,13 @@ impl Workspace {
         };
         self.dock_area.update(cx, |area, cx| {
             area.remove_panel(panel.clone(), window, cx);
-            area.add_panel(panel, DockPlacement::Center, None, window, cx);
+            area.add_panel_view(
+                panel_handle(panel),
+                DockPlacement::Center,
+                None,
+                window,
+                cx,
+            );
         });
         self.pending_welcome = false;
     }

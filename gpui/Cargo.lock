@@ -8039,6 +8039,7 @@ name = "solomd-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs 5.0.1",
  "gpui",
  "gpui-component",
  "gpui-component-assets",

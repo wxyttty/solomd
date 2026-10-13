@@ -1,3 +1,7 @@
 {
-  "dark": false
+  "dark": false,
+  "ai_provider": "",
+  "ai_model": "",
+  "ai_base_url": "",
+  "typewriter": false
 }

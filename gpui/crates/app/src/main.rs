@@ -1,6 +1,6 @@
 //! SoloMD GPUI 桌面版入口（P2 M1）。
 //!
-//! 用法：`solomd [vault_dir]`（缺省 `./_vault`，不存在自动创建）。
+//! 用法：`solomd [vault_dir]`（缺省：上次打开的库，首次为 `~/Documents/Solomd`）。
 
 mod ai_panel;
 #[cfg(debug_assertions)]
@@ -47,13 +47,28 @@ actions!(solomd, [Quit]);
 // 菜单项直接派发编辑器动作（经焦点路由）。
 use zorite_editor as editor_actions;
 
+/// 缺省 vault：上次打开的库 > `~/Documents/Solomd`（首启空库）。
+/// 不用 cwd 相对路径——Finder/`open` 启动时 cwd 是 `/`，只读文件系统直接失败。
+fn default_vault_path() -> PathBuf {
+    let config_dir = solomd_core::deps::CorePaths::default_paths().config_dir;
+    if let Ok(saved) = std::fs::read_to_string(config_dir.join("last-vault")) {
+        let p = PathBuf::from(saved.trim());
+        if p.is_absolute() && p.is_dir() {
+            return p;
+        }
+    }
+    dirs::document_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Solomd")
+}
+
 fn main() {
     crate::single_instance::ensure_single_instance();
 
     let vault_path = std::env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("_vault"));
+        .unwrap_or_else(default_vault_path);
     let vault = match Vault::open(vault_path) {
         Ok(v) => v,
         Err(e) => {
@@ -62,6 +77,17 @@ fn main() {
         }
     };
     let settings = crate::settings::Settings::load(&vault.root);
+
+    // 记住本次 vault，下次双击直接打开（CLI 显式传参时同样记忆）。
+    {
+        let cfg = solomd_core::deps::CorePaths::default_paths().config_dir;
+        if std::fs::create_dir_all(&cfg).is_ok() {
+            let _ = std::fs::write(
+                cfg.join("last-vault"),
+                vault.root.to_string_lossy().as_bytes(),
+            );
+        }
+    }
 
     // debug 构建启动原生命令调试桥（release 不编译）。
     #[cfg(debug_assertions)]

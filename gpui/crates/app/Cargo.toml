@@ -25,3 +25,4 @@ raw-window-handle.workspace = true
 solomd-core = { path = "../core" }
 image.workspace = true
 mermaid-rs-renderer.workspace = true
+dirs.workspace = true
