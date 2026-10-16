@@ -40,7 +40,7 @@ use gpui_component::dock::ClosePanel;
 
 use crate::note_panel::{NewNote, PasteImage, SaveNote};
 use crate::vault::Vault;
-use crate::workspace::{ClosePalette, TogglePalette, ToggleTheme, Workspace};
+use crate::workspace::{ImportFile, TogglePalette, ToggleTheme, Workspace};
 
 actions!(solomd, [Quit]);
 // 编辑菜单：GPUI 编辑器是自绘文本视图，原生剪贴板/撤销 selector 打不到它，
@@ -119,9 +119,13 @@ fn main() {
             KeyBinding::new("ctrl-w", ClosePanel, None),
             KeyBinding::new("cmd-p", TogglePalette, None),
             KeyBinding::new("ctrl-p", TogglePalette, None),
+            KeyBinding::new("cmd-o", ImportFile, None),
+            KeyBinding::new("ctrl-o", ImportFile, None),
+            KeyBinding::new("cmd-f", crate::note_panel::ToggleFind, Some("Editor")),
+            KeyBinding::new("ctrl-f", crate::note_panel::ToggleFind, Some("Editor")),
+            KeyBinding::new("escape", crate::note_panel::CloseFind, None),
             KeyBinding::new("cmd-shift-t", ToggleTheme, None),
             KeyBinding::new("ctrl-shift-t", ToggleTheme, None),
-            KeyBinding::new("escape", ClosePalette, None),
             KeyBinding::new("cmd-q", Quit, None),
         ]);
         cx.set_menus(build_menus());
@@ -148,6 +152,7 @@ fn build_menus() -> Vec<Menu> {
         Menu::new("SoloMD").items([MenuItem::action("退出 SoloMD", Quit)]),
         Menu::new("文件").items([
             MenuItem::action("新建笔记", NewNote),
+            MenuItem::action("导入文件…", ImportFile),
             MenuItem::action("保存", SaveNote),
             MenuItem::separator(),
             MenuItem::action("关闭标签", ClosePanel),

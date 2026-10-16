@@ -1,16 +1,64 @@
-//! file_ops.rs — 文件树操作：移动/重命名 + 全库链接重写 + 目录/扩展名枚举。
+//! file_ops.rs — 文件树操作：新建/删除 + 移动/重命名 + 全库链接重写 + 目录/扩展名枚举。
 //!
-//! 从上游 commands.rs（4.12.0）去 Tauri 壳移植：`#[tauri::command]` 包装删除、
+//! 从上游 commands.rs（4.12.0/5.0.0）去 Tauri 壳移植：`#[tauri::command]` 包装删除、
 //! 内部逻辑逐字节保留（含 `<stem>.assets/` 随迁、子树防自移、围栏感知的
 //! 行级链接重写、隐藏文件/扩展名枚举）。供 FileTreePanel 调用。
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 pub fn fs_dir_exists(path: String) -> bool {
     Path::new(&path).is_dir()
+}
+
+/// 新建文件（上游 v3.0 file-tree edit ops）。拒绝覆盖已存在文件，
+/// 父目录缺失时自动创建。空文件由调用方决定内容（上游传 ""）。
+pub fn fs_create_file(path: String, content: Option<String>) -> Result<(), String> {
+    let p = Path::new(&path);
+    if p.exists() {
+        return Err(format!("already exists: {path}"));
+    }
+    if let Some(parent) = p.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|e| format!("mkdir failed: {e}"))?;
+        }
+    }
+    fs::write(p, content.unwrap_or_default().as_bytes())
+        .map_err(|e| format!("create failed: {e}"))
+}
+
+/// 新建目录。拒绝覆盖已存在路径。
+pub fn fs_create_dir(path: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    if p.exists() {
+        return Err(format!("already exists: {path}"));
+    }
+    fs::create_dir_all(p).map_err(|e| format!("mkdir failed: {e}"))
+}
+
+/// 删除文件/目录（上游 #112）。桌面端优先进系统废纸篓（Finder 废纸篓 /
+/// Windows 回收站 / XDG trash），误删可恢复；trash 服务失败（如文件系统
+/// 不支持）才回退永久删除，保证任何环境都能删。幂等：路径已不存在
+/// 直接成功。
+pub fn fs_delete(path: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    if !p.exists() {
+        return Ok(()); // idempotent — already gone is fine
+    }
+    // 桌面端才进废纸篓（移动端无用户可见 trash）。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if trash::delete(p).is_ok() {
+            return Ok(());
+        }
+    }
+    if p.is_dir() {
+        fs::remove_dir_all(p).map_err(|e| format!("delete dir failed: {e}"))
+    } else {
+        fs::remove_file(p).map_err(|e| format!("delete file failed: {e}"))
+    }
 }
 
 pub fn fs_rename(from: String, to: String) -> Result<(), String> {
@@ -656,4 +704,46 @@ fn entry_extension(p: &Path) -> String {
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod create_delete_tests {
+    use super::*;
+
+    #[test]
+    fn create_file_and_dir_refuse_to_clobber() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("a.md");
+        assert!(fs_create_file(f.to_string_lossy().to_string(), Some("x".into())).is_ok());
+        // 已存在：拒绝覆盖而不是静默改写。
+        assert!(fs_create_file(f.to_string_lossy().to_string(), Some("y".into())).is_err());
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "x");
+
+        let d = dir.path().join("sub");
+        assert!(fs_create_dir(d.to_string_lossy().to_string()).is_ok());
+        assert!(fs_create_dir(d.to_string_lossy().to_string()).is_err());
+    }
+
+    #[test]
+    fn create_file_makes_missing_parents() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("a/b/c.md");
+        assert!(fs_create_file(f.to_string_lossy().to_string(), None).is_ok());
+        assert!(f.is_file());
+    }
+
+    #[test]
+    fn delete_is_idempotent_and_removes_trees() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("n.md"), "n").unwrap();
+
+        // 桌面端 trash 生效时文件进了废纸篓（同样不可见）；两种路径下
+        // 都应报告成功且路径消失。
+        assert!(fs_delete(sub.to_string_lossy().to_string()).is_ok());
+        assert!(!sub.exists());
+        // 幂等：已不存在直接成功。
+        assert!(fs_delete(sub.to_string_lossy().to_string()).is_ok());
+    }
 }

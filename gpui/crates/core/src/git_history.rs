@@ -429,6 +429,7 @@ pub async fn git_auto_commit(
     message: Option<String>,
 ) -> Result<Option<String>, String> {
     let folder_for_event = folder.clone();
+    let file_for_event = file_path.clone();
     let result = crate::rt::spawn_blocking(move || {
         git_auto_commit_inner(folder, file_path, message)
     })
@@ -443,6 +444,7 @@ pub async fn git_auto_commit(
             "git-committed",
             serde_json::json!({
                 "folder": folder_for_event,
+                "file": file_for_event,
                 "sha": sha,
             })
             .to_string(),

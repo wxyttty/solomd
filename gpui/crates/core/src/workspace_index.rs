@@ -87,7 +87,8 @@ pub struct WikilinkRef {
     pub target: String,
     pub heading: Option<String>,
     pub alias: Option<String>,
-    /// 1-based line number where the link appears.
+    /// 1-based line number **in the file** (front matter included) where the
+    /// link appears — backlinks read context from and jump to this line.
     pub line: u32,
 }
 
@@ -97,9 +98,9 @@ pub struct WikilinkRef {
 pub struct TaskRef {
     /// 1-based line number **in the file**, front matter included.
     ///
-    /// Deliberately not the body-relative number `WikilinkRef::line` uses: the
-    /// panel both jumps to this line and rewrites the checkbox on it, so an
-    /// off-by-front-matter number would tick the wrong box.
+    /// Deliberately not the body-relative number `WikilinkRef::line` used to
+    /// use: the panel both jumps to this line and rewrites the checkbox on it,
+    /// so an off-by-front-matter number would tick the wrong box.
     pub line: u32,
     /// The task text, marker and leading bullet stripped. Priority and due
     /// tokens are left in — the panel parses those itself.
@@ -529,7 +530,7 @@ fn scan_file(path: &Path) -> Result<IndexEntry, String> {
         None => serde_json::Value::Null,
     };
 
-    let wikilinks = extract_wikilinks(body);
+    let wikilinks = extract_wikilinks(body, body_line_offset(&raw, body));
     let mut tags = extract_body_tags(body);
     if let serde_json::Value::Object(map) = &frontmatter_json {
         if let Some(t) = map.get("tags") {
@@ -692,7 +693,25 @@ fn split_front_matter(raw: &str) -> (Option<String>, &str) {
     (None, raw)
 }
 
-fn extract_wikilinks(body: &str) -> Vec<WikilinkRef> {
+/// Number of lines that precede `body` in `raw` — i.e. the front-matter
+/// block's height. `body` must be a sub-slice of `raw`, as returned by
+/// `split_front_matter`. Adding this to a body-relative 0-based line index
+/// yields the index in the file, which is what anything that opens the file
+/// at that line (backlinks context, jump-to-line) needs.
+/// (上游 5.0.0 移植）
+pub fn body_line_offset(raw: &str, body: &str) -> u32 {
+    let start = body.as_ptr() as usize;
+    let base = raw.as_ptr() as usize;
+    if start < base || start > base + raw.len() {
+        return 0;
+    }
+    raw.as_bytes()[..start - base]
+        .iter()
+        .filter(|&&b| b == b'\n')
+        .count() as u32
+}
+
+fn extract_wikilinks(body: &str, line_offset: u32) -> Vec<WikilinkRef> {
     static RE: Lazy<Regex> = Lazy::new(|| {
         Regex::new(r"\[\[([^\[\]\n]+?)\]\]").expect("wikilink regex")
     });
@@ -716,7 +735,7 @@ fn extract_wikilinks(body: &str) -> Vec<WikilinkRef> {
                 target,
                 heading,
                 alias,
-                line: (line_idx as u32) + 1,
+                line: line_offset + (line_idx as u32) + 1,
             });
         }
     }
@@ -1446,5 +1465,42 @@ mod task_scan_tests {
     fn skips_front_matter_lines() {
         let raw = "---\nalias: x\n- [ ] not a task, it is yaml\n---\n- [ ] real\n";
         assert_eq!(tasks_texts(&raw), vec!["real"]);
+    }
+}
+
+#[cfg(test)]
+mod front_matter_line_tests {
+    use super::*;
+
+    /// 上游 5.0.0：wikilink 行号必须是文件内行号（含 front matter），
+    /// backlinks 跳行/读上下文都依赖它。body 相对行号会差一个 front
+    /// matter 高度，跳到错误行。
+    #[test]
+    fn wikilink_lines_count_front_matter() {
+        let raw = "---\ntitle: t\ntags: [x]\n---\n\n正文，见 [[目标笔记]]。\n";
+        let (fm, body) = split_front_matter(raw);
+        assert!(fm.is_some());
+        // front matter 4 行 + 空行 1 行 → wikilink 在文件第 6 行。
+        let links = extract_wikilinks(body, body_line_offset(raw, body));
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].line, 6);
+        assert_eq!(links[0].target, "目标笔记");
+    }
+
+    #[test]
+    fn wikilink_lines_without_front_matter_unchanged() {
+        let raw = "第一行\n第二行见 [[a]]\n";
+        let (fm, body) = split_front_matter(raw);
+        assert!(fm.is_none());
+        let links = extract_wikilinks(body, body_line_offset(raw, body));
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].line, 2);
+    }
+
+    #[test]
+    fn body_line_offset_counts_only_front_matter() {
+        let raw = "---\na: 1\n---\nbody";
+        let (_, body) = split_front_matter(raw);
+        assert_eq!(body_line_offset(raw, body), 3);
     }
 }

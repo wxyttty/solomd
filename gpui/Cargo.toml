@@ -105,6 +105,7 @@ mermaid-rs-renderer = { git = "https://github.com/zed-industries/mermaid-rs-rend
 # P1 笔记编辑器底座（GPL-3.0）：zorite 的 WYSIWYG markdown 编辑器。
 # 大文件性能是采用前硬闸门（spike `wys` 面板实测）。
 zorite-editor = { path = "crates/zorite/zorite-editor" }
+zorite-markdown = { path = "crates/zorite/zorite-markdown" }
 # P4 白板原生化（GPL-3.0）：gpui-whiteboard 无限画布，替代 tldraw webview。
 gpui-whiteboard = { path = "crates/zorite/gpui-whiteboard" }
 # P4 数学渲染（GPL-3.0）：RaTeX 引擎 + GPUI 层，接 gpui-editor 的 block math provider。

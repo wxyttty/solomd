@@ -1,6 +1,7 @@
 //! note_panel.rs — 一篇笔记 = 一个 Dock 面板（gpui-editor + 保存/脏态）。
 
 mod math_edit;
+mod prop_edit;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -21,7 +22,7 @@ use crate::math::MathStore;
 use crate::mermaid::MermaidStore;
 use crate::vault::Vault;
 
-actions!(solomd, [SaveNote, NewNote, PasteImage]);
+actions!(solomd, [SaveNote, NewNote, PasteImage, ToggleFind, CloseFind]);
 
 pub struct NotePanel {
     pub path: PathBuf,
@@ -36,14 +37,34 @@ pub struct NotePanel {
     proof_issues: usize,
     /// 打字机模式：光标行垂直居中（Settings.typewriter 持久化）。
     typewriter: bool,
+    /// AutoGit：⌘S 保存后自动提交（Settings.auto_git 持久化；提交在
+    /// Workspace 组合层做，见 on_saved 回调）。
+    auto_git: bool,
     /// 笔记滚动容器（编辑器 auto-grow，滚动在宿主侧；打字机/补偿器共用）。
     scroll: ScrollHandle,
     /// 公式渲染缓存（Workspace 持有，开窗热身/提交后重渲共用）。
     math: Rc<RefCell<MathStore>>,
     /// 打开中的结构化公式编辑会话（math_edit.rs）。
     math_edit: Option<math_edit::MathEditSession>,
+    /// 打开中的属性面板编辑会话（prop_edit.rs）。
+    prop_edit: Option<prop_edit::PropEditSession>,
     /// [[wikilink]] 点击 → Workspace 打开/新建目标笔记。
     on_open_note: Option<Box<dyn Fn(&mut Window, &mut gpui::App, PathBuf)>>,
+    /// ⌘S 保存成功后通知 Workspace（AutoGit 提交在组合层做，事件链才通）。
+    on_saved: Option<Box<dyn Fn(&mut gpui::App, PathBuf)>>,
+    /// Esc 关查找条后转发关 ⌘P 浮层（propagate 不会跨 action 类型，
+    /// 显式回调接线）。
+    on_close_palette: Option<Box<dyn Fn(&mut gpui::App)>>,
+    /// ⌘F 查找条：打开时输入框 + 匹配导航（zorite set_search 高亮）。
+    find_open: bool,
+    /// 查找输入框（首次打开时创建；订阅只挂一次，随实体生命周期）。
+    find_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    /// find_input 的 Change 订阅（重复 toggle 不重复挂）。
+    _find_sub: Option<gpui::Subscription>,
+    find_matches: Vec<std::ops::Range<usize>>,
+    find_active: Option<usize>,
+    /// 替换输入框 + 替换模式（⌥⌘F 展开；替换当前/全部）。
+    replace_input: Option<gpui::Entity<gpui_component::input::InputState>>,
 }
 
 impl NotePanel {
@@ -64,6 +85,7 @@ impl NotePanel {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "untitled".into());
+        let auto_git = crate::settings::Settings::load(&vault.root).auto_git;
 
         let state = cx.new(|cx| {
             let mut ed = zorite_editor::EditorState::new(window, cx).with_text(content.clone());
@@ -196,6 +218,14 @@ impl NotePanel {
                 EditorEvent::SelectionChanged => {
                     this.typewriter_scroll(window, cx);
                 }
+                EditorEvent::EditProperties {
+                    range,
+                    source,
+                    at_end,
+                    row,
+                } => {
+                    this.open_prop_edit(range.clone(), source.clone(), *at_end, *row, window, cx);
+                }
                 _ => {}
             },
         );
@@ -211,10 +241,20 @@ impl NotePanel {
             on_activated: None,
             proof_issues: 0,
             typewriter,
+            auto_git,
             scroll,
             math,
             math_edit: None,
+            prop_edit: None,
             on_open_note: None,
+            on_saved: None,
+            on_close_palette: None,
+            find_open: false,
+            find_input: None,
+            _find_sub: None,
+            find_matches: Vec::new(),
+            find_active: None,
+            replace_input: None,
         }
     }
 
@@ -226,6 +266,17 @@ impl NotePanel {
     /// Workspace 用来接收激活事件（跟踪当前笔记，供历史/AI/导出使用）。
     pub fn on_activated_notify(&mut self, f: Box<dyn Fn(&mut gpui::App)>) {
         self.on_activated = Some(f);
+    }
+
+    /// Workspace 用来接收保存事件（AutoGit 提交在组合层监听后触发，
+    /// git-committed 事件 → on-commit recipes 的链路才真实可用）。
+    pub fn on_saved_notify(&mut self, f: Box<dyn Fn(&mut gpui::App, PathBuf)>) {
+        self.on_saved = Some(f);
+    }
+
+    /// Workspace 用来在 Esc 关查找条后关 ⌘P 浮层。
+    pub fn on_close_palette_notify(&mut self, f: Box<dyn Fn(&mut gpui::App)>) {
+        self.on_close_palette = Some(f);
     }
 
     /// Workspace 用来打开 [[wikilink]] 目标（解析后可能新建草稿）。
@@ -384,10 +435,177 @@ impl NotePanel {
         match self.vault.write_note(&self.path, &text) {
             Ok(()) => {
                 self.dirty = false;
+                // AutoGit 提交不在面板内做（NullSink 会丢 git-committed 事件，
+                // on-commit recipes 永不触发）——发保存通知，由 Workspace
+                // 组合层执行（见 workspace.rs 的 on_saved 回调）。
+                if let Some(cb) = &self.on_saved {
+                    let path = self.path.clone();
+                    cb(cx, path);
+                }
                 cx.notify();
             }
             Err(e) => eprintln!("[save] {}: {e}", self.path.display()),
         }
+    }
+
+    /// ⌘F：开/关查找条。首次打开时创建输入框并预填当前选区（若有）。
+    fn toggle_find(&mut self, _: &ToggleFind, window: &mut Window, cx: &mut Context<Self>) {
+        self.find_open = !self.find_open;
+        if self.find_open {
+            // 首次打开：创建输入框 + 挂一次 Change 订阅（存 Subscription，
+            // 重复 toggle 不重复挂——否则每次打开都多一个订阅，run_find
+            // 被多次触发）。替换输入框同批创建，⌥⌘F 只是展开显示。
+            if self.find_input.is_none() {
+                let input = cx.new(|cx| {
+                    gpui_component::input::InputState::new(window, cx).placeholder("查找")
+                });
+                self._find_sub = Some(cx.subscribe_in(
+                    &input,
+                    window,
+                    |this, _, ev: &gpui_component::input::InputEvent, _, cx| {
+                        if matches!(ev, gpui_component::input::InputEvent::Change) {
+                            this.run_find(cx);
+                        }
+                    },
+                ));
+                self.find_input = Some(input);
+                self.replace_input = Some(cx.new(|cx| {
+                    gpui_component::input::InputState::new(window, cx).placeholder("替换为")
+                }));
+            }
+            if let Some(input) = self.find_input.clone() {
+                input.update(cx, |s, cx| s.focus(window, cx));
+            }
+            self.run_find(cx);
+        } else {
+            // 关闭：清高亮，焦点回编辑器。
+            self.state.update(cx, |ed, cx| ed.set_search(Vec::new(), None, cx));
+        }
+        cx.notify();
+    }
+
+    /// Esc：关闭查找条（焦点在查找输入框时，escape 在输入上下文里被
+    /// InputState 消费不到面板级——绑定在 Editor 上下文外全局生效，
+    /// 查找条开着时优先关它，再冒泡给编辑器原有 Dismiss 行为）。
+    fn close_find(&mut self, _: &CloseFind, window: &mut Window, cx: &mut Context<Self>) {
+        if self.find_open {
+            self.find_open = false;
+            self.state.update(cx, |ed, cx| ed.set_search(Vec::new(), None, cx));
+            // 焦点回编辑器。
+            self.state.update(cx, |ed, cx| ed.focus(window, cx));
+            cx.notify();
+            return;
+        }
+        // 未开查找条：显式派发 ClosePalette（cx.propagate 只继续同一种
+        // action，不会变成另一种——之前“Esc 链”的表述是错的）。⌘P 浮层
+        // 开着则关它；再未开则 stop（编辑器菜单的 Esc 是输入上下文里的
+        // 另一 action，不受影响）。
+        if let Some(cb) = &self.on_close_palette {
+            cb(cx);
+        } else {
+            cx.stop_propagation();
+        }
+    }
+
+    /// ⌘S 保存后 AutoGit 提交的并发防护：连续快速保存会并发跑多个
+    /// git_auto_commit 任务访问同一仓库。busy 标记在提交任务结束时清零
+    /// （含失败路径），期间新保存只跳过本轮提交（文件已落盘，下一轮
+    /// 保存会把增量一并提交——git 快照语义下无丢失）。
+    /// （状态存 Workspace.auto_git_running，见 workspace.rs。）
+
+    /// 替换当前匹配：replace_range 后重跑查找（偏移已变，旧匹配全部作废）。
+    fn replace_current(&mut self, cx: &mut Context<Self>) {
+        let Some(replace) = self.replace_input.clone() else { return };
+        let replacement = replace.read(cx).value().to_string();
+        let Some(active) = self.find_active else { return };
+        let Some(m) = self.find_matches.get(active).cloned() else { return };
+        self.state.update(cx, |ed, cx| {
+            ed.replace_range(m, &replacement, cx);
+        });
+        self.dirty = true;
+        self.run_find(cx);
+    }
+
+    /// 替换全部：从后往前替换（前面的偏移不受影响），一次 undo 语义
+    /// 逐次 replace_range（zorite 每次独立记录 undo 步）。
+    /// 替换全部：一次性构造新全文 + 单次 replace_range（一个 undo 步，
+    /// 上游 replace-all 的交互语义）。从后往前的逐次替换会产生 N 个独立
+    /// undo 步，用户要按 N 次 ⌘Z 才能撤销一次“全部替换”。
+    fn replace_all(&mut self, cx: &mut Context<Self>) {
+        let Some(replace) = self.replace_input.clone() else { return };
+        let replacement = replace.read(cx).value().to_string();
+        if self.find_matches.is_empty() {
+            return;
+        }
+        let text = self.state.read(cx).text().to_string();
+        let matches = self.find_matches.clone();
+        // 从后往前拼接：后面的偏移不受前面替换影响。
+        let mut new_text = String::with_capacity(text.len());
+        let mut cursor = 0usize;
+        let mut last_end = 0usize;
+        for m in &matches {
+            new_text.push_str(&text[last_end..m.start]);
+            new_text.push_str(&replacement);
+            last_end = m.end;
+            cursor = m.start + replacement.len();
+        }
+        new_text.push_str(&text[last_end..]);
+        let full = 0..text.len();
+        self.state.update(cx, |ed, cx| {
+            ed.replace_range(full, &new_text, cx);
+            // 光标落在最后一个替换的尾部（上游行为）。
+            ed.set_cursor(cursor, cx);
+        });
+        self.dirty = true;
+        self.run_find(cx);
+    }
+
+    /// 重新执行查找：zorite find_in_source（大小写不敏感）→ set_search 高亮
+    /// + 跳到第一个匹配（光标落匹配起点）。
+    fn run_find(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = self.find_input.clone() else { return };
+        let query = input.read(cx).value().to_string();
+        let text = self.state.read(cx).text().to_string();
+        self.find_matches = if query.is_empty() {
+            Vec::new()
+        } else {
+            zorite_editor::find_in_source(&text, &query)
+        };
+        self.find_active = (!self.find_matches.is_empty()).then_some(0);
+        let matches = self.find_matches.clone();
+        let active = self.find_active;
+        self.state.update(cx, |ed, cx| {
+            ed.set_search(matches, active, cx);
+        });
+        // 光标跳到首个匹配（编辑器会滚动到光标行——打字机/补偿器路径）。
+        if let Some(first) = self.find_matches.first() {
+            self.state.update(cx, |ed, cx| ed.set_cursor(first.start, cx));
+        }
+        cx.notify();
+    }
+
+    /// 查找条上的 ▲/▼：在匹配间循环导航。
+    fn find_step(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if self.find_matches.is_empty() {
+            return;
+        }
+        let n = self.find_matches.len();
+        let cur = self.find_active.unwrap_or(0);
+        let next = if forward {
+            (cur + 1) % n
+        } else {
+            (cur + n - 1) % n
+        };
+        self.find_active = Some(next);
+        let matches = self.find_matches.clone();
+        let active = self.find_active;
+        self.state.update(cx, |ed, cx| {
+            ed.set_search(matches, active, cx);
+        });
+        if let Some(m) = self.find_matches.get(next) {
+            self.state.update(cx, |ed, cx| ed.set_cursor(m.start, cx));
+        }
+        cx.notify();
     }
 }
 
@@ -425,7 +643,7 @@ impl Panel for NotePanel {
 }
 
 impl Render for NotePanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use gpui_component::button::{Button, ButtonVariants as _};
         use gpui_component::{h_flex, v_flex, Sizable as _};
         div()
@@ -433,6 +651,8 @@ impl Render for NotePanel {
             .size_full()
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::on_paste_image))
+            .on_action(cx.listener(Self::toggle_find))
+            .on_action(cx.listener(Self::close_find))
             .text_size(px(16.))
             .child(
                 v_flex()
@@ -471,6 +691,20 @@ impl Render for NotePanel {
                                     })),
                             )
                             .child(
+                                Button::new("autogit")
+                                    .label(if self.auto_git { "AutoGit ✓" } else { "AutoGit" })
+                                    .xsmall()
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.auto_git = !this.auto_git;
+                                        let mut s =
+                                            crate::settings::Settings::load(&this.vault.root);
+                                        s.auto_git = this.auto_git;
+                                        s.save(&this.vault.root);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
                                 Button::new("typewriter")
                                     .label(if self.typewriter { "打字机 ✓" } else { "打字机" })
                                     .xsmall()
@@ -498,6 +732,104 @@ impl Render for NotePanel {
                                     }),
                             ),
                     )
+                    // 查找/替换条（⌘F）：查找输入 + 匹配计数 + ▲/▼ + 替换行。
+                    .children(self.find_open.then(|| {
+                        let input = self.find_input.clone().unwrap();
+                        let n = self.find_matches.len();
+                        let cur = self.find_active.map(|i| i + 1).unwrap_or(0);
+                        v_flex()
+                            .id("find-bar")
+                            .border_b_1()
+                            .border_color(cx.theme().border)
+                            .child(
+                                h_flex()
+                                    .id("find-row-find")
+                                    .px_2()
+                                    .py_1()
+                                    .gap_1()
+                                    .child(
+                                        div().flex_1().min_w_0().child(
+                                            gpui_component::input::Input::new(&input).small(),
+                                        ),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .min_w(px(48.))
+                                            .child(if n > 0 {
+                                                format!("{cur}/{n}")
+                                            } else {
+                                                "0/0".to_string()
+                                            }),
+                                    )
+                                    .child(
+                                        Button::new("find-prev")
+                                            .label("▲")
+                                            .xsmall()
+                                            .ghost()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.find_step(false, cx);
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("find-next")
+                                            .label("▼")
+                                            .xsmall()
+                                            .ghost()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.find_step(true, cx);
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("find-close")
+                                            .label("✕")
+                                            .xsmall()
+                                            .ghost()
+                                            .on_click(cx.listener(|this, _, _window, cx| {
+                                                this.find_open = false;
+                                                this.state.update(cx, |ed, cx| {
+                                                    ed.set_search(Vec::new(), None, cx)
+                                                });
+                                                cx.notify();
+                                            })),
+                                    ),
+                            )
+                            // 替换行：输入 + 替换当前 + 全部替换。
+                            .child(
+                                h_flex()
+                                    .id("find-row-replace")
+                                    .px_2()
+                                    .pb_1()
+                                    .gap_1()
+                                    .child(
+                                        div().flex_1().min_w_0().child(
+                                            gpui_component::input::Input::new(
+                                                &self.replace_input.clone().unwrap(),
+                                            )
+                                            .small(),
+                                        ),
+                                    )
+                                    .child(
+                                        Button::new("replace-current")
+                                            .label("替换")
+                                            .xsmall()
+                                            .ghost()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.replace_current(cx);
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("replace-all")
+                                            .label("全部")
+                                            .xsmall()
+                                            .ghost()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.replace_all(cx);
+                                            })),
+                                    ),
+                            )
+                    }))
                     .child(
                         div()
                             .id("note-scroll")

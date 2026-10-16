@@ -111,6 +111,8 @@ pub struct AiPanel {
     active_note: Option<std::path::PathBuf>,
     /// Workspace 推送的活跃笔记面板（「插入」落点）。
     insert_target: Option<WeakEntity<NotePanel>>,
+    /// Agent 允许写工具（上游 agentAllowWrite；默认关——agent 只读）。
+    allow_write: bool,
 }
 
 impl AiPanel {
@@ -127,6 +129,7 @@ impl AiPanel {
         let provider = settings.ai_provider_or_default();
         let model = settings.ai_model_or_default();
         let base_url = settings.ai_base_url.clone();
+        let allow_write = settings.agent_allow_write;
 
         // 事件泵：core 的 emit → 实体状态更新（与白板 IPC 同款模式）。
         let weak = cx.entity().downgrade();
@@ -262,6 +265,7 @@ impl AiPanel {
             include_note: true,
             active_note: None,
             insert_target: None,
+            allow_write,
         }
     }
 
@@ -283,6 +287,7 @@ impl AiPanel {
         settings.ai_provider = self.provider.clone();
         settings.ai_model = self.model.clone();
         settings.ai_base_url = self.base_url.clone();
+        settings.agent_allow_write = self.allow_write;
         settings.save(&self.vault.root);
         self.status = SharedString::from(format!("已保存 · {}", self.provider));
         cx.notify();
@@ -384,7 +389,7 @@ impl AiPanel {
             api_format: None,
             base_url: (!self.base_url.trim().is_empty()).then(|| self.base_url.clone()),
             tools: None,
-            allow_write: None,
+            allow_write: Some(self.allow_write),
             run_id: None,
             tool_loop_cap: None,
         };
@@ -473,6 +478,25 @@ impl AiPanel {
             .child(chips)
             .child(Input::new(&self.model_input).small())
             .child(Input::new(&self.base_url_input).small())
+            // Agent 写工具开关（上游 agentAllowWrite；默认关——agent 只读）。
+            // 点击即持久化（上游 checkbox 同款即时生效，不等“保存”按钮）。
+            .child(
+                Button::new("ai-allow-write")
+                    .label(if self.allow_write {
+                        "写工具 ✓（agent 可写笔记）"
+                    } else {
+                        "写工具（agent 只读）"
+                    })
+                    .xsmall()
+                    .ghost()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.allow_write = !this.allow_write;
+                        let mut s = crate::settings::Settings::load(&this.vault.root);
+                        s.agent_allow_write = this.allow_write;
+                        s.save(&this.vault.root);
+                        cx.notify();
+                    })),
+            )
             .child(
                 h_flex()
                     .gap_2()

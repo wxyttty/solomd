@@ -55,6 +55,11 @@ impl NotePanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 互斥：公式与属性共用 zorite 的 editing_block 槽位——先提交对方
+        // 会话，避免覆盖仍在编辑的视图。
+        if self.prop_edit.is_some() {
+            self.commit_prop_edit(cx);
+        }
         if self.math_edit.is_some() {
             self.commit_math_edit(cx);
         }
@@ -149,7 +154,7 @@ impl NotePanel {
 
     /// 提交：序列化 LaTeX → splice 回缓冲（replace_range，可撤销）→ 落盘 →
     /// 重跑该公式渲染。返回公式的新字节范围（供出向定位光标）。
-    fn commit_math_edit(&mut self, cx: &mut Context<Self>) -> Option<Range<usize>> {
+    pub(super) fn commit_math_edit(&mut self, cx: &mut Context<Self>) -> Option<Range<usize>> {
         let edit = self.math_edit.take()?;
         let latex = edit.editor.read(cx).to_latex();
         let new_range = if edit.inline {

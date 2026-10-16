@@ -21,6 +21,12 @@ pub struct Settings {
     /// 打字机模式（光标行垂直居中）。
     #[serde(default)]
     pub typewriter: bool,
+    /// AutoGit：保存（⌘S）后自动提交快照（上游 autoGitEnabled，默认关）。
+    #[serde(default)]
+    pub auto_git: bool,
+    /// Agent 允许写工具（上游 agentAllowWrite，默认关——agent 默认只读）。
+    #[serde(default)]
+    pub agent_allow_write: bool,
 }
 
 /// AI 设置缺省值（Settings derive Default 走不到 String 字段的业务默认）。

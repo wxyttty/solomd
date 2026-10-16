@@ -3,7 +3,6 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gpui::{
     actions, div, px, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
@@ -23,7 +22,7 @@ use crate::note_panel::NotePanel;
 use crate::settings::Settings;
 use crate::vault::Vault;
 
-actions!(solomd, [TogglePalette, ClosePalette, ToggleTheme]);
+actions!(solomd, [TogglePalette, ClosePalette, ToggleTheme, ImportFile]);
 
 pub struct Workspace {
     vault: Vault,
@@ -34,6 +33,12 @@ pub struct Workspace {
     pending_welcome: bool,
     /// 外部变更检测基线（全库 mtime）。
     mt_baseline: std::collections::HashMap<PathBuf, u64>,
+    /// AutoGit 提交并发防护：任务进行中时新保存跳过本轮提交
+    /// （文件已落盘，下一轮保存把增量一并提交——git 快照语义无丢失）。
+    auto_git_running: bool,
+    /// busy 期间到达的保存（folder, file）：任务结束后补一轮提交，
+    /// 保证最后一次保存最终进入提交。
+    auto_git_pending: Option<(PathBuf, PathBuf)>,
     file_tree: Entity<FileTreePanel>,
     /// ⌘P 笔记切换面板。
     palette_open: bool,
@@ -134,6 +139,34 @@ impl Workspace {
                 }
                 cx.notify();
             }
+            TreeEvent::Deleted(path) => {
+                // 删除后关掉对应已开标签（含目录下子树）：dock remove_panel
+                // （on_removed 回调会 defer 清 tabs 列表，防重入 panic）。
+                let targets: Vec<_> = this
+                    .tabs
+                    .iter()
+                    .filter(|(p, _)| p == path || p.starts_with(&path))
+                    .map(|(_, panel)| panel.clone())
+                    .collect();
+                for panel in targets {
+                    this.dock_area.update(cx, |area, cx| {
+                        area.remove_panel(panel.clone(), window, cx);
+                    });
+                }
+                if this
+                    .active_note
+                    .as_ref()
+                    .is_some_and(|p| *p == *path || p.starts_with(path))
+                {
+                    this.active_note = None;
+                    this.active_panel = None;
+                }
+                // dock 要求至少一个面板；空了下一帧 render 自动开 welcome。
+                if this.tabs.is_empty() {
+                    this.pending_welcome = true;
+                }
+                cx.notify();
+            }
         })
         .detach();
 
@@ -204,6 +237,8 @@ impl Workspace {
             export_status: None,
             pandoc_status: None,
             mt_baseline,
+            auto_git_running: false,
+            auto_git_pending: None,
             file_tree: file_tree.clone(),
             images: Rc::new(RefCell::new(ImageStore::new(vault.root.clone()))),
             mermaid: Rc::new(RefCell::new(MermaidStore::default())),
@@ -256,6 +291,7 @@ impl Workspace {
         let mermaid = self.mermaid.clone();
         let math = self.math.clone();
         let typewriter = self.settings.typewriter;
+        let save_folder = self.vault.root.clone();
         let panel = cx.new(|cx| {
             NotePanel::new(
                 path.clone(), vault, images, mermaid, math, typewriter, window, cx,
@@ -276,6 +312,38 @@ impl Workspace {
                 window.defer(app, move |window, app| {
                     if let Some(ws) = weak.upgrade() {
                         let _ = ws.update(app, |ws, cx| ws.open_note(path, window, cx));
+                    }
+                });
+            }));
+        });
+        panel.update(cx, |np, _| {
+            // ⌘S 保存成功 → AutoGit（组合层职责：core git_auto_commit 发
+            // git-committed 事件，这里监听后触发 on-commit recipes——
+            // 事件解耦铁律。上游 useAutoCommit 同款“每次保存立即提交”语义。
+            let weak_save = weak_ws.clone();
+            let folder_cb = save_folder.clone();
+            np.on_saved_notify(Box::new(move |app, file| {
+                let weak = weak_save.clone();
+                let folder = folder_cb.clone();
+                app.defer(move |app| {
+                    if let Some(ws) = weak.upgrade() {
+                        let _ = ws.update(app, |ws, cx| {
+                            ws.auto_git_commit(folder, file, cx);
+                        });
+                    }
+                });
+            }));
+            // Esc 关查找条后转发关 ⌘P 浮层（propagate 不跨 action 类型）。
+            let weak_esc = weak_ws.clone();
+            np.on_close_palette_notify(Box::new(move |app| {
+                let weak = weak_esc.clone();
+                app.defer(move |app| {
+                    if let Some(ws) = weak.upgrade() {
+                        let _ = ws.update(app, |ws, cx| {
+                            if ws.palette_open {
+                                ws.close_palette(cx);
+                            }
+                        });
                     }
                 });
             }));
@@ -342,7 +410,7 @@ impl Workspace {
         cx.notify();
     }
 
-    fn close_palette(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn close_palette(&mut self, cx: &mut Context<Self>) {
         self.palette_open = false;
         cx.notify();
     }
@@ -434,11 +502,166 @@ impl Workspace {
         }
     }
 
+    /// AutoGit：保存后自动提交（NotePanel on_saved → 此处）。走 core
+    /// 事件版 git_auto_commit：真实提交后发 git-committed 事件，本方法
+    /// 同时监听该事件触发 on-commit recipes（组合层职责，铁律：core
+    /// 模块零横向依赖，跨模块触发用事件解耦）。设置关闭时直接返回。
+    /// 仓库未初始化时 core 返回 Err，静默跳过（上游 ensureInitialized
+    /// 的降级语义）。busy 期间新保存跳过本轮（文件已落盘，下一轮
+    /// 保存会把增量一并提交——git 快照语义无丢失）。
+    fn auto_git_commit(&mut self, folder: PathBuf, file: PathBuf, cx: &mut Context<Self>) {
+        // 每次重读盘上配置：NotePanel 的 AutoGit 按钮直接写 settings.json，
+        // 不经过 Workspace 缓存（self.settings 只在启动时加载）——用缓存
+        // 会让新开关不生效。
+        let auto_git = crate::settings::Settings::load(&self.vault.root).auto_git;
+        if !auto_git || self.auto_git_running {
+            // busy 期间丢弃的保存：记 pending 标记，任务结束时补一轮提交
+            // （保证最后一次保存最终进入提交——git 快照会把期间增量一并
+            // 收进，不丢数据）。
+            if auto_git && self.auto_git_running {
+                self.auto_git_pending = Some((folder, file));
+            }
+            return;
+        }
+        self.auto_git_running = true;
+        let folder_s = folder.to_string_lossy().to_string();
+        let file_s = file.to_string_lossy().to_string();
+        let ws_root = self.vault.root.clone();
+        cx.spawn(async move |this, cx| {
+            // 事件接收：ChannelSink → mpsc，提交完成后在本任务里直接消费，
+            // 不需要常驻泵（git-committed 是低频单发事件）。
+            let (tx, rx) = std::sync::mpsc::channel::<(String, String)>();
+            let sink: std::sync::Arc<dyn solomd_core::deps::EventSink> =
+                std::sync::Arc::new(solomd_core::deps::ChannelSink::new(tx));
+            let r = solomd_core::rt::spawn(async move {
+                solomd_core::git_history::git_auto_commit(
+                    sink.as_ref(),
+                    folder_s,
+                    Some(file_s),
+                    None,
+                )
+                .await
+            })
+            .await;
+            match r {
+                Ok(Ok(Some(sha))) => {
+                    eprintln!("[autogit] 已提交 {}", &sha[..7.min(sha.len())]);
+                    // 消费 git-committed 事件 → on-commit recipes。
+                    for (topic, payload) in rx.try_iter() {
+                        if topic == "git-committed" {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                let sink2: std::sync::Arc<
+                                    dyn solomd_core::deps::EventSink,
+                                > = std::sync::Arc::new(
+                                    solomd_core::deps::NullSink,
+                                );
+                                let file = v["file"].as_str().map(|s| s.to_string());
+                                let sha = v["sha"].as_str().unwrap_or_default().to_string();
+                                let root = ws_root.clone();
+                                let _ = solomd_core::rt::spawn(async move {
+                                    solomd_core::recipe_runner::dispatch_on_commit(
+                                        sink2,
+                                        root,
+                                        file,
+                                        sha,
+                                    )
+                                    .await;
+                                })
+                                .await;
+                            }
+                        }
+                    }
+                }
+                Ok(Ok(None)) => {} // 树无变化，正常无操作
+                Ok(Err(e)) => eprintln!("[autogit] {e}"),
+                Err(e) => eprintln!("[autogit] join: {e}"),
+            }
+            let _ = this.update(cx, |ws, cx| {
+                ws.auto_git_running = false;
+                // busy 期间到达的保存：补一轮提交（git 快照会把期间增量
+                // 一并收进）。
+                if let Some((folder, file)) = ws.auto_git_pending.take() {
+                    ws.auto_git_commit(folder, file, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub fn new_note(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.vault.create_note(Path::new("")) {
             Ok(path) => self.open_note(path, window, cx),
             Err(e) => eprintln!("[new] {e}"),
         }
+    }
+
+    /// ⌘O 导入：平台文件选择器 → core convert_file_to_markdown →
+    /// 转成 vault 内新 .md 文件并打开（上游 useFiles.openAndConvert 语义，
+    /// 但落盘为真实文件而非未保存草稿——GPUI 版标签以 path 为保存落点，
+    /// 草稿标签需要另建机制，不值得为导入引入）。
+    fn import_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("导入文件".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else { return };
+            let Some(src) = paths.into_iter().next() else { return };
+            // 可转换扩展名：与 core convert_file_to_markdown_inner 的分发表
+            // 一致（json/xml 也支持；音频格式走 markitdown CLI，桌面端少用，
+            // 先不进白名单）。
+            let convertible = [
+                "docx", "csv", "xlsx", "xls", "html", "htm", "pdf", "pptx", "epub", "json", "xml",
+            ];
+            let ext = src
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+                .unwrap_or_default();
+            if !convertible.contains(&ext.as_str()) {
+                let _ = this.update_in(cx, |ws, window, _cx| {
+                    ws.export_status =
+                        Some(format!("不支持的导入格式 .{ext}（docx/csv/xlsx/html/pdf/pptx/epub/json/xml）").into());
+                    window.refresh();
+                });
+                return;
+            }
+            let src_s = src.to_string_lossy().to_string();
+            let md = cx
+                .background_executor()
+                .spawn(async move { solomd_core::convert::convert_file_to_markdown_inner(src_s) })
+                .await;
+            let _ = this.update_in(cx, |ws, window, cx| match md {
+                Ok(markdown) => {
+                    // 落盘：<stem>.md 在 vault 根（重名追加序号），再开标签。
+                    let stem = src.file_stem().map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "imported".into());
+                    let mut target = ws.vault.root.join(format!("{stem}.md"));
+                    let mut i = 1;
+                    while target.exists() {
+                        target = ws.vault.root.join(format!("{stem}-{i}.md"));
+                        i += 1;
+                    }
+                    if let Err(e) = ws.vault.write_note(&target, &markdown) {
+                        ws.export_status = Some(format!("导入落盘失败：{e}").into());
+                    } else {
+                        ws.open_note(target, window, cx);
+                        ws.export_status = Some("导入完成".into());
+                        // 刷新文件树（新文件落盘后树不知道）。
+                        ws.file_tree.update(cx, |_, cx| cx.notify());
+                    }
+                    window.refresh();
+                }
+                Err(e) => {
+                    ws.export_status = Some(format!("导入失败：{e}").into());
+                    window.refresh();
+                }
+            });
+        })
+        .detach();
     }
 
     /// 笔记激活（打开/点击标签）：更新跟踪状态并推送各右栏页。
@@ -643,6 +866,9 @@ impl Render for Workspace {
             .size_full()
             .on_action(cx.listener(|this, _: &crate::note_panel::NewNote, window, cx| {
                 this.new_note(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ImportFile, window, cx| {
+                this.import_file(window, cx);
             }))
             .on_action(cx.listener(|this, _: &TogglePalette, window, cx| {
                 this.open_palette(window, cx);
