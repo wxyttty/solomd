@@ -17,16 +17,18 @@ import { sanitizeModernColors } from './export-colors';
 import { renderMarkdown, extractImageRoot } from './markdown';
 import { loadRenderDeps } from './render-deps';
 import type { ResolvedPdfOptions } from './pdf-options';
-import { rewriteImageUrls, rewriteLinkUrls } from './image-resolve';
+import { inlineLocalImages, rewriteImageUrls, rewriteLinkUrls } from './image-resolve';
 import { blobToPng, loadImageBlob } from './image-clipboard';
 import { renderPlantumlForExport } from './plantuml';
 import { buildPagedCanvas, searchWindowPx } from './pdf-paginate';
+import { buildExportCustomCss, getActiveCustomCss } from './custom-theme';
 
 const EXPORT_TIMEOUT_MS = 30_000;
 
 const PDF_CSS = `
   body { margin: 0; }
-  .pdf-page {
+  .html2pdf__overlay, iframe.html2canvas-container { pointer-events: none !important; }
+  :where(.pdf-page) {
     box-sizing: border-box;
     /* The container html2pdf hands us is exactly the printable width of the
        chosen page size (190mm → 718px for A4 with 10mm margins), so the page
@@ -39,8 +41,8 @@ const PDF_CSS = `
     width: 100%;
     max-width: 760px;
     padding: 7.5% 8.5% 10%;
-    color: #1f2328;
-    background: #ffffff;
+    color: var(--text, #1f2328);
+    background: var(--bg, #ffffff);
     font: 15px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto,
       "Helvetica Neue", Arial,
       "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
@@ -54,48 +56,50 @@ const PDF_CSS = `
        below, applied to prose. */
     overflow-wrap: break-word;
   }
-  .pdf-page h1, .pdf-page h2, .pdf-page h3,
-  .pdf-page h4, .pdf-page h5, .pdf-page h6 {
+  :where(.pdf-page) h1, :where(.pdf-page) h2, :where(.pdf-page) h3,
+  :where(.pdf-page) h4, :where(.pdf-page) h5, :where(.pdf-page) h6 {
     line-height: 1.25;
     font-weight: 700;
-    color: #1f2328;
+    color: var(--text, #1f2328);
     margin: 1.8em 0 0.55em;
     page-break-after: avoid;
     break-after: avoid-page;
   }
-  .pdf-page h1:first-child,
-  .pdf-page h2:first-child,
-  .pdf-page h3:first-child { margin-top: 0; }
-  .pdf-page h1 {
+  :where(.pdf-page) h1:first-child,
+  :where(.pdf-page) h2:first-child,
+  :where(.pdf-page) h3:first-child { margin-top: 0; }
+  :where(.pdf-page) h1 {
     font-size: 2em;
-    border-bottom: 2px solid #3d444d;
+    color: var(--md-h1, var(--text, #1f2328));
+    border-bottom: 2px solid var(--md-h1, #3d444d);
     padding-bottom: .32em;
     letter-spacing: -0.01em;
   }
-  .pdf-page h2 {
+  :where(.pdf-page) h2 {
     font-size: 1.5em;
-    border-bottom: 1px solid #e4e6e9;
+    color: var(--md-h2, var(--text, #1f2328));
+    border-bottom: 1px solid var(--border, #e4e6e9);
     padding-bottom: .25em;
   }
-  .pdf-page h3 { font-size: 1.2em; }
-  .pdf-page h4 { font-size: 1.05em; }
-  .pdf-page h5, .pdf-page h6 { font-size: 1em; color: #59636e; }
-  .pdf-page p { margin: .85em 0; }
-  .pdf-page a {
-    color: #0b5cad;
+  :where(.pdf-page) h3 { font-size: 1.2em; color: var(--md-h3, var(--text, #1f2328)); }
+  :where(.pdf-page) h4 { font-size: 1.05em; color: var(--md-h4, var(--text, #1f2328)); }
+  :where(.pdf-page) h5, :where(.pdf-page) h6 { font-size: 1em; color: var(--md-h5, #59636e); }
+  :where(.pdf-page) p { margin: .85em 0; }
+  :where(.pdf-page) a {
+    color: var(--accent-text, var(--md-link, #0b5cad));
     text-decoration: none;
     border-bottom: 1px solid #c9dcf0;
   }
-  .pdf-page code {
+  :where(.pdf-page) code {
     font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
     font-size: .88em;
-    background: #f6f8fa;
+    background: var(--fill-1, var(--md-code-bg, #f6f8fa));
     padding: .15em .45em;
     border-radius: 4px;
-    color: #1f2328;
+    color: var(--md-code, #1f2328);
   }
-  .pdf-page pre {
-    background: #f6f8fa;
+  :where(.pdf-page) pre {
+    background: var(--fill-1, var(--md-code-bg, #f6f8fa));
     padding: 14px 18px;
     border-radius: 8px;
     /* #211 — paper can't scroll, so long code lines MUST wrap or they get
@@ -106,34 +110,64 @@ const PDF_CSS = `
     word-break: break-word;
     margin: 1.1em 0;
     line-height: 1.55;
-    border: 1px solid #e4e6e9;
+    border: 1px solid var(--border, #e4e6e9);
     page-break-inside: avoid;
     break-inside: avoid;
   }
-  .pdf-page pre code {
+  :where(.pdf-page) pre code {
     background: transparent;
     padding: 0;
     font-size: .86em;
-    color: #1f2328;
+    color: var(--md-code, #1f2328);
   }
-  .pdf-page pre code .hljs-keyword,
-  .pdf-page pre code .hljs-built_in,
-  .pdf-page pre code .hljs-tag { color: #116329; }
-  .pdf-page blockquote {
-    border-left: 4px solid #3d444d;
+  :where(.pdf-page) pre code .hljs-keyword,
+  :where(.pdf-page) pre code .hljs-built_in,
+  :where(.pdf-page) pre code .hljs-tag { color: var(--syn-keyword, #116329); }
+  /* #454 — code block line numbers in PDF export when enabled */
+  .pdf-page.cb-numbered-on pre.cb-numbered {
+    counter-reset: cb-line;
+    padding-left: 0;
+  }
+  .pdf-page.cb-numbered-on pre.cb-numbered code {
+    display: block;
+    white-space: normal;
+  }
+  .pdf-page.cb-numbered-on pre.cb-numbered code .cb-line {
+    counter-increment: cb-line;
+    display: block;
+    padding-left: 3.4em;
+    position: relative;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+  .pdf-page.cb-numbered-on pre.cb-numbered code .cb-line::before {
+    content: counter(cb-line);
+    position: absolute;
+    left: 0;
+    width: 2.6em;
+    padding-right: 0.6em;
+    text-align: right;
+    color: var(--text-faint, #59636e);
+    border-right: 1px solid var(--border, #e4e6e9);
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  :where(.pdf-page) blockquote {
+    border-left: 4px solid var(--accent, #3d444d);
     margin: 1.3em 0;
     padding: .5em 1.1em;
-    color: #59636e;
+    color: var(--md-quote, #59636e);
     font-style: italic;
     background: #f9fafb;
     border-radius: 0 4px 4px 0;
     page-break-inside: avoid;
     break-inside: avoid;
   }
-  .pdf-page blockquote p { margin: .35em 0; }
-  .pdf-page ul, .pdf-page ol { padding-left: 1.8em; margin: .9em 0; }
-  .pdf-page li { margin: .3em 0; }
-  .pdf-page table {
+  :where(.pdf-page) blockquote p { margin: .35em 0; }
+  :where(.pdf-page) ul, :where(.pdf-page) ol { padding-left: 1.8em; margin: .9em 0; }
+  :where(.pdf-page) li { margin: .3em 0; }
+  :where(.pdf-page) table {
     border-collapse: collapse;
     margin: 1.3em 0;
     width: 100%;
@@ -141,8 +175,8 @@ const PDF_CSS = `
     page-break-inside: avoid;
     break-inside: avoid;
   }
-  .pdf-page th, .pdf-page td {
-    border: 1px solid #e4e6e9;
+  :where(.pdf-page) th, :where(.pdf-page) td {
+    border: 1px solid var(--border, #e4e6e9);
     padding: 7px 13px;
     text-align: left;
     /* #370 — a long unbreakable run (number, identifier, URL) widened the
@@ -152,10 +186,10 @@ const PDF_CSS = `
     word-break: break-word;
   }
   /* #271 — short cells stay on one line (see markdown.ts table_short_cells). */
-  .pdf-page .cell-nowrap { white-space: nowrap; }
-  .pdf-page thead th {
+  :where(.pdf-page) .cell-nowrap { white-space: nowrap; }
+  :where(.pdf-page) thead th {
     background: #f3f4f6;
-    color: #1f2328;
+    color: var(--text, #1f2328);
     font-weight: 700;
     border-bottom: 2px solid #3d444d;
   }
@@ -327,14 +361,16 @@ export async function capturePdfRaster(
   pdfOpts?: ResolvedPdfOptions,
   filePath?: string,
   plantumlServer?: string | null,
+  codeBlockLineNumbers?: boolean,
 ): Promise<PdfRasterCapture> {
   await loadRenderDeps(); // rendered once — no placeholder math / plain code
   const rawHtml = renderMarkdown(source || '');
   // v4.3.0 issue #77 — also rewrite link hrefs so local-file links
   // don't bake in `http://tauri.localhost/...` URLs.
   const imageRoot = extractImageRoot(source || '');
+  const withLocalImages = await inlineLocalImages(rawHtml, imageRoot, filePath);
   const html = rewriteLinkUrls(
-    rewriteImageUrls(rawHtml, imageRoot, filePath),
+    rewriteImageUrls(withLocalImages, imageRoot, filePath),
     imageRoot,
     filePath,
   );
@@ -374,11 +410,19 @@ export async function capturePdfRaster(
   root.style.zIndex = '-1';
 
   const page = document.createElement('article');
-  page.className = 'pdf-page';
+  page.className = ['pdf-page', 'preview-content', codeBlockLineNumbers ? 'cb-numbered-on' : '']
+    .filter(Boolean)
+    .join(' ');
   page.innerHTML = html;
 
   root.appendChild(styleEl);
   if (extraStyle) root.appendChild(extraStyle);
+  const customCss = buildExportCustomCss(getActiveCustomCss(), '.pdf-page');
+  if (customCss) {
+    const customStyleEl = document.createElement('style');
+    customStyleEl.textContent = customCss;
+    root.appendChild(customStyleEl);
+  }
   root.appendChild(page);
   document.body.appendChild(root);
 
@@ -481,6 +525,7 @@ export async function markdownToPdfBlob(
   pdfOpts?: ResolvedPdfOptions,
   filePath?: string,
   plantumlServer?: string | null,
+  codeBlockLineNumbers?: boolean,
 ): Promise<Blob> {
   // Timeout guard — prevents the export from hanging the UI indefinitely
   // if html2pdf.js or Mermaid gets stuck. It sweeps html2pdf's leftovers on
@@ -494,20 +539,31 @@ export async function markdownToPdfBlob(
   );
 
   const render = async (): Promise<Blob> => {
-    const capture = await capturePdfRaster(source, title, pdfOpts, filePath, plantumlServer);
+    const capture = await capturePdfRaster(
+      source,
+      title,
+      pdfOpts,
+      filePath,
+      plantumlServer,
+      codeBlockLineNumbers,
+    );
     try {
       // jsPDF slices the raster at a fixed page height, which shears whatever
       // line of text sits on the boundary. Re-lay the raster as whole pages
       // first, so every slice lands on a row with no ink in it.
-      const paged = capture.canvas
-        ? buildPagedCanvas(
+      if (capture.canvas) {
+        try {
+          const paged = buildPagedCanvas(
             capture.canvas,
             capture.pageHeightPx,
             capture.searchUpPx,
             capture.lineHeightPx,
-          )
-        : null;
-      if (paged) capture.useCanvas(paged.canvas);
+          );
+          if (paged) capture.useCanvas(paged.canvas);
+        } catch (e) {
+          console.warn('[pdf] pagination skipped', e);
+        }
+      }
       return await capture.finish();
     } finally {
       capture.dispose();

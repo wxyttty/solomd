@@ -28,7 +28,9 @@ import { useInbox } from '../composables/useInbox';
 import { useInboxView } from '../composables/useInboxView';
 import { useDailyNotes } from '../composables/useDailyNotes';
 import { shortcutLabel } from '../lib/keybindings';
-import { usesCommandKey } from '../lib/platform';
+import { isMobile, usesCommandKey } from '../lib/platform';
+import { isSafPath } from '../lib/saf-fs';
+import { parentDirOf } from '../lib/new-file-target';
 import { useI18n } from '../i18n';
 
 const props = withDefaults(
@@ -166,6 +168,27 @@ function pickFolder(path: string) {
   workspace.setFolder(path);
 }
 
+// 2026-10-13 feedback — a single .md opened with no folder open left the
+// sidebar on a bare "Open a folder" card, with no way to reach the file's
+// own folder. Re-rooting on every open is opt-in
+// (settings.revealInFileTreeOnOpen — a file in ~/ or Downloads would list and
+// index that whole folder), so the empty state offers it as one click; the
+// tree's follow-active watcher then reveals the file.
+const currentFileFolder = computed(() => {
+  if (isMobile()) return null;
+  const file = tabs.activeTab?.filePath;
+  if (!file || isSafPath(file)) return null;
+  const dir = parentDirOf(file);
+  // Never a volume root ("C:", "/") — far too big to list as a workspace.
+  if (!dir || /^[A-Za-z]:$/.test(dir)) return null;
+  const parts = dir.split(/[\\/]/).filter(Boolean);
+  return {
+    path: dir,
+    name: parts[parts.length - 1] ?? dir,
+    parent: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
+  };
+});
+
 // ── width + resize (moved here from FileTree) ───────────────────────────────
 const resizing = ref(false);
 function onResizeStart(e: MouseEvent) {
@@ -211,10 +234,15 @@ onBeforeUnmount(() => {
     :style="{ '--sb-w': settings.fileTreeWidth + 'px' }"
     data-testid="sidebar"
   >
-    <!-- macOS: the traffic lights sit in this strip; it is a drag region and
-         keeps its left 80 px free of controls. -->
+    <!-- macOS: the traffic lights sit in this strip; on Windows/Linux it provides
+         the same 52 px strip and collapse button aligned with the toolbar. -->
     <h1 v-if="phone" class="sb__title">{{ t('phone.notes') }}</h1>
-    <div v-else-if="props.macInset" class="sb__inset" data-tauri-drag-region>
+    <div
+      v-else
+      class="sb__inset"
+      :class="{ 'sb__inset--win': !props.macInset }"
+      :data-tauri-drag-region="props.macInset ? '' : undefined"
+    >
       <button
         class="sb__icon-btn"
         type="button"
@@ -225,7 +253,6 @@ onBeforeUnmount(() => {
         <Icon name="sidebar" :size="16" />
       </button>
     </div>
-    <div v-else class="sb__pad" />
 
     <div class="sb__search-wrap">
       <button class="sb__search" type="button" @click="emit('open-quick-switcher')">
@@ -342,6 +369,19 @@ onBeforeUnmount(() => {
         <button class="sb__primary" type="button" @click="openFolder">
           {{ t('sidebar.emptyButton') }}
         </button>
+        <div v-if="currentFileFolder" class="sb__empty-recent">
+          <div class="sb__label sb__label--center">{{ t('sidebar.currentFileFolder') }}</div>
+          <button
+            class="sb__row sb__row--folder"
+            type="button"
+            :title="currentFileFolder.path"
+            @click="pickFolder(currentFileFolder.path)"
+          >
+            <Icon name="folder-sm" :size="16" class="sb__row-icon" />
+            <span class="sb__row-label">{{ currentFileFolder.name }}</span>
+            <span class="sb__row-sub">{{ currentFileFolder.parent }}</span>
+          </button>
+        </div>
         <div v-if="recentFolders.length" class="sb__empty-recent">
           <div class="sb__label sb__label--center">{{ t('sidebar.recentFolders') }}</div>
           <button
@@ -451,6 +491,9 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   padding: 0 var(--sp-2) 0 80px;
 }
+.sb__inset--win {
+  padding: 0 var(--sp-2);
+}
 .sb__pad {
   flex: none;
   height: var(--sp-3);
@@ -536,7 +579,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--ui-font-size, 13px);
   text-align: left;
   cursor: default;
 }
@@ -899,7 +942,7 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   background: var(--bg);
   border-right: 0;
-  font-size: 15px;
+  font-size: calc(var(--ui-font-size, 13px) + 2px);
 }
 .sb__title {
   margin: 0;
@@ -964,7 +1007,7 @@ onBeforeUnmount(() => {
 /* (0,3,0) — beats FileTree's own scoped `.ftree[data-v] .ftree__item`. */
 .sb.sb--phone :deep(.ftree .ftree__item) {
   min-height: 44px;
-  font-size: 15px;
+  font-size: calc(var(--ui-font-size, 13px) + 2px);
   border-radius: var(--r-md);
 }
 .sb--phone .sb__scroll {

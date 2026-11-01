@@ -38,7 +38,7 @@ export function useAppMenu() {
         focusMode: settings.focusMode,
         typewriter: settings.typewriterMode,
         spellCheck: settings.spellCheck,
-        livePreview: settings.livePreview,
+        livePreview: settings.viewMode === 'liveEdit' || (settings.viewMode === 'split' && settings.livePreview),
         fitWidth: settings.previewFitWidth,
         dark: themeFamily(settings.theme as Theme) === 'dark',
         theme: settings.followSystemTheme ? 'system' : settings.theme,

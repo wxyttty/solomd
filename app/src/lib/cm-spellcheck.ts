@@ -28,7 +28,7 @@ import {
   ViewUpdate,
 } from '@codemirror/view';
 import type { DecorationSet } from '@codemirror/view';
-import { SPELL_DICT_CHANGED_EVENT } from './spell-suggest';
+import { SPELL_DICT_CHANGED_EVENT, SPELL_RECHECK_EVENT } from './spell-suggest';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,8 +99,13 @@ export function spellcheckExtension(opts: SpellcheckOptions): Extension {
         this.schedule();
       };
 
+      // `enabled()` may have flipped without an editor update (LanguageTool
+      // took over spelling or went away) — re-run so underlines follow.
+      private onRecheck = () => this.schedule();
+
       constructor(private view: EditorView) {
         window.addEventListener(SPELL_DICT_CHANGED_EVENT, this.onDictChanged);
+        window.addEventListener(SPELL_RECHECK_EVENT, this.onRecheck);
         this.schedule();
       }
 
@@ -119,6 +124,7 @@ export function spellcheckExtension(opts: SpellcheckOptions): Extension {
       destroy() {
         this.destroyed = true;
         window.removeEventListener(SPELL_DICT_CHANGED_EVENT, this.onDictChanged);
+        window.removeEventListener(SPELL_RECHECK_EVENT, this.onRecheck);
         if (this.timer) {
           clearTimeout(this.timer);
           this.timer = null;

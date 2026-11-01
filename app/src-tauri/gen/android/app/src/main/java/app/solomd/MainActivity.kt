@@ -1,12 +1,27 @@
 package app.solomd
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
+import android.util.Base64
 import androidx.activity.enableEdgeToEdge
+import com.android.billingclient.api.AcknowledgePurchaseParams
+import com.android.billingclient.api.BillingClient
+import com.android.billingclient.api.BillingClientStateListener
+import com.android.billingclient.api.BillingFlowParams
+import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.ConsumeParams
+import com.android.billingclient.api.PendingPurchasesParams
+import com.android.billingclient.api.ProductDetails
+import com.android.billingclient.api.Purchase
+import com.android.billingclient.api.PurchasesUpdatedListener
+import com.android.billingclient.api.QueryProductDetailsParams
+import com.android.billingclient.api.QueryPurchasesParams
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -36,6 +51,8 @@ class MainActivity : TauriActivity() {
   companion object {
     const val REQ_PICK_TREE = 0x5AF0
     private const val DIR_MIME = DocumentsContract.Document.MIME_TYPE_DIR
+    private const val IAP_PREFS = "solomd_iap"
+    private const val IAP_PREFS_KEY = "purchased_ids"
 
     @JvmStatic
     private var instance: MainActivity? = null
@@ -44,6 +61,243 @@ class MainActivity : TauriActivity() {
     // "" = cancelled, "content://…" = granted tree URI.
     @JvmStatic
     private val pickedTreeUri = AtomicReference<String?>(null)
+
+    // Google Play Billing state for Tip Jar + Supporter Badge
+    private var billingClient: BillingClient? = null
+    private val productCache = ConcurrentHashMap<String, ProductDetails>()
+    private val iapProductsPoll = AtomicReference<String>("")
+    private val iapPurchasePoll = AtomicReference<String>("")
+    private val iapRestorePoll = AtomicReference<String>("")
+
+    private val purchasesListener = PurchasesUpdatedListener { result, purchases ->
+      when (result.responseCode) {
+        BillingClient.BillingResponseCode.OK -> {
+          if (!purchases.isNullOrEmpty()) {
+            for (p in purchases) {
+              handlePlayPurchase(p)
+            }
+          } else {
+            iapPurchasePoll.set(JSONObject().put("status", "cancelled").toString())
+          }
+        }
+        BillingClient.BillingResponseCode.USER_CANCELED -> {
+          iapPurchasePoll.set(JSONObject().put("status", "cancelled").toString())
+        }
+        else -> {
+          iapPurchasePoll.set(
+            JSONObject()
+              .put("error", result.debugMessage.ifEmpty { "Google Play Billing error (${result.responseCode})" })
+              .toString()
+          )
+        }
+      }
+    }
+
+    private fun handlePlayPurchase(purchase: Purchase) {
+      if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED) return
+      for (pid in purchase.products) {
+        recordPurchasedId(pid)
+      }
+      val client = billingClient
+      if (client != null && client.isReady) {
+        // Consume so the user can tip again if they wish, while our prefs +
+        // supporter badge stay permanently unlocked.
+        val consumeParams = ConsumeParams.newBuilder()
+          .setPurchaseToken(purchase.purchaseToken)
+          .build()
+        client.consumeAsync(consumeParams) { _, _ -> }
+        if (!purchase.isAcknowledged) {
+          val ackParams = AcknowledgePurchaseParams.newBuilder()
+            .setPurchaseToken(purchase.purchaseToken)
+            .build()
+          client.acknowledgePurchase(ackParams) { _ -> }
+        }
+      }
+      iapPurchasePoll.set(JSONObject().put("status", "purchased").toString())
+    }
+
+    private fun withBilling(onReady: (BillingClient) -> Unit, onFail: (String) -> Unit) {
+      val act = instance
+      if (act == null) {
+        onFail("Activity unavailable")
+        return
+      }
+      val existing = billingClient
+      if (existing != null && existing.isReady) {
+        onReady(existing)
+        return
+      }
+      val client = BillingClient.newBuilder(act.applicationContext)
+        .setListener(purchasesListener)
+        .enablePendingPurchases(
+          PendingPurchasesParams.newBuilder().enableOneTimeProducts().build()
+        )
+        .build()
+      billingClient = client
+      client.startConnection(object : BillingClientStateListener {
+        override fun onBillingSetupFinished(result: BillingResult) {
+          if (result.responseCode == BillingClient.BillingResponseCode.OK) {
+            onReady(client)
+          } else {
+            onFail(result.debugMessage.ifEmpty { "Play Billing unavailable (${result.responseCode})" })
+          }
+        }
+        override fun onBillingServiceDisconnected() {}
+      })
+    }
+
+    private fun recordPurchasedId(productId: String) {
+      val act = instance ?: return
+      val prefs = act.getSharedPreferences(IAP_PREFS, Context.MODE_PRIVATE)
+      val set = prefs.getStringSet(IAP_PREFS_KEY, emptySet())?.toMutableSet() ?: mutableSetOf()
+      set.add(productId)
+      prefs.edit().putStringSet(IAP_PREFS_KEY, set).apply()
+    }
+
+    @JvmStatic
+    fun iapGetPurchased(): String {
+      val act = instance ?: return "[]"
+      val prefs = act.getSharedPreferences(IAP_PREFS, Context.MODE_PRIVATE)
+      val set = prefs.getStringSet(IAP_PREFS_KEY, emptySet()) ?: emptySet()
+      val arr = JSONArray()
+      set.forEach { arr.put(it) }
+      return arr.toString()
+    }
+
+    @JvmStatic
+    fun iapStartFetchProducts(idsJson: String): String {
+      iapProductsPoll.set("")
+      val ids = try {
+        val ja = JSONArray(idsJson)
+        (0 until ja.length()).map { ja.getString(it) }
+      } catch (_: Exception) {
+        listOf("app.solomd.tip.coffee", "app.solomd.tip.meal", "app.solomd.tip.feast")
+      }
+      withBilling(
+        onReady = { client ->
+          val productList = ids.map { id ->
+            QueryProductDetailsParams.Product.newBuilder()
+              .setProductId(id)
+              .setProductType(BillingClient.ProductType.INAPP)
+              .build()
+          }
+          val params = QueryProductDetailsParams.newBuilder()
+            .setProductList(productList)
+            .build()
+          client.queryProductDetailsAsync(params) { _, detailsResult ->
+            val out = JSONArray()
+            for (d in detailsResult.productDetailsList) {
+              productCache[d.productId] = d
+              val price = d.oneTimePurchaseOfferDetails?.formattedPrice ?: ""
+              out.put(
+                JSONObject().apply {
+                  put("productId", d.productId)
+                  put("title", d.name)
+                  put("description", d.description)
+                  put("formattedPrice", price)
+                }
+              )
+            }
+            iapProductsPoll.set(out.toString())
+          }
+        },
+        onFail = { _ -> iapProductsPoll.set("[]") }
+      )
+      return "ok"
+    }
+
+    @JvmStatic
+    fun iapPollProducts(): String = iapProductsPoll.getAndSet("")
+
+    @JvmStatic
+    fun iapStartPurchase(productId: String): String {
+      iapPurchasePoll.set("")
+      val act = instance ?: return "no_activity"
+      withBilling(
+        onReady = { client ->
+          val launchWith = { details: ProductDetails ->
+            act.runOnUiThread {
+              val productParams = BillingFlowParams.ProductDetailsParams.newBuilder()
+                .setProductDetails(details)
+                .build()
+              val flowParams = BillingFlowParams.newBuilder()
+                .setProductDetailsParamsList(listOf(productParams))
+                .build()
+              val res = client.launchBillingFlow(act, flowParams)
+              if (res.responseCode != BillingClient.BillingResponseCode.OK) {
+                iapPurchasePoll.set(
+                  JSONObject()
+                    .put("error", res.debugMessage.ifEmpty { "Failed to launch billing flow" })
+                    .toString()
+                )
+              }
+            }
+          }
+          val cached = productCache[productId]
+          if (cached != null) {
+            launchWith(cached)
+          } else {
+            val qParams = QueryProductDetailsParams.newBuilder()
+              .setProductList(
+                listOf(
+                  QueryProductDetailsParams.Product.newBuilder()
+                    .setProductId(productId)
+                    .setProductType(BillingClient.ProductType.INAPP)
+                    .build()
+                )
+              )
+              .build()
+            client.queryProductDetailsAsync(qParams) { _, detailsResult ->
+              val found = detailsResult.productDetailsList.firstOrNull()
+              if (found != null) {
+                productCache[found.productId] = found
+                launchWith(found)
+              } else {
+                iapPurchasePoll.set(
+                  JSONObject()
+                    .put("error", "Product '$productId' not found in Google Play Console.")
+                    .toString()
+                )
+              }
+            }
+          }
+        },
+        onFail = { msg ->
+          iapPurchasePoll.set(JSONObject().put("error", msg).toString())
+        }
+      )
+      return "ok"
+    }
+
+    @JvmStatic
+    fun iapPollPurchase(): String = iapPurchasePoll.getAndSet("")
+
+    @JvmStatic
+    fun iapStartRestore(): String {
+      iapRestorePoll.set("")
+      withBilling(
+        onReady = { client ->
+          val params = QueryPurchasesParams.newBuilder()
+            .setProductType(BillingClient.ProductType.INAPP)
+            .build()
+          client.queryPurchasesAsync(params) { _, purchases ->
+            for (p in purchases) {
+              if (p.purchaseState == Purchase.PurchaseState.PURCHASED) {
+                for (pid in p.products) {
+                  recordPurchasedId(pid)
+                }
+              }
+            }
+            iapRestorePoll.set(iapGetPurchased())
+          }
+        },
+        onFail = { _ -> iapRestorePoll.set(iapGetPurchased()) }
+      )
+      return "ok"
+    }
+
+    @JvmStatic
+    fun iapPollRestore(): String = iapRestorePoll.getAndSet("")
 
     private fun resolver() = instance?.contentResolver
 
@@ -137,6 +391,70 @@ class MainActivity : TauriActivity() {
       envelope { put("v", text) }
     } catch (e: Exception) { err(e) } }
 
+    /** Resolve a child documentId by walking path segments from rootDocId when direct docId lookup fails. */
+    private fun resolveChildDocIdBySegments(tree: Uri, startDocId: String, segments: List<String>): String? {
+      val r = resolver() ?: return null
+      var curDocId = startDocId
+      for (seg in segments) {
+        if (seg.isEmpty() || seg == ".") continue
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, curDocId)
+        var found: String? = null
+        var ciFound: String? = null
+        r.query(
+          children,
+          arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME
+          ),
+          null, null, null
+        )?.use { c ->
+          while (c.moveToNext()) {
+            val cid = c.getString(0)
+            val name = if (c.isNull(1)) cid.substringAfterLast('/') else c.getString(1)
+            if (name == seg) {
+              found = cid
+              break
+            } else if (ciFound == null && name.equals(seg, ignoreCase = true)) {
+              ciFound = cid
+            }
+          }
+        }
+        curDocId = found ?: ciFound ?: return null
+      }
+      return curDocId
+    }
+
+    /** #476 — Read binary document bytes as Base64 for local images inside a SAF folder. */
+    @JvmStatic
+    fun readBase64(treeUri: String, docId: String): String { return try {
+      val tree = Uri.parse(treeUri)
+      val r = resolver() ?: return err2("no resolver")
+      var bytes: ByteArray? = try {
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+        r.openInputStream(uri)?.use { it.readBytes() }
+      } catch (_: Exception) {
+        null
+      }
+      if (bytes == null) {
+        val rootDocId = DocumentsContract.getTreeDocumentId(tree)
+        val relPath = when {
+          docId.startsWith("$rootDocId/") -> docId.removePrefix("$rootDocId/")
+          docId.contains(':') && rootDocId.contains(':') &&
+            docId.substringAfter(':').startsWith(rootDocId.substringAfter(':') + "/") ->
+            docId.substringAfter(':').removePrefix(rootDocId.substringAfter(':') + "/")
+          else -> docId.substringAfter(':')
+        }
+        val segments = relPath.split('/').filter { it.isNotEmpty() && it != "." }
+        val resolvedDocId = resolveChildDocIdBySegments(tree, rootDocId, segments)
+        if (resolvedDocId != null) {
+          val uri = DocumentsContract.buildDocumentUriUsingTree(tree, resolvedDocId)
+          bytes = r.openInputStream(uri)?.use { it.readBytes() }
+        }
+      }
+      val data = bytes ?: return err2("openInputStream null")
+      envelope { put("v", Base64.encodeToString(data, Base64.NO_WRAP)) }
+    } catch (e: Exception) { err(e) } }
+
     /** Overwrite a document with UTF-8 text ("wt" truncates). */
     @JvmStatic
     fun writeText(treeUri: String, docId: String, content: String): String { return try {
@@ -145,6 +463,38 @@ class MainActivity : TauriActivity() {
       r.openOutputStream(uri, "wt")?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
         ?: return err2("openOutputStream null")
       envelope { put("v", true) }
+    } catch (e: Exception) { err(e) } }
+
+    /** #502 — Overwrite a SAF document with binary Base64 bytes (e.g. pasted/inserted image in _assets). */
+    @JvmStatic
+    fun writeBase64(treeUri: String, docId: String, b64: String): String { return try {
+      val uri = DocumentsContract.buildDocumentUriUsingTree(Uri.parse(treeUri), docId)
+      val r = resolver() ?: return err2("no resolver")
+      val bytes = Base64.decode(b64, Base64.DEFAULT)
+      val stream = try {
+        r.openOutputStream(uri, "wt")
+      } catch (_: Exception) {
+        try {
+          r.openOutputStream(uri, "w")
+        } catch (_: Exception) {
+          r.openOutputStream(uri)
+        }
+      }
+      stream?.use {
+        it.write(bytes)
+        it.flush()
+      } ?: return err2("openOutputStream null")
+      envelope { put("v", true) }
+    } catch (e: Exception) { err(e) } }
+
+    /** #502 — Read binary bytes from a standalone content:// URI (e.g. Android photo picker). */
+    @JvmStatic
+    fun readContentUriBase64(uriStr: String): String { return try {
+      val uri = Uri.parse(uriStr)
+      val r = resolver() ?: return err2("no resolver")
+      val bytes = r.openInputStream(uri)?.use { it.readBytes() }
+        ?: return err2("openInputStream null")
+      envelope { put("v", Base64.encodeToString(bytes, Base64.NO_WRAP)) }
     } catch (e: Exception) { err(e) } }
 
     /** Create a new document under parentDocId; returns its documentId. */
@@ -156,6 +506,110 @@ class MainActivity : TauriActivity() {
         ?: return err2("createDocument null")
       envelope { put("v", DocumentsContract.getDocumentId(created)) }
     } catch (e: Exception) { err(e) } }
+
+    /** Write Base64-encoded bytes to a standalone content:// URI (e.g. from ACTION_CREATE_DOCUMENT). */
+    @JvmStatic
+    fun writeContentUriBase64(uriStr: String, b64: String): String { return try {
+      val uri = Uri.parse(uriStr)
+      val r = resolver() ?: return err2("no resolver")
+      val bytes = Base64.decode(b64, Base64.DEFAULT)
+      val stream = try {
+        r.openOutputStream(uri, "wt")
+      } catch (_: Exception) {
+        try {
+          r.openOutputStream(uri, "w")
+        } catch (_: Exception) {
+          r.openOutputStream(uri)
+        }
+      }
+      stream?.use {
+        it.write(bytes)
+        it.flush()
+      } ?: return err2("openOutputStream null")
+      envelope { put("v", true) }
+    } catch (e: Exception) { err(e) } }
+
+    @JvmStatic
+    private val printFinished = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun findWebView(view: android.view.View?): android.webkit.WebView? {
+      if (view is android.webkit.WebView) return view
+      if (view is android.view.ViewGroup) {
+        for (i in 0 until view.childCount) {
+          val found = findWebView(view.getChildAt(i))
+          if (found != null) return found
+        }
+      }
+      return null
+    }
+
+    /** Trigger Android's native Print / Save-as-PDF dialog for the active WebView. */
+    @JvmStatic
+    fun printWebView(jobName: String): String {
+      val act = instance ?: return err2("no activity")
+      printFinished.set(false)
+      val errRef = AtomicReference<String?>(null)
+      val latch = java.util.concurrent.CountDownLatch(1)
+      act.runOnUiThread {
+        try {
+          val wv = findWebView(act.window?.decorView)
+          if (wv == null) {
+            errRef.set("no WebView found")
+            latch.countDown()
+            return@runOnUiThread
+          }
+          val pm = act.getSystemService(Context.PRINT_SERVICE) as? android.print.PrintManager
+          if (pm == null) {
+            errRef.set("PrintManager unavailable")
+            latch.countDown()
+            return@runOnUiThread
+          }
+          val safeName = jobName.ifEmpty { "SoloMD" }
+          val delegate = wv.createPrintDocumentAdapter(safeName)
+          val wrapper = object : android.print.PrintDocumentAdapter() {
+            override fun onStart() {
+              delegate.onStart()
+            }
+            override fun onLayout(
+              oldAttributes: android.print.PrintAttributes?,
+              newAttributes: android.print.PrintAttributes?,
+              cancellationSignal: android.os.CancellationSignal?,
+              callback: LayoutResultCallback?,
+              extras: Bundle?
+            ) {
+              delegate.onLayout(oldAttributes, newAttributes, cancellationSignal, callback, extras)
+            }
+            override fun onWrite(
+              pages: Array<out android.print.PageRange>?,
+              destination: android.os.ParcelFileDescriptor?,
+              cancellationSignal: android.os.CancellationSignal?,
+              callback: WriteResultCallback?
+            ) {
+              delegate.onWrite(pages, destination, cancellationSignal, callback)
+            }
+            override fun onFinish() {
+              try {
+                delegate.onFinish()
+              } finally {
+                printFinished.set(true)
+              }
+            }
+          }
+          pm.print(safeName, wrapper, android.print.PrintAttributes.Builder().build())
+          latch.countDown()
+        } catch (e: Exception) {
+          errRef.set(e.message ?: e.toString())
+          latch.countDown()
+        }
+      }
+      latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+      val errMsg = errRef.get()
+      if (errMsg != null) return err2(errMsg)
+      return envelope { put("v", true) }
+    }
+
+    @JvmStatic
+    fun pollPrintFinished(): String = if (printFinished.getAndSet(false)) "1" else "0"
 
     /** Delete a document (file or empty dir). */
     @JvmStatic
@@ -183,7 +637,11 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onDestroy() {
-    if (instance === this) instance = null
+    if (instance === this) {
+      billingClient?.endConnection()
+      billingClient = null
+      instance = null
+    }
     super.onDestroy()
   }
 

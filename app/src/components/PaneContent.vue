@@ -8,6 +8,7 @@ import { useTilesStore } from '../stores/tiles';
 import { useTabsStore } from '../stores/tabs';
 import type { Tab } from '../types';
 import { isWindowsEditorRuntime, shouldUsePlainWindowsEditor } from '../lib/platform';
+import { previewScrollMemory, tabCaretMemory, tabTopLineMemory } from '../lib/scroll-memory';
 
 const props = defineProps<{
   paneId: string;
@@ -88,6 +89,9 @@ function restoreLaunchCursor() {
     if (!ed || props.tab?.id !== tabId) return;
     const c = tabs.takeLaunchCursor(tabId);
     if (!c) return;
+    if ((c.line <= 1 && c.col <= 1) || tabCaretMemory.has(tabId) || tabTopLineMemory.has(tabId)) {
+      return;
+    }
     if (ed.setCaret) ed.setCaret(c.line, c.col);
     else ed.gotoLine?.(c.line);
   }, 150);
@@ -100,11 +104,17 @@ function onSelection(text: string) {
   }
 }
 
+let markScrollDriver: ((which: 'editor' | 'preview', ms?: number) => void) | null = null;
+
 function gotoLine(line: number) {
   if (settings.viewMode === 'preview') {
     previewRef.value?.scrollToLine(line);
   } else {
+    markScrollDriver?.('editor', 400);
     editorRef.value?.gotoLine(line);
+    if (settings.viewMode === 'split') {
+      previewRef.value?.scrollToLine(line);
+    }
   }
 }
 
@@ -239,6 +249,7 @@ function bindScrollSync() {
   if (syncPreviewScroll) syncPreviewScroll();
   syncEditorScroll = null;
   syncPreviewScroll = null;
+  markScrollDriver = null;
   resizeObserver?.disconnect();
   resizeObserver = null;
 
@@ -270,10 +281,18 @@ function bindScrollSync() {
   // momentum keep the same driver.
   let activePane: 'editor' | 'preview' | null = null;
   let activeTimer: ReturnType<typeof setTimeout> | null = null;
-  const markActive = (which: 'editor' | 'preview') => {
+  const markActive = (which: 'editor' | 'preview', ms = 250) => {
     activePane = which;
     if (activeTimer) clearTimeout(activeTimer);
-    activeTimer = setTimeout(() => { activePane = null; }, 250);
+    activeTimer = setTimeout(() => { activePane = null; }, ms);
+  };
+  markScrollDriver = markActive;
+  const releaseSyncGuard = () => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        syncGuard = false;
+      });
+    });
   };
   const intentEvents = ['wheel', 'pointerdown', 'touchstart', 'keydown'] as const;
   const editorIntent = () => markActive('editor');
@@ -301,7 +320,7 @@ function bindScrollSync() {
       if (emax > 0 && pmax > 0) {
         syncGuard = true;
         preview.scrollTop = (editor.scrollTop / emax) * pmax;
-        requestAnimationFrame(() => { syncGuard = false; });
+        releaseSyncGuard();
       }
       return;
     }
@@ -328,7 +347,7 @@ function bindScrollSync() {
     }
     syncGuard = true;
     preview.scrollTop += target - wrapRect.top - 8;
-    requestAnimationFrame(() => { syncGuard = false; });
+    releaseSyncGuard();
   };
 
   const onPreviewScroll = () => {
@@ -369,7 +388,7 @@ function bindScrollSync() {
     } else if (cmRef?.scrollToLine) {
       cmRef.scrollToLine(targetLine);
     }
-    requestAnimationFrame(() => { syncGuard = false; });
+    releaseSyncGuard();
   };
 
   editor.addEventListener('scroll', onEditorScroll, { passive: true });
@@ -390,7 +409,7 @@ function bindScrollSync() {
         if (editor.scrollTop <= 0) {
           syncGuard = true;
           preview.scrollTop = 0;
-          requestAnimationFrame(() => { syncGuard = false; });
+          releaseSyncGuard();
           return;
         }
         onEditorScroll();
@@ -407,6 +426,7 @@ function bindScrollSync() {
     preview.removeEventListener('scroll', onPreviewScroll);
     for (const ev of intentEvents) preview.removeEventListener(ev, previewIntent);
     if (activeTimer) clearTimeout(activeTimer);
+    markScrollDriver = null;
   };
 }
 
@@ -419,21 +439,27 @@ function bindScrollSync() {
 function getCurrentTopLine(paneEl: Element, fromMode: string): number | null {
   if (fromMode === 'preview' || fromMode === 'reading') {
     const preview = paneEl.querySelector('.pane--preview .preview-host') as HTMLElement | null;
-    if (!preview) return null;
-    const list = getPreviewElementsByLine(preview);
-    const wrapTop = preview.getBoundingClientRect().top;
-    for (const { line, el } of list) {
-      const r = el.getBoundingClientRect();
-      if (r.bottom >= wrapTop) return line;
+    if (preview) {
+      const list = getPreviewElementsByLine(preview);
+      const wrapTop = preview.getBoundingClientRect().top;
+      for (const { line, el } of list) {
+        const r = el.getBoundingClientRect();
+        if (r.bottom >= wrapTop) return line;
+      }
     }
-    return null;
+    return props.tab?.id ? (tabTopLineMemory.get(props.tab.id) ?? null) : null;
   }
   // edit / liveEdit / split — use the editor's top visible line
   const cmRef = editorRef.value as any;
-  return cmRef?.getViewLine ? cmRef.getViewLine() : null;
+  const edLine = cmRef?.getViewLine ? cmRef.getViewLine() : null;
+  if (edLine != null) return edLine;
+  return props.tab?.id ? (tabTopLineMemory.get(props.tab.id) ?? null) : null;
 }
 
 function restoreToLine(paneEl: Element, toMode: string, line: number) {
+  if (props.tab?.id && line >= 1) {
+    tabTopLineMemory.set(props.tab.id, line);
+  }
   if (toMode === 'edit' || toMode === 'liveEdit' || toMode === 'split') {
     const cmRef = editorRef.value as any;
     if (cmRef?.scrollToLine) cmRef.scrollToLine(line);
@@ -446,7 +472,10 @@ function restoreToLine(paneEl: Element, toMode: string, line: number) {
       if (entry) {
         const elRect = entry.el.getBoundingClientRect();
         const wrapRect = preview.getBoundingClientRect();
-        preview.scrollTop += elRect.top - wrapRect.top - 8;
+        preview.scrollTop = Math.max(0, preview.scrollTop + (elRect.top - wrapRect.top) - 8);
+        if (props.tab?.id) {
+          previewScrollMemory.set(props.tab.id, preview.scrollTop);
+        }
       }
     }
   }
@@ -455,10 +484,15 @@ function restoreToLine(paneEl: Element, toMode: string, line: number) {
 watch(() => settings.viewMode, async (newMode, oldMode) => {
   // Snapshot the logical position from the OLD view while it's still mounted.
   const paneEl = document.querySelector(`[data-pane-id="${props.paneId}"]`);
-  const savedLine = paneEl ? getCurrentTopLine(paneEl, oldMode) : null;
+  const savedLine =
+    (paneEl ? getCurrentTopLine(paneEl, oldMode) : null) ??
+    (props.tab?.id ? (tabTopLineMemory.get(props.tab.id) ?? null) : null);
+  if (props.tab?.id && savedLine != null && savedLine >= 1) {
+    tabTopLineMemory.set(props.tab.id, savedLine);
+  }
   // 100ms matches the existing settle window before bindScrollSync.
   await new Promise((r) => setTimeout(r, 100));
-  if (savedLine != null) {
+  if (savedLine != null && savedLine > 1) {
     const newPaneEl = document.querySelector(`[data-pane-id="${props.paneId}"]`);
     if (newPaneEl) restoreToLine(newPaneEl, newMode, savedLine);
   }
@@ -473,6 +507,13 @@ watch(() => props.tab?.id, async () => {
 });
 
 onMounted(() => {
+  setTimeout(() => {
+    const savedLine = props.tab?.id ? tabTopLineMemory.get(props.tab.id) : undefined;
+    if (savedLine && savedLine > 1) {
+      const paneEl = document.querySelector(`[data-pane-id="${props.paneId}"]`);
+      if (paneEl) restoreToLine(paneEl, settings.viewMode, savedLine);
+    }
+  }, 110);
   setTimeout(bindScrollSync, 300);
   restoreLaunchCursor();
   window.addEventListener('solomd:outline-goto', onOutlineGotoEvent);

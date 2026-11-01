@@ -1,16 +1,31 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { getVersion } from '@tauri-apps/api/app';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { DsModal } from '../ui';
 import BrandMark from './BrandMark.vue';
 import Icons from './Icons.vue';
+import SupportDialog from './SupportDialog.vue';
+import { useI18n } from '../i18n';
+import {
+  supporterRecord,
+  iapUseStoreFlow,
+  badgeInfo,
+  initSupporterState,
+} from '../lib/supporter';
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
+const { lang } = useI18n();
+const isZh = computed(() => String(lang.value || '').startsWith('zh'));
+
+const supportOpen = ref(false);
+const activeBadge = computed(() => badgeInfo(supporterRecord.value.active, isZh.value));
+
 const VERSION = ref('…');
 onMounted(async () => {
+  void initSupporterState();
   try {
     VERSION.value = await getVersion();
   } catch {
@@ -46,7 +61,12 @@ async function loadSponsors() {
     /* offline or blocked — nothing to show */
   }
 }
-watch(() => props.open, (o) => { if (o) loadSponsors(); }, { immediate: true });
+watch(() => props.open, (o) => {
+  if (o) {
+    loadSponsors();
+    void initSupporterState();
+  }
+}, { immediate: true });
 
 const links = {
   website: 'https://solomd.app',
@@ -87,7 +107,18 @@ async function visit(url: string) {
       </div>
 
       <h2 class="about__name">SoloMD</h2>
-      <div class="about__version">v{{ VERSION }}</div>
+      <div class="about__version-row">
+        <span class="about__version">v{{ VERSION }}</span>
+        <button
+          v-if="activeBadge"
+          type="button"
+          class="about__supporter-badge"
+          @click="supportOpen = true"
+        >
+          <span>{{ activeBadge.icon }}</span>
+          <span>{{ activeBadge.label }}</span>
+        </button>
+      </div>
 
       <p class="about__tagline">
         One file. One window. Just write.<br />
@@ -124,11 +155,19 @@ async function visit(url: string) {
           </div>
           <Icons class="about__link-chev" name="chevron-right" :size="14" />
         </button>
-        <button class="about__link" @click="visit(links.sponsor)">
+        <button class="about__link" @click="supportOpen = true">
           <Icons class="about__link-icon" name="heart" :size="16" />
           <div>
-            <div class="about__link-title">Sponsor / 赞助</div>
-            <div class="about__link-url">GitHub · Alipay · WeChat</div>
+            <div class="about__link-title">Support / 支持开发者</div>
+            <div class="about__link-url">
+              {{
+                activeBadge
+                  ? `${activeBadge.icon} ${activeBadge.label}`
+                  : iapUseStoreFlow
+                    ? '☕ · 🍜 · 🚀 · 点亮支持者徽章'
+                    : 'GitHub · Alipay · WeChat · 支持者徽章'
+              }}
+            </div>
           </div>
           <Icons class="about__link-chev" name="chevron-right" :size="14" />
         </button>
@@ -146,7 +185,7 @@ async function visit(url: string) {
         <div class="about__sponsors-title">Thanks to our promoters / 感谢推广者</div>
         <div class="about__sponsors-names">{{ promoters.join(' · ') }}</div>
       </div>
-      <button class="about__promote" @click="visit(links.promote)">
+      <button v-if="!iapUseStoreFlow" class="about__promote" @click="visit(links.promote)">
         Help spread the word / 帮忙推广 SoloMD
       </button>
 
@@ -156,6 +195,7 @@ async function visit(url: string) {
       </div>
     </div>
   </DsModal>
+  <SupportDialog :open="supportOpen" @close="supportOpen = false" />
 </template>
 
 <style scoped>
@@ -186,11 +226,35 @@ async function visit(url: string) {
   letter-spacing: -0.01em;
   color: var(--text);
 }
+.about__version-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
 .about__version {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text-3);
-  margin-bottom: 14px;
+}
+.about__supporter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  cursor: pointer;
+}
+.about__supporter-badge--super {
+  color: #d97706;
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  border-color: color-mix(in srgb, #f59e0b 40%, transparent);
 }
 .about__tagline {
   font-size: 13px;

@@ -28,6 +28,12 @@ export interface EditorMenuSpell {
   word: string;
   suggestions: string[];
   canAdd: boolean;
+  /** LanguageTool: the explanation shown above the suggestions. */
+  message?: string;
+  /** LanguageTool: offer "Ignore" and "Disable rule". */
+  canIgnore?: boolean;
+  /** LanguageTool: a match covering several words gets one "Add" per word. */
+  addWords?: string[];
 }
 
 // `hasImage`: the right-click landed on a rendered image (#362) — offer
@@ -41,10 +47,15 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   (e: 'action', id: EditorMenuAction): void;
+  (e: 'resize-image', size: string): void;
   (e: 'replace', word: string): void;
   (e: 'add-word', word: string): void;
+  (e: 'lt-ignore'): void;
+  (e: 'lt-disable-rule'): void;
   (e: 'close'): void;
 }>();
+
+const IMAGE_SIZE_PRESETS = ['25%', '50%', '75%', '100%'] as const;
 
 const { t } = useI18n();
 const root = ref<HTMLElement | null>(null);
@@ -119,6 +130,7 @@ onBeforeUnmount(() => {
     @contextmenu.prevent
   >
     <template v-if="props.spell">
+      <div v-if="props.spell.message" class="editor-ctx__message">{{ props.spell.message }}</div>
       <button
         v-for="s in props.spell.suggestions"
         :key="'sugg-' + s"
@@ -129,7 +141,7 @@ onBeforeUnmount(() => {
         @mousedown.prevent
         @click="emit('replace', s)"
       >
-        <span class="editor-ctx__label">{{ s }}</span>
+        <span class="editor-ctx__label">{{ s === '' ? t('languagetool.remove') : s }}</span>
       </button>
       <button
         v-if="props.spell.suggestions.length === 0"
@@ -143,8 +155,22 @@ onBeforeUnmount(() => {
       >
         <span class="editor-ctx__label">{{ t('spellcheck.noSuggestions') }}</span>
       </button>
+      <template v-if="props.spell.canAdd && props.spell.addWords && props.spell.addWords.length > 1">
+        <button
+          v-for="w in props.spell.addWords"
+          :key="'add-' + w"
+          type="button"
+          role="menuitem"
+          class="editor-ctx__item"
+          data-action="addToDict"
+          @mousedown.prevent
+          @click="emit('add-word', w)"
+        >
+          <span class="editor-ctx__label">{{ t('languagetool.addWord', { word: w }) }}</span>
+        </button>
+      </template>
       <button
-        v-if="props.spell.canAdd"
+        v-else-if="props.spell.canAdd"
         type="button"
         role="menuitem"
         class="editor-ctx__item"
@@ -154,6 +180,28 @@ onBeforeUnmount(() => {
       >
         <span class="editor-ctx__label">{{ t('spellcheck.addToDict') }}</span>
       </button>
+      <template v-if="props.spell.canIgnore">
+        <button
+          type="button"
+          role="menuitem"
+          class="editor-ctx__item"
+          data-action="ltIgnore"
+          @mousedown.prevent
+          @click="emit('lt-ignore')"
+        >
+          <span class="editor-ctx__label">{{ t('languagetool.ignore') }}</span>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          class="editor-ctx__item"
+          data-action="ltDisableRule"
+          @mousedown.prevent
+          @click="emit('lt-disable-rule')"
+        >
+          <span class="editor-ctx__label">{{ t('languagetool.disableRule') }}</span>
+        </button>
+      </template>
     </template>
     <template v-for="item in items" :key="item.id">
       <div v-if="item.sep" class="editor-ctx__sep" />
@@ -170,6 +218,25 @@ onBeforeUnmount(() => {
         <span class="editor-ctx__label">{{ item.label }}</span>
         <span class="editor-ctx__key">{{ item.key }}</span>
       </button>
+      <div
+        v-if="item.id === 'copyImage'"
+        class="editor-ctx__image-sizes"
+        role="group"
+        :aria-label="t('overlay.imageSize')"
+      >
+        <span class="editor-ctx__size-label">{{ t('overlay.imageSize') }}</span>
+        <div class="editor-ctx__size-pills">
+          <button
+            v-for="sz in IMAGE_SIZE_PRESETS"
+            :key="sz"
+            type="button"
+            class="editor-ctx__size-btn"
+            :data-size="sz"
+            @mousedown.prevent
+            @click="emit('resize-image', sz)"
+          >{{ sz }}</button>
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -208,6 +275,14 @@ onBeforeUnmount(() => {
 .editor-ctx__item--suggestion {
   font-weight: 600;
 }
+.editor-ctx__message {
+  max-width: 300px;
+  padding: 4px 10px 6px;
+  color: var(--text-muted, var(--text));
+  font-size: 12px;
+  line-height: 1.4;
+  user-select: text;
+}
 .editor-ctx__item:disabled {
   color: var(--text-faint);
 }
@@ -219,5 +294,35 @@ onBeforeUnmount(() => {
   height: 1px;
   margin: 4px 6px;
   background: var(--border);
+}
+.editor-ctx__image-sizes {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px 6px;
+}
+.editor-ctx__size-label {
+  color: var(--text-muted, var(--text));
+  font-size: 12px;
+  white-space: nowrap;
+}
+.editor-ctx__size-pills {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.editor-ctx__size-btn {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+.editor-ctx__size-btn:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
 }
 </style>

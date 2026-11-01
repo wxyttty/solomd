@@ -14,7 +14,7 @@
  */
 
 import { syntaxTree, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { RangeSetBuilder } from '@codemirror/state';
+import { Prec, RangeSetBuilder } from '@codemirror/state';
 import {
   Decoration,
   DecorationSet,
@@ -162,8 +162,8 @@ export const markdownRichStyle = HighlightStyle.define([
   { tag: t.strong, fontWeight: '700', color: 'var(--md-strong)' },
   { tag: t.emphasis, fontStyle: 'italic', color: 'var(--md-em)' },
   { tag: t.strikethrough, textDecoration: 'line-through', color: 'var(--text-muted)' },
-  { tag: t.link, color: 'var(--accent-text)' },
-  { tag: t.url, color: 'var(--text-3)' },
+  { tag: t.link, color: 'var(--accent-text)', textDecoration: 'underline' },
+  { tag: t.url, color: 'var(--accent-text)', textDecoration: 'underline' },
   { tag: t.monospace, fontFamily: 'var(--font-mono)', color: 'var(--text)', backgroundColor: 'var(--fill-1)' },
   { tag: t.quote, color: 'var(--text-2)' },
   { tag: t.processingInstruction, color: 'var(--text-3)' },
@@ -239,19 +239,20 @@ export function livePreviewExtension(opts: { showMarkers?: boolean } = {}) {
 // a rendered preview — instead of both looking like a preview. (User ask,
 // 2026-06-20: "没打开实时预览时标题还是被预览了 / 两个按钮等于一样了".)
 export const markdownPlainStyle = HighlightStyle.define([
-  { tag: t.heading1, color: 'var(--md-h1)' },
-  { tag: t.heading2, color: 'var(--md-h2)' },
-  { tag: t.heading3, color: 'var(--md-h3)' },
-  { tag: t.heading4, color: 'var(--md-h4)' },
-  { tag: t.heading5, color: 'var(--md-h5)' },
-  { tag: t.heading6, color: 'var(--md-h6)' },
-  { tag: t.strong, color: 'var(--md-strong)' },
-  { tag: t.emphasis, color: 'var(--md-em)' },
-  { tag: t.strikethrough, color: 'var(--text-muted)' },
-  { tag: t.link, color: 'var(--md-link)' },
-  { tag: t.url, color: 'var(--md-url)' },
+  { tag: t.heading1, color: 'var(--md-h1)', fontWeight: 'normal', textDecoration: 'none' },
+  { tag: t.heading2, color: 'var(--md-h2)', fontWeight: 'normal', textDecoration: 'none' },
+  { tag: t.heading3, color: 'var(--md-h3)', fontWeight: 'normal', textDecoration: 'none' },
+  { tag: t.heading4, color: 'var(--md-h4)', fontWeight: 'normal', textDecoration: 'none' },
+  { tag: t.heading5, color: 'var(--md-h5)', fontWeight: 'normal', textDecoration: 'none' },
+  { tag: t.heading6, color: 'var(--md-h6)', fontWeight: 'normal', textDecoration: 'none' },
+  { tag: t.heading, fontWeight: 'normal', textDecoration: 'none' },
+  { tag: t.strong, color: 'var(--md-strong)', fontWeight: 'normal' },
+  { tag: t.emphasis, color: 'var(--md-em)', fontStyle: 'normal' },
+  { tag: t.strikethrough, color: 'var(--text-muted)', textDecoration: 'none' },
+  { tag: t.link, color: 'var(--md-link)', textDecoration: 'none' },
+  { tag: t.url, color: 'var(--md-url)', textDecoration: 'none' },
   { tag: t.monospace, fontFamily: 'var(--font-mono)', color: 'var(--md-code)' },
-  { tag: t.quote, color: 'var(--md-quote)' },
+  { tag: t.quote, color: 'var(--md-quote)', fontStyle: 'normal' },
   { tag: t.list, color: 'var(--md-list)' },
   { tag: t.processingInstruction, color: 'var(--text-faint)' },
   { tag: t.contentSeparator, color: 'var(--md-hr)' },
@@ -270,5 +271,5 @@ export const markdownPlainStyle = HighlightStyle.define([
 ]);
 
 export function richHighlightOnly() {
-  return [syntaxHighlighting(markdownPlainStyle)];
+  return [Prec.high(syntaxHighlighting(markdownPlainStyle)), liveTheme];
 }

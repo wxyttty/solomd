@@ -146,7 +146,9 @@ export const KEY_ACTIONS: KeyActionDef[] = [
   { id: 'export.pdf', label: 'Export as PDF (Image)', category: 'file', defaults: [] },
   { id: 'export.image', label: 'Export as Image', category: 'file', defaults: [] },
   { id: 'export.copyHtml', label: 'Copy as HTML', category: 'file', defaults: ['Mod+Shift+C'] },
+  { id: 'export.copyWord', label: 'Copy as Word', category: 'file', defaults: [] },
   { id: 'export.copyMd', label: 'Copy as Markdown', category: 'file', defaults: ['Mod+Alt+C'] },
+  { id: 'file.print', label: 'Print…', category: 'file', defaults: [] },
   { id: 'inbox.open', label: 'Open Inbox', category: 'file', defaults: [] },
   { id: 'inbox.toggle', label: 'Toggle Inbox Flag / Organize', category: 'file', defaults: ['Mod+E'] },
   { id: 'file.openExternal', label: 'Open in External Editor', category: 'file', defaults: ['Mod+Shift+E'] },
@@ -203,6 +205,7 @@ export const KEY_ACTIONS: KeyActionDef[] = [
   { id: 'heading.promote', label: 'Increase Heading Level', category: 'paragraph', defaults: [] },
   { id: 'heading.demote', label: 'Decrease Heading Level', category: 'paragraph', defaults: [] },
   { id: 'heading.paragraph', label: 'Convert to Paragraph', category: 'paragraph', defaults: [] },
+  { id: 'heading.autoNumber', label: 'Auto-Number Headings', category: 'paragraph', defaults: [] },
   { id: 'fmt.ol', label: 'Numbered List', category: 'paragraph', defaults: ['Mod+Alt+7'] },
   { id: 'fmt.ul', label: 'Bulleted List', category: 'paragraph', defaults: ['Mod+Alt+8'] },
   { id: 'fmt.task', label: 'Task List', category: 'paragraph', defaults: ['Mod+Alt+9'] },
@@ -218,7 +221,9 @@ export const KEY_ACTIONS: KeyActionDef[] = [
   // preset below swaps the two in one click instead.
   { id: 'fmt.bold', label: 'Bold', category: 'format', defaults: ['Mod+Shift+B'] },
   { id: 'fmt.italic', label: 'Italic', category: 'format', defaults: ['Mod+I'] },
+  { id: 'fmt.underline', label: 'Underline', category: 'format', defaults: ['Mod+U'] },
   { id: 'fmt.strike', label: 'Strikethrough', category: 'format', defaults: ['Mod+Shift+X'] },
+  { id: 'fmt.highlight', label: 'Highlight', category: 'format', defaults: ['Mod+Shift+H'] },
   { id: 'fmt.code', label: 'Inline Code', category: 'format', defaults: ['Mod+Shift+M'] },
   { id: 'fmt.link', label: 'Link', category: 'format', defaults: ['Mod+K'] },
 
@@ -238,6 +243,7 @@ export const KEY_ACTIONS: KeyActionDef[] = [
   // Markdown Help here, so the default is Mod+Alt+/; rebind it to Mod+/ in
   // Settings -> Shortcuts to get Typora's muscle memory back.
   { id: 'view.toggleLiveEdit', label: 'Toggle Source / Live Edit', category: 'view', defaults: ['Mod+Alt+Slash'] },
+  { id: 'view.togglePreview', label: 'Toggle Preview Mode', category: 'view', defaults: ['Mod+Alt+V'] },
   { id: 'view.cycleView', label: 'Cycle Edit / Split / Preview', category: 'view', defaults: ['Mod+Shift+P'] },
   { id: 'view.toggleReading', label: 'Toggle Reading Mode', category: 'view', defaults: ['Mod+Shift+R'] },
   { id: 'view.slideshow', label: 'Slideshow', category: 'view', defaults: ['Mod+Alt+P'] },

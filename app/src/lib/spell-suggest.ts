@@ -105,6 +105,10 @@ export async function lookupMisspelling(
  *  underline drops its cached verdicts and re-checks. */
 export const SPELL_DICT_CHANGED_EVENT = 'solomd:spell-dict-changed';
 
+/** Fired when whether Hunspell should underline at all may have changed —
+ *  LanguageTool took over spelling, or its server went away. */
+export const SPELL_RECHECK_EVENT = 'solomd:spellcheck-recheck';
+
 export async function addToSpellDict(word: string): Promise<void> {
   await invoke('spellcheck_add_to_dict', { word });
   window.dispatchEvent(new CustomEvent(SPELL_DICT_CHANGED_EVENT, { detail: { word } }));

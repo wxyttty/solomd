@@ -47,3 +47,7 @@ INTEGRITET FRÅN GRUNDEN
 SoloMD samlar inte in några data. Inget konto, ingen analys, ingen reklam, ingen spårning. Dina anteckningar stannar i filer som du äger.
 
 SoloMD är öppen källkod under MIT-licensen: github.com/zhitongblog/solomd
+
+100 % GRATIS FÖR ALLTID OCH SUPPORTER-MÄRKE
+
+Alla funktioner i SoloMD är 100 % gratis för alltid — utan prenumerationer eller låsta funktioner. Valfria engångsköp i appen (Bjud på en kaffe / Bjud på en lunch / Generöst stöd) är helt frivillig dricks för att stödja oberoende utveckling och låser permanent upp märket ”Supporter”.

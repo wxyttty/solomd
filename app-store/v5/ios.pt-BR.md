@@ -47,3 +47,7 @@ PRIVACIDADE DESDE A CONCEPÇÃO
 O SoloMD não coleta nenhum dado. Sem conta, sem análises, sem anúncios, sem rastreamento. Suas notas ficam em arquivos que são seus.
 
 O SoloMD é de código aberto, sob a licença MIT: github.com/zhitongblog/solomd
+
+100% GRATUITO PARA SEMPRE E EMBLEMA DE APOIADOR
+
+Todos os recursos do SoloMD são 100% gratuitos para sempre — sem assinaturas ou recursos bloqueados. As compras únicas no app (Pagar um café / Pagar um almoço / Apoio generoso) são contribuições totalmente voluntárias para apoiar o desenvolvimento independente e desbloqueiam permanentemente o emblema «Apoiador».

@@ -158,8 +158,11 @@ onBeforeUnmount(() => {
 .ds-modal__panel {
   position: relative;
   box-sizing: border-box;
-  max-width: calc(100vw - var(--sp-6));
-  max-height: calc(100vh - var(--sp-6));
+  /* #426 / #125: Measure against .ds-modal (fixed inset: 0; padding: --sp-5)
+     instead of 100vw/100vh, which can remain stuck at a Split View / Stage
+     Manager scene width on iPadOS 26 and scales wrongly under CSS zoom. */
+  max-width: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg-pop);

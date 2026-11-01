@@ -66,6 +66,7 @@ import { useFiles } from './composables/useFiles';
 import { useShortcuts } from './composables/useShortcuts';
 import { useFileWatcher } from './composables/useFileWatcher';
 import { loadCustomTheme } from './lib/custom-theme';
+import { ensureCustomFontLoaded } from './lib/custom-font';
 import { isIOS, isMacOS, isAndroid, isMobile, isWindowsDesktop } from './lib/platform';
 import { useViewport, useTabletOverlay } from './composables/useViewport';
 import { toNativeSpec } from './lib/app-menu';
@@ -363,11 +364,12 @@ function flushPendingEdits() {
   window.dispatchEvent(new Event('solomd:flush-content-sync'));
 }
 
-/** Closing a second editor window: ask about each unsaved tab, the way
- *  closing a single tab does. False = the user cancelled (or a save failed),
- *  so the window stays. A second ✕ while the dialog is up is ignored. */
+/** Closing an editor window: ask about each unsaved tab, the way closing a
+ *  single tab does (#468). False = the user cancelled (or a save failed),
+ *  so the window stays open and no edits are ever lost. A second ✕ while the
+ *  dialog is up is ignored. */
 let closePromptOpen = false;
-async function confirmCloseWithUnsavedTabs(): Promise<boolean> {
+async function confirmCloseWithUnsavedTabs(isMainWindow = false): Promise<boolean> {
   if (closePromptOpen) return false;
   closePromptOpen = true;
   try {
@@ -376,6 +378,9 @@ async function confirmCloseWithUnsavedTabs(): Promise<boolean> {
       const action = await showUnsavedDialog('window', tab.fileName, 1);
       if (action === 'cancel') return false;
       if (action === 'save' && !(await files.saveTab(tab))) return false;
+      if (action === 'discard' && isMainWindow) {
+        tab.content = tab.savedContent;
+      }
     }
     return true;
   } finally {
@@ -611,7 +616,41 @@ watch(
   { immediate: true },
 );
 
-// UI font size
+// #475 — Brief centered HUD pill showing the current zoom percentage whenever
+// global UI zoom, editor font size, or preview font size changes.
+const zoomHudText = ref('');
+let zoomHudTimer: ReturnType<typeof setTimeout> | null = null;
+function showZoomHud(label: string) {
+  zoomHudText.value = label;
+  if (zoomHudTimer) clearTimeout(zoomHudTimer);
+  zoomHudTimer = setTimeout(() => {
+    zoomHudText.value = '';
+    zoomHudTimer = null;
+  }, 1200);
+}
+watch(
+  () => settings.globalZoom,
+  (z, prev) => {
+    if (prev === undefined || z === prev) return;
+    showZoomHud(`${Math.round((z || 1) * 100)}%`);
+  },
+);
+watch(
+  () => settings.fontSize,
+  (sz, prev) => {
+    if (prev === undefined || sz === prev) return;
+    const pct = Math.round(((sz || 16) / 16) * 100);
+    showZoomHud(`${pct}% (${sz}px)`);
+  },
+);
+watch(
+  () => settings.previewFontSize,
+  (sz, prev) => {
+    if (prev === undefined || sz === prev) return;
+    const pct = Math.round(((sz || 16) / 16) * 100);
+    showZoomHud(`${pct}% (${sz}px)`);
+  },
+);
 watchEffect(() => {
   document.documentElement.style.setProperty('--ui-font-size', `${settings.uiFontSize}px`);
 });
@@ -646,7 +685,8 @@ watchEffect(() => {
 watchEffect(() => {
   const f = (settings.codeFontFamily || '').trim();
   if (f) {
-    const quoted = /\s/.test(f) && !/^["']/.test(f) && !f.includes(',') ? `"${f}"` : f;
+    void ensureCustomFontLoaded(f);
+    const quoted = /[\s/.\\]/.test(f) && !/^["']/.test(f) && !f.includes(',') ? `"${f}"` : f;
     document.documentElement.style.setProperty(
       '--font-mono',
       `${quoted}, "JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, monospace`,
@@ -688,6 +728,9 @@ watchEffect(() => {
 // fallback stack the editor uses — so Preview.vue / ReadingView render in it.
 watchEffect(() => {
   const root = document.documentElement;
+  if (settings.fontFamily.trim()) {
+    void ensureCustomFontLoaded(settings.fontFamily);
+  }
   root.style.setProperty('--content-font-family', buildEditorFontStack(settings.fontFamily));
   // Gitee IK9BBG — reading mode has its own serif stack, so it swallowed the
   // font setting whole. `--content-font-family` can't be used as the override
@@ -742,6 +785,9 @@ watchEffect(() => {
   document.documentElement.setAttribute('data-theme', dataThemeFor(settings.theme, !!settings.customCssPath));
   // 5.0 tokens: the exact default palette stays out of a marketplace theme's way.
   document.documentElement.toggleAttribute('data-custom-theme', !!settings.customCssPath);
+  if (isIOS()) {
+    invoke('ios_set_appearance', { dark: themeFamily(settings.theme) === 'dark' }).catch(() => {});
+  }
   const overriddenBy = settings.customCssPath;
   if (!themeAppliedOnce) {
     themeAppliedOnce = true;
@@ -950,7 +996,15 @@ async function runEditHistory(kind: 'undo' | 'redo') {
       return;
     }
   }
-  document.execCommand(kind);
+  const isExternalInput =
+    active instanceof HTMLElement &&
+    !active.closest('.plain-host') &&
+    (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+  if (isExternalInput) {
+    document.execCommand(kind);
+    return;
+  }
+  window.dispatchEvent(new CustomEvent('solomd:editor-history', { detail: { op: kind } }));
 }
 
 /**
@@ -1155,7 +1209,19 @@ function onWindowFocus() {
  * instead of an empty, unreadable tree.
  */
 async function reconcileIosFolder() {
-  if (!isIOS() || !workspace.currentFolder) return;
+  if (!workspace.currentFolder) return;
+  if (isMacOS()) {
+    try {
+      const reopened = await invoke<string | null>('ios_restore_folder');
+      if (reopened && reopened !== workspace.currentFolder) {
+        workspace.setFolder(reopened);
+      }
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  if (!isIOS()) return;
   try {
     const docs = (await documentDir()).replace(/\/+$/, '');
     const cur = workspace.currentFolder;
@@ -1224,8 +1290,13 @@ onMounted(async () => {
   scheduleStarPrompt();
   // Launch: put the keyboard in the editor once it has mounted (the
   // CodeMirror path never focused itself, so typing went nowhere until a
-  // click). Skipped while a dialog is up or something else has focus.
-  focusActiveEditorSoon(() => tiles.focusedPaneId, { timeoutMs: 5000 });
+  // click). Skipped on mobile/iPad (#461): programmatic focus without a user
+  // gesture on iPadOS 18 activates the bottom UITextInputAssistantItem bar
+  // reservation without raising the software keyboard, leaving a bottom black
+  // bar and slowing cold launch.
+  if (!isMobile()) {
+    focusActiveEditorSoon(() => tiles.focusedPaneId, { timeoutMs: 5000 });
+  }
   void reconcileIosFolder();
   // #153 (mobile) — Android's WebView reports env(safe-area-inset-top) as 0
   // under forced edge-to-edge, so the toolbar rendered under the status bar
@@ -1472,10 +1543,8 @@ onMounted(async () => {
       // Editors sync their document into the store on a debounce; text typed
       // just before the close would otherwise miss the persist below.
       flushPendingEdits();
+      if (!(await confirmCloseWithUnsavedTabs(me === 'main'))) return;
       if (me !== 'main') {
-        // Nothing restores a second window's tabs on the next launch, so its
-        // unsaved edits are asked about here instead of silently dropped.
-        if (!(await confirmCloseWithUnsavedTabs())) return;
         if (isAuxLabel(me)) windowsStore.unregister(me);
       } else {
         tabs.persist?.();
@@ -1682,6 +1751,13 @@ function onOpenAgentWizard() {
   wizardOpen.value = true;
 }
 
+function onLeaveCenterOverlay() {
+  if (inboxViewOpen.value) inboxViewOpen.value = false;
+  if (basesOpen.value) basesOpen.value = false;
+  if (typeLensOpen.value) typeLensOpen.value = false;
+  if (viewOpen.value) viewOpen.value = false;
+}
+
 window.addEventListener('solomd:wiki-open', onWikiOpen as EventListener);
 window.addEventListener('solomd:ai-rewrite-accept', onAIRewriteAccept as EventListener);
 window.addEventListener('solomd:ai-rewrite-cancel', onAIRewriteCancel as EventListener);
@@ -1693,6 +1769,7 @@ window.addEventListener(TYPE_LENS_OPEN_EVENT, onOpenTypeLens as EventListener);
 window.addEventListener(TYPE_LENS_CLOSE_EVENT, onCloseTypeLens as EventListener);
 window.addEventListener(VIEW_OPEN_EVENT, onOpenView as EventListener);
 window.addEventListener(VIEW_CLOSE_EVENT, onCloseView as EventListener);
+window.addEventListener('solomd:leave-center-overlay', onLeaveCenterOverlay);
 window.addEventListener('solomd:open-settings', onOpenSettingsEvent as EventListener);
 
 function onPageHide() {
@@ -1718,6 +1795,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('solomd:ai-rewrite-cancel', onAIRewriteCancel as EventListener);
   window.removeEventListener(BASES_OPEN_EVENT, onOpenBases as EventListener);
   window.removeEventListener(BASES_CLOSE_EVENT, onCloseBases as EventListener);
+  window.removeEventListener('solomd:leave-center-overlay', onLeaveCenterOverlay);
   window.removeEventListener(INBOX_OPEN_EVENT, onOpenInbox as EventListener);
   window.removeEventListener(INBOX_CLOSE_EVENT, onCloseInbox as EventListener);
   window.removeEventListener(TYPE_LENS_OPEN_EVENT, onOpenTypeLens as EventListener);
@@ -1841,9 +1919,42 @@ if (import.meta.env.DEV && location.search.includes('layoutdebug')) {
   }, 500);
 }
 function phoneShowEditor() {
-  if (isNarrow.value) phone.show('editor');
+  phone.show('editor');
   if (isTabletOverlay.value && settings.showFileTree) settings.toggleFileTree();
 }
+// Foldable posture continuity (iPhone Duo outer 466×678 ↔ inner 669×951, and
+// Android foldables): keep the user's active view consistent across fold/unfold
+// transitions instead of dumping an active editor back onto the home list or
+// covering it with a stale drawer scrim.
+watch(isNarrow, (narrow, wasNarrow) => {
+  if (wasNarrow === undefined || narrow === wasNarrow) return;
+  if (wasNarrow && !narrow) {
+    // Unfolded (outer → inner display):
+    if (phone.view === 'editor') {
+      if (isTabletOverlay.value && settings.showFileTree) {
+        settings.toggleFileTree();
+      }
+    } else if (phone.view === 'home') {
+      if (!settings.showFileTree) {
+        settings.toggleFileTree();
+      }
+    } else if (phone.view === 'search') {
+      openGlobalSearchPane();
+    }
+  } else if (!wasNarrow && narrow) {
+    // Folded (inner → outer display):
+    const t = tabs.activeTab;
+    const hasActiveNote = Boolean(t && (t.filePath || t.content !== ''));
+    if (isTabletOverlay.value && settings.showFileTree) {
+      phone.show('home');
+    } else if (hasActiveNote) {
+      phone.show('editor');
+    }
+    if (showRightSidebar.value) {
+      settings.toggleRightSidebar();
+    }
+  }
+});
 // Opening or switching to a note is what moves a phone to the editor — but
 // not the session restore at launch: a cold start lands on 笔记, the way
 // Notes does. (Opening a file from another app still goes straight to it,
@@ -2520,6 +2631,11 @@ watchEffect(() => { void settings.aiEnabled; void settings.aiProvider; refreshAi
       @cancel="onFileChangedAction('cancel')"
     />
     <Toast />
+    <Transition name="zoom-hud-fade">
+      <div v-if="zoomHudText" class="zoom-hud" role="status" aria-live="polite">
+        {{ zoomHudText }}
+      </div>
+    </Transition>
     <pre v-if="layoutDebug" class="layout-debug">{{ layoutDebug }}</pre>
     <!-- 5.0 — format bar above the software keyboard (phones / tablets). -->
     <KeyboardBar v-if="isMobile() || forceKeyboardBarPreview()" />
@@ -2946,5 +3062,35 @@ watchEffect(() => { void settings.aiEnabled; void settings.aiProvider; refreshAi
   min-width: 0;
   overflow: hidden;
   position: relative;
+}
+.zoom-hud {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: 6px 14px;
+  border-radius: var(--r-pill, 999px);
+  background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.14));
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+.zoom-hud-fade-enter-active,
+.zoom-hud-fade-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.zoom-hud-fade-enter-from,
+.zoom-hud-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) scale(0.95);
 }
 </style>

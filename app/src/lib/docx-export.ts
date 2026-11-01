@@ -381,10 +381,18 @@ function findMatchingClose(tokens: Token[], start: number, openType: string, clo
   return tokens.length - 1;
 }
 
+/**
+ * #427 — `docx` groups paragraphs into a single Word `<w:num>` unless each
+ * `<ol>` carries its own `instance` number. Without `instance`, every ordered
+ * list in the entire document shares `ordered-list-undefined` and continues
+ * numbering from the previous section (`1, 2, 3` → `4, 5` → … → `45`).
+ */
+let nextOrderedListInstance = 0;
+
 async function buildBody(tokens: Token[], imageRoot: string | null, filePath?: string): Promise<BlockChild[]> {
   const out: BlockChild[] = [];
   let i = 0;
-  const listStack: { type: 'bullet' | 'ordered'; index: number }[] = [];
+  const listStack: { type: 'bullet' | 'ordered'; instance: number; itemParagraphs: number }[] = [];
 
   while (i < tokens.length) {
     const tok = tokens[i];
@@ -407,6 +415,10 @@ async function buildBody(tokens: Token[], imageRoot: string | null, filePath?: s
         const inline = tokens[i + 1];
         i += 3;
         const isInList = listStack.length > 0;
+        const topList = isInList ? listStack[listStack.length - 1] : null;
+        const listLevel = Math.min(Math.max(listStack.length - 1, 0), 8);
+        const isFirstListParagraph = topList ? topList.itemParagraphs === 0 : false;
+        if (topList) topList.itemParagraphs += 1;
 
         // Check if this paragraph contains a standalone image (image-only paragraph)
         if (inline && isImageOnlyParagraph(inline)) {
@@ -446,15 +458,18 @@ async function buildBody(tokens: Token[], imageRoot: string | null, filePath?: s
           new Paragraph({
             children: buildRuns(inline),
             spacing: isInList ? { before: 60, after: 60 } : { before: 120, after: 120 },
-            ...(isInList && {
+            ...(isInList && isFirstListParagraph && topList && {
               numbering:
-                listStack[listStack.length - 1].type === 'ordered'
-                  ? { reference: 'ordered-list', level: Math.min(listStack.length - 1, 8) }
+                topList.type === 'ordered'
+                  ? { reference: 'ordered-list', level: listLevel, instance: topList.instance }
                   : undefined,
               bullet:
-                listStack[listStack.length - 1].type === 'bullet'
-                  ? { level: Math.min(listStack.length - 1, 8) }
+                topList.type === 'bullet'
+                  ? { level: listLevel }
                   : undefined,
+            }),
+            ...(isInList && !isFirstListParagraph && {
+              indent: { left: 720 * (listLevel + 1) },
             }),
           })
         );
@@ -624,11 +639,11 @@ async function buildBody(tokens: Token[], imageRoot: string | null, filePath?: s
         break;
       }
       case 'bullet_list_open':
-        listStack.push({ type: 'bullet', index: 0 });
+        listStack.push({ type: 'bullet', instance: 0, itemParagraphs: 0 });
         i += 1;
         break;
       case 'ordered_list_open':
-        listStack.push({ type: 'ordered', index: 0 });
+        listStack.push({ type: 'ordered', instance: ++nextOrderedListInstance, itemParagraphs: 0 });
         i += 1;
         break;
       case 'bullet_list_close':
@@ -637,6 +652,11 @@ async function buildBody(tokens: Token[], imageRoot: string | null, filePath?: s
         i += 1;
         break;
       case 'list_item_open':
+        if (listStack.length > 0) {
+          listStack[listStack.length - 1].itemParagraphs = 0;
+        }
+        i += 1;
+        break;
       case 'list_item_close':
         i += 1;
         break;
@@ -784,6 +804,7 @@ export async function markdownToDocxBlob(
   plantumlServer: string | null = null,
 ): Promise<Blob> {
   srcImages.clear();
+  nextOrderedListInstance = 0;
   plantumlServerForRun = plantumlServer;
   // Apply the same leniency preprocessors the HTML render path uses (malformed
   // table delimiters, list re-indent, inline-HTML blocks) so DOCX export
@@ -813,6 +834,7 @@ export async function markdownToDocxBlob(
     );
   }
 
+  const orderedFormats = ['decimal', 'lowerLetter', 'lowerRoman'] as const;
   const doc = new Document({
     creator: 'SoloMD',
     title: tpl.title || _title,
@@ -838,11 +860,17 @@ export async function markdownToDocxBlob(
       config: [
         {
           reference: 'ordered-list',
-          levels: [
-            { level: 0, format: 'decimal', text: '%1.', alignment: AlignmentType.START },
-            { level: 1, format: 'lowerLetter', text: '%2.', alignment: AlignmentType.START },
-            { level: 2, format: 'lowerRoman', text: '%3.', alignment: AlignmentType.START },
-          ],
+          levels: Array.from({ length: 9 }, (_, level) => ({
+            level,
+            format: orderedFormats[level % 3],
+            text: `%${level + 1}.`,
+            alignment: AlignmentType.START,
+            style: {
+              paragraph: {
+                indent: { left: 720 * (level + 1), hanging: 360 },
+              },
+            },
+          })),
         },
       ],
     },

@@ -46,3 +46,7 @@ TASARIMDAN GELEN GİZLİLİK
 SoloMD hiçbir veri toplamaz. Hesap yok, analiz yok, reklam yok, izleme yok. Notlarınız size ait dosyalarda kalır.
 
 SoloMD, MIT lisansıyla açık kaynaklıdır: github.com/zhitongblog/solomd
+
+SONSUZA DEK %100 ÜCRETSİZ VE DESTEKÇİ ROZETİ
+
+SoloMD’nin tüm özellikleri sonsuza dek %100 ücretsizdir — abonelik veya kilitli özellik yoktur. İsteğe bağlı tek seferlik uygulama içi satın alımlar (Bir Kahve Ismarla / Bir Öğle Yemeği Ismarla / Güçlü Destek) bağımsız geliştirmeyi desteklemek için tamamen gönüllü bahşişlerdir ve “Destekçi” rozetini kalıcı olarak açar.

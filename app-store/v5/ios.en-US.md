@@ -47,3 +47,7 @@ PRIVATE BY DESIGN
 SoloMD collects no data. No account, no analytics, no ads, no tracking. Your notes stay in files you own.
 
 SoloMD is open source under the MIT license: github.com/zhitongblog/solomd
+
+100% FREE FOREVER & SUPPORTER BADGE
+
+Every feature in SoloMD is 100% free forever — no paywalls, no subscriptions, and no locked features. Optional one-time In-App Purchases (Buy a Coffee / Buy a Lunch / Generous Support) are purely voluntary tips to support independent open-source development, and permanently unlock the exclusive "Supporter" badge in Settings and About.

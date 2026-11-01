@@ -3,7 +3,8 @@ import { createPinia } from 'pinia';
 import App from './App.vue';
 import { followHtmlLang } from './i18n';
 import { reanchorIosContainerPaths } from './lib/ios-container';
-import { isWindowsDesktop } from './lib/platform';
+import { isMobile, isWindowsDesktop } from './lib/platform';
+import { installNativeMenuGuard } from './lib/native-menu-guard';
 import { preloadRenderDeps } from './lib/render-deps';
 import './styles/cjk-font.css';
 import './styles/main.css';
@@ -37,6 +38,8 @@ if (import.meta.env.DEV && /[?&]imetrace\b/.test(location.search)) {
 const app = createApp(rootComponent);
 app.use(createPinia());
 followHtmlLang();
+// No browser Back / Reload / Print menu on app chrome (lib/native-menu-guard).
+installNativeMenuGuard({ mobile: isMobile(), dev: import.meta.env.DEV });
 
 // Windows: the editor engine follows the WebView2 version (platform.ts
 // resolveWindowsEditorEngine), and Editor.vue decides it once at load, so the

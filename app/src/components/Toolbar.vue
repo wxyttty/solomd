@@ -24,8 +24,9 @@ import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { isIOS, isWindowsDesktop, usesCommandKey } from '../lib/platform';
+import { isIOS, isMobile, isWindowsDesktop, usesCommandKey } from '../lib/platform';
 import { macTitleBar, winTitleBar, customTitleBar } from '../lib/chrome';
+import { displayTabTitle } from '../lib/tab-title';
 
 const hasTauriShell = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 import { IS_APP_STORE_BUILD } from '../lib/app-build';
@@ -59,7 +60,12 @@ const { isNarrow } = useViewport();
 // 5.0 §8 — on a phone the header is the editor screen's nav bar: back to 笔记,
 // the note's title, preview, share, more.
 const phone = usePhoneStore();
-const phoneTitle = computed(() => (tabs.activeTab?.fileName ?? '').replace(/\.(md|markdown|txt)$/i, ''));
+const activeTabDisplayTitle = computed(() =>
+  displayTabTitle(tabs.activeTab, settings.tabTitleFromFirstLine),
+);
+const phoneTitle = computed(() =>
+  activeTabDisplayTitle.value.replace(/\.(md|markdown|txt)$/i, ''),
+);
 function togglePhonePreview() {
   pickViewMode(settings.viewMode === 'preview' ? 'liveEdit' : 'preview');
 }
@@ -305,7 +311,7 @@ function pickViewMode(mode: ViewModeId) {
 }
 
 const formatItems: Array<{ kind: string; label: string; action: string }> = [
-  'bold', 'italic', 'strike', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'task',
+  'bold', 'italic', 'strike', 'highlight', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'task',
 ].map((kind) => ({ kind, label: `cmd.fmt.${kind}`, action: `fmt.${kind}` }));
 const menuPos = ref<{ top: number; left?: number; right?: number } | null>(null);
 const floatStyle = computed<Record<string, string | number> | undefined>(() => {
@@ -838,7 +844,7 @@ onBeforeUnmount(() => {
         </div>
       </Teleport>
     </nav>
-    <span class="titlebar__title" aria-hidden="true">{{ tabs.activeTab?.fileName ? `${tabs.activeTab.fileName} — SoloMD` : 'SoloMD' }}</span>
+    <span class="titlebar__title" aria-hidden="true">{{ activeTabDisplayTitle ? `${activeTabDisplayTitle} — SoloMD` : 'SoloMD' }}</span>
     <div class="win-controls" data-no-drag>
       <button class="win-controls__btn" @click="winMinimize" :title="t('menubar.minimize')" tabindex="-1">
         <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
@@ -980,6 +986,10 @@ onBeforeUnmount(() => {
               <span class="dropdown__name">{{ t('toolbar.copyHtml') }}</span>
               <span v-if="chord('export.copyHtml')" class="dropdown__shortcut">{{ chord('export.copyHtml') }}</span>
             </button>
+            <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(() => exporter.copyAsWord())">
+              <span class="dropdown__name">{{ t('toolbar.copyWord') }}</span>
+              <span v-if="chord('export.copyWord')" class="dropdown__shortcut">{{ chord('export.copyWord') }}</span>
+            </button>
             <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(() => exporter.copyAsPlainText())">
               <span class="dropdown__name">{{ t('toolbar.copyPlain') }}</span>
             </button>
@@ -990,6 +1000,13 @@ onBeforeUnmount(() => {
             <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(() => exporter.copyAsImage())">
               <span class="dropdown__name">{{ t('toolbar.copyImage') }}</span>
             </button>
+            <template v-if="!isMobile()">
+              <div class="dropdown__sep"></div>
+              <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(() => exporter.printDocument())">
+                <span class="dropdown__name">{{ t('menubar.print') }}</span>
+                <span v-if="chord('file.print')" class="dropdown__shortcut">{{ chord('file.print') }}</span>
+              </button>
+            </template>
             <template v-if="isIOS()">
               <div class="dropdown__sep"></div>
               <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(onOpenExternal)">
@@ -1457,7 +1474,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: center;
-  font-size: 15px;
+  font-size: calc(var(--ui-font-size, 13px) + 2px);
   font-weight: 600;
   color: var(--text);
 }
@@ -1543,14 +1560,11 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 .titlebar__title {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  height: 100%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  max-width: 40%;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 12px;
+  line-height: 32px;
+  text-align: center;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1594,6 +1608,9 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
   background: transparent;
   color: var(--text-2);
   cursor: default;
@@ -1639,7 +1656,7 @@ onBeforeUnmount(() => {
   border: 0;
   background: transparent;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--ui-font-size, 13px);
   text-align: left;
   color: var(--text);
   border-radius: var(--r-sm);

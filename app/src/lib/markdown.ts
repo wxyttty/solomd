@@ -11,6 +11,7 @@ import mark from 'markdown-it-mark';
 import cjkFriendly from 'markdown-it-cjk-friendly';
 import yaml from 'js-yaml';
 import { numberEquations } from './equations';
+import { parseImageAltSize } from './md-image-url';
 import { sanitizeRenderedHtml } from './sanitize-html';
 import { getHljs, getKatex } from './render-deps';
 
@@ -118,6 +119,21 @@ export const md = new MarkdownIt({
   .use(mark)
   .use(cjkFriendly);
 
+// #504 — Disable schemeless fuzzy domain auto-linking so stock ticker codes
+// like `00700.HK`, `600519.SH`, `000001.SZ`, or filenames like `README.md` are
+// not falsely turned into `http://00700.HK` links just because `.hk`/`.sh`/`.sz`/`.md`
+// happen to be valid country TLDs. Explicit `http(s)://...` URLs and `<...>`
+// autolinks continue to linkify as expected.
+md.linkify.set({ fuzzyLink: false });
+
+// #464 — Allow GFM tables to interrupt blockquotes and lists without requiring
+// a blank line, matching CodeMirror's GFM parser in Live mode (`> quote\n| a | b |`).
+const tableBlockRule = (md.block.ruler as any).__rules__?.find((r: any) => r.name === 'table');
+if (tableBlockRule) {
+  tableBlockRule.alt = ['paragraph', 'reference', 'blockquote', 'list'];
+}
+(md.block.ruler as any).__cache__ = null;
+
 // ---- Wikilink rule (`[[X]]`, `[[X|alias]]`, `[[X#heading]]`) ---------------
 // Used by F1 (v2.0). Renders into <a class="md-wikilink" data-wikilink-target="X">…</a>.
 // Preview.vue intercepts clicks and resolves through the workspace index.
@@ -200,6 +216,37 @@ md.inline.ruler.before('image', 'image_spaced_path', (state, silent) => {
   state.pos += m[0].length;
   return true;
 });
+
+// ---- Image size syntax (`![alt|50%](url)` / `![alt|300](url)`) (#446) -------
+const defaultImageRenderer = md.renderer.rules.image;
+md.renderer.rules.image = function (tokens, idx, options, env, self) {
+  const token = tokens[idx];
+  if (!token.attrGet('referrerpolicy')) {
+    token.attrSet('referrerpolicy', 'no-referrer');
+  }
+  const rawAlt = token.children
+    ? self.renderInlineAsText(token.children, options, env)
+    : (token.content || token.attrGet('alt') || '');
+  const parsed = parseImageAltSize(rawAlt);
+  if (parsed.width) {
+    const existingStyle = token.attrGet('style');
+    const sizeStyle = `width: ${parsed.width};${parsed.height ? ` height: ${parsed.height};` : ''}`;
+    token.attrSet('style', existingStyle ? `${existingStyle}; ${sizeStyle}` : sizeStyle);
+    if (parsed.width.endsWith('px')) {
+      token.attrSet('width', parsed.width.slice(0, -2));
+    }
+    if (parsed.height?.endsWith('px')) {
+      token.attrSet('height', parsed.height.slice(0, -2));
+    }
+  }
+  const html = defaultImageRenderer
+    ? defaultImageRenderer(tokens, idx, options, env, self)
+    : self.renderToken(tokens, idx, options);
+  if (parsed.width) {
+    return html.replace(/\balt="[^"]*"/, `alt="${escapeHtml(parsed.alt)}"`);
+  }
+  return html;
+};
 
 // ---- Source line mapping for split-pane scroll sync ----
 // Annotate every block-level opening token with `data-source-line` set to
@@ -1056,6 +1103,189 @@ function numberedSectionHeadings(source: string): string {
 }
 
 /**
+ * #433 — DeepSeek / ChatGPT and standard LaTeX documents often delimit display
+ * math with `\[ ... \]` and inline math with `\( ... \)`. `@vscode/markdown-it-katex`
+ * only parses `$$ ... $$` and `$ ... $`, and markdown-it's escape rule otherwise
+ * strips `\[` / `\(` down to literal `[` / `(`, leaving raw LaTeX source on
+ * screen. Normalize `\[ ... \]` → `$$ ... $$` and `\( ... \)` → `$ ... $`
+ * outside fenced code blocks and inline code backtick spans, before equation
+ * numbering (`numberEquations`) and markdown-it rendering.
+ */
+function replaceInlineLatexOnLine(line: string): string {
+  if (!line.includes('\\(') && !line.includes('\\[')) return line;
+  const n = line.length;
+  const code = new Array<boolean>(n).fill(false);
+  for (let p = 0; p < n; ) {
+    if (line[p] === '`') {
+      let len = 1;
+      while (p + len < n && line[p + len] === '`') len++;
+      let q = p + len;
+      let closed = -1;
+      while (q < n) {
+        if (line[q] === '`') {
+          let len2 = 1;
+          while (q + len2 < n && line[q + len2] === '`') len2++;
+          if (len2 === len) {
+            closed = q + len2;
+            break;
+          }
+          q += len2;
+        } else {
+          q++;
+        }
+      }
+      if (closed >= 0) {
+        for (let k = p; k < closed; k++) code[k] = true;
+        p = closed;
+      } else {
+        p += len;
+      }
+    } else {
+      p++;
+    }
+  }
+
+  let out = '';
+  let i = 0;
+  while (i < n) {
+    if (
+      !code[i] &&
+      line[i] === '\\' &&
+      (i === 0 || line[i - 1] !== '\\') &&
+      (line[i + 1] === '(' || line[i + 1] === '[')
+    ) {
+      const isDisplay = line[i + 1] === '[';
+      const closeChar = isDisplay ? ']' : ')';
+      let j = i + 2;
+      let close = -1;
+      while (j < n - 1) {
+        if (!code[j] && line[j] === '\\' && line[j + 1] === closeChar) {
+          // Ensure the backslash isn't itself escaped (`\\)`).
+          let bs = 0;
+          let k = j;
+          while (k >= i + 2 && line[k] === '\\') {
+            bs++;
+            k--;
+          }
+          if (bs % 2 === 1) {
+            close = j;
+            break;
+          }
+        }
+        j++;
+      }
+      if (close >= 0) {
+        const inner = line.slice(i + 2, close).trim();
+        if (inner) {
+          const delim = isDisplay ? '$$' : '$';
+          const prevChar = out.length > 0 ? out[out.length - 1] : '';
+          const nextChar = close + 2 < n ? line[close + 2] : '';
+          const leadSpace = !isDisplay && prevChar && /[\w\d]/.test(prevChar) ? ' ' : '';
+          const trailSpace = !isDisplay && nextChar && /[\w\d]/.test(nextChar) ? ' ' : '';
+          out += `${leadSpace}${delim}${inner}${delim}${trailSpace}`;
+          i = close + 2;
+          continue;
+        }
+      }
+    }
+    out += line[i];
+    i++;
+  }
+  return out;
+}
+
+export function normalizeLatexDelimiters(source: string): string {
+  if (!source || (!source.includes('\\[') && !source.includes('\\('))) {
+    return source;
+  }
+  const lines = source.split('\n');
+  const out: string[] = [];
+  let inFence = false;
+  let fenceChar = '';
+  const fenceRe = /^(\s*)(```+|~~~+)/;
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const fm = fenceRe.exec(line);
+    if (fm) {
+      if (!inFence) {
+        inFence = true;
+        fenceChar = fm[2][0];
+        out.push(line);
+        i++;
+        continue;
+      }
+      if (fm[2][0] === fenceChar) {
+        inFence = false;
+        out.push(line);
+        i++;
+        continue;
+      }
+    }
+    if (inFence) {
+      out.push(line);
+      i++;
+      continue;
+    }
+
+    // Whole-line single-line display math: `\[ ... \]`
+    const singleBlock = /^(\s*)\\\[(.+?)\\\]\s*$/.exec(line);
+    if (singleBlock && !line.includes('`')) {
+      const indent = singleBlock[1];
+      const inner = singleBlock[2].trim();
+      if (inner && !inner.includes('\\]')) {
+        out.push(`${indent}$$${inner}$$`);
+        i++;
+        continue;
+      }
+    }
+
+    // Multi-line display math opening with `\[` (alone on line or with leading TeX)
+    const openBlock = /^(\s*)\\\[\s*(.*)$/.exec(line);
+    if (openBlock && !line.includes('`')) {
+      const indent = openBlock[1];
+      const firstRest = openBlock[2];
+      // Scan forward for matching `\]` before next fence or end of doc
+      let closeIdx = -1;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (fenceRe.test(lines[j])) break;
+        if (/\\\]\s*$/.test(lines[j])) {
+          closeIdx = j;
+          break;
+        }
+      }
+      if (closeIdx > i) {
+        out.push(`${indent}$$`);
+        if (firstRest.trim()) {
+          out.push(`${indent}${firstRest}`);
+        }
+        for (let k = i + 1; k < closeIdx; k++) {
+          out.push(lines[k]);
+        }
+        const closeLine = lines[closeIdx];
+        const closeMatch = /^(\s*)(.*?)\\\]\s*$/.exec(closeLine);
+        if (closeMatch) {
+          if (closeMatch[2].trim()) {
+            out.push(`${closeMatch[1]}${closeMatch[2]}`);
+          }
+          out.push(`${indent}$$`);
+        } else {
+          out.push(`${indent}$$`);
+        }
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    out.push(replaceInlineLatexOnLine(line));
+    i++;
+  }
+
+  return out.join('\n');
+}
+
+/**
  * Run the source through every leniency preprocessor (inline-HTML-block
  * unwrapping #71, malformed table-delimiter repair, list re-indent #132) that
  * makes AI/PDF-exported Markdown render like Typora/Obsidian. Both the HTML
@@ -1064,8 +1294,56 @@ function numberedSectionHeadings(source: string): string {
  * source of truth. The numbered-section step is gated behind its opt-in
  * setting.
  */
+// Converts backslashes to forward slashes in markdown image destinations
+// so that Windows paths like `![x](E:\photos\a.png)` survive markdown-it's
+// CommonMark escape processing (which strips `\p` → `p`, `\i` → `i`, etc.).
+// LiveEdit mode reads the raw source and is unaffected; only the preview /
+// split / PDF / DOCX pipelines go through markdown-it and need this.
+function normalizeImageBackslashPaths(source: string): string {
+  if (!source.includes('\\')) return source;
+  const lines = source.split('\n');
+  const out: string[] = [];
+  let inFence = false;
+  let fenceChar = '';
+  const fenceRe = /^(\s*)(```+|~~~+)/;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fm = fenceRe.exec(line);
+    if (fm) {
+      if (!inFence) {
+        inFence = true;
+        fenceChar = fm[2][0];
+        out.push(line);
+        continue;
+      }
+      if (fm[2][0] === fenceChar && fm[2].length >= 3) {
+        inFence = false;
+        fenceChar = '';
+      }
+      out.push(line);
+      continue;
+    }
+    if (inFence) {
+      out.push(line);
+      continue;
+    }
+    // Match ![alt](path) where path contains backslashes.
+    // The path is everything between ( and ) that is not ) or whitespace at the end.
+    out.push(
+      line.replace(
+        /(!\[[^\]]*\]\()([^)\n]+?)(\s*\))/g,
+        (_match, prefix: string, path: string, suffix: string) =>
+          prefix + path.replace(/\\/g, '/') + suffix,
+      ),
+    );
+  }
+  return out.join('\n');
+}
+
 export function preprocessMarkdown(source: string): string {
   let s = normalizeTableDelimiters(unwrapInlineHtmlBlocks(source || ''));
+  s = normalizeLatexDelimiters(s);
+  s = normalizeImageBackslashPaths(s);
   if (autoNumberHeadings) s = numberedSectionHeadings(s);
   // `\label` / `\eqref` are LaTeX that KaTeX does not implement — resolve
   // them to `\tag` + anchors + links here so preview, PDF, Word and image

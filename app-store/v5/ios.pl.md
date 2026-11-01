@@ -47,3 +47,7 @@ PRYWATNOŚĆ W ZAŁOŻENIU
 SoloMD nie zbiera żadnych danych. Bez konta, bez analityki, bez reklam, bez śledzenia. Twoje notatki zostają w plikach, które należą do Ciebie.
 
 SoloMD to otwarte oprogramowanie na licencji MIT: github.com/zhitongblog/solomd
+
+100% DARMOWE NA ZAWSZE I ODZNAKA WSPIERAJĄCEGO
+
+Wszystkie funkcje SoloMD są w 100% darmowe na zawsze — bez subskrypcji i zablokowanych funkcji. Opcjonalne jednorazowe zakupy w aplikacji (Postaw kawę / Postaw lunch / Hojne wsparcie) to całkowicie dobrowolne napiwki wspierające niezależny rozwój, które na stałe odblokowują odznakę „Wspierający”.

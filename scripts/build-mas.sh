@@ -44,8 +44,9 @@ fi
 : "${MAS_INSTALLER_IDENTITY:?Set MAS_INSTALLER_IDENTITY (3rd Party Mac Developer Installer cert)}"
 : "${MAS_PROVISIONING_PROFILE:?Set MAS_PROVISIONING_PROFILE (path to .provisionprofile)}"
 
-MAS_VERSION="${MAS_VERSION:-1.0.0}"
-MAS_BUILD_NUMBER="${MAS_BUILD_NUMBER:-1.0.4}"
+PKG_VERSION="$(node -p "require('./app/package.json').version")"
+MAS_VERSION="${MAS_VERSION:-$PKG_VERSION}"
+MAS_BUILD_NUMBER="${MAS_BUILD_NUMBER:-$MAS_VERSION}"
 
 if [ ! -f "$MAS_PROVISIONING_PROFILE" ]; then
   echo "ERROR: provisioning profile not found at $MAS_PROVISIONING_PROFILE" >&2
@@ -96,8 +97,10 @@ PLIST="app/$APP/Contents/Info.plist"
 # .md / .txt associations so MAS users see the brand icon when previewing.
 cp app/src-tauri/icons/file_icon.icns "app/$APP/Contents/Resources/file_icon.icns"
 for i in 0 1; do
-  /usr/libexec/PlistBuddy -c "Delete :CFBundleDocumentTypes:${i}:CFBundleTypeIconFile" "$PLIST" 2>/dev/null || true
-  /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:${i}:CFBundleTypeIconFile string file_icon.icns" "$PLIST"
+  if /usr/libexec/PlistBuddy -c "Print :CFBundleDocumentTypes:${i}" "$PLIST" >/dev/null 2>&1; then
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleDocumentTypes:${i}:CFBundleTypeIconFile" "$PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :CFBundleDocumentTypes:${i}:CFBundleTypeIconFile string file_icon.icns" "$PLIST"
+  fi
 done
 
 echo "==> Embedding provisioning profile"

@@ -47,3 +47,7 @@ PRIVÉ PAR CONCEPTION
 SoloMD ne collecte aucune donnée. Pas de compte, pas de statistiques, pas de publicité, pas de pistage. Vos notes restent dans des fichiers qui vous appartiennent.
 
 SoloMD est open source sous licence MIT : github.com/zhitongblog/solomd
+
+100 % GRATUIT À VIE & BADGE SUPPORTER
+
+Toutes les fonctionnalités de SoloMD sont 100 % gratuites à vie — sans abonnement ni fonctionnalité verrouillée. Les achats intégrés uniques (Offrir un café / Offrir un repas / Soutien généreux) sont des pourboires entièrement volontaires pour soutenir le développement indépendant et débloquent définitivement le badge exclusif « Supporter ».

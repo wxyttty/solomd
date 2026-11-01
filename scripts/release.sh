@@ -40,6 +40,7 @@ rm app/package.json.bak
 # Cargo.toml (in src-tauri)
 sed -i.bak -E "s/^version = \"[^\"]+\"/version = \"$VERSION\"/" app/src-tauri/Cargo.toml
 rm app/src-tauri/Cargo.toml.bak
+(cd app/src-tauri && cargo update -p solomd --offline --quiet)
 
 # solomd-mcp ships inside the app, so it reports the app's version
 # (`solomd-mcp --version`, MCP serverInfo). mcp-server/tests/version_sync.rs
@@ -48,12 +49,18 @@ sed -i.bak -E "s/^version = \"[^\"]+\"/version = \"$VERSION\"/" mcp-server/Cargo
 rm mcp-server/Cargo.toml.bak
 (cd mcp-server && cargo update -p solomd-mcp --offline --quiet)
 
+# mcpb manifest version
+if [ -f mcp-server/mcpb/manifest.json ]; then
+  sed -i.bak -E "s/\"version\": \"[^\"]+\"/\"version\": \"$VERSION\"/" mcp-server/mcpb/manifest.json
+  rm mcp-server/mcpb/manifest.json.bak
+fi
+
 # The bash CLI's fallback version, for copies installed outside a checkout.
 sed -i.bak -E "s/^SOLOMD_VERSION=\"[^\"]+\"/SOLOMD_VERSION=\"$VERSION\"/" scripts/solomd
 rm scripts/solomd.bak
 
-git add app/src-tauri/tauri.conf.json app/package.json app/src-tauri/Cargo.toml \
-  mcp-server/Cargo.toml mcp-server/Cargo.lock scripts/solomd
+git add app/src-tauri/tauri.conf.json app/package.json app/src-tauri/Cargo.toml app/src-tauri/Cargo.lock \
+  mcp-server/Cargo.toml mcp-server/Cargo.lock mcp-server/mcpb/manifest.json scripts/solomd
 git commit -m "chore: bump version to $VERSION"
 git tag "v$VERSION"
 

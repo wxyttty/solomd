@@ -1,4 +1,5 @@
 import { isTreeSortMode, type TreeSortMode } from '../lib/tree-sort';
+import { cleanFontFamilyFromFilename } from '../lib/custom-font';
 import { defineStore } from 'pinia';
 import type { Theme, ViewMode } from '../types';
 import type { WindowsEditorEngine } from '../lib/platform';
@@ -22,7 +23,17 @@ export function buildEditorFontStack(face: string): string {
   // If user pasted a full stack already (contains comma), use as-is but still
   // append CJK fallback for safety.
   if (trimmed.includes(',')) return `${trimmed}, ${CJK_FALLBACK}`;
-  const needsQuote = /\s/.test(trimmed) && !/^["']/.test(trimmed);
+  const isFileOrPath = /\.(ttf|otf|woff2|woff|ttc)$/i.test(trimmed) || /[\\/]/.test(trimmed);
+  if (isFileOrPath) {
+    const { stem, family } = cleanFontFamilyFromFilename(trimmed);
+    const names = Array.from(new Set([family, stem].filter(Boolean))).map((n) =>
+      /\s/.test(n) && !/^["']/.test(n) ? `"${n}"` : n,
+    );
+    if (names.length > 0) {
+      return `${names.join(', ')}, ${CJK_FALLBACK}, "JetBrains Mono", Menlo, Consolas, monospace`;
+    }
+  }
+  const needsQuote = /[\s/.\\]/.test(trimmed) && !/^["']/.test(trimmed);
   const quoted = needsQuote ? `"${trimmed}"` : trimmed;
   return `${quoted}, ${CJK_FALLBACK}, "JetBrains Mono", Menlo, Consolas, monospace`;
 }
@@ -56,6 +67,13 @@ interface Settings {
   alwaysShowMarkers: boolean;
   // #344 — tint the caret line's background in the CodeMirror editor.
   highlightCurrentLine: boolean;
+  /** Use the document's first non-empty line as the tab title instead of the
+   *  on-disk filename (off by default). Useful when a 3rd-party tool opens
+   *  temporary/UUID-named files in SoloMD. */
+  tabTitleFromFirstLine: boolean;
+  /** #484 — automatically maintain hierarchical 1–6 heading numbers (`1.`, `1.1`, `1.1.1`)
+   *  when headings are added, deleted, or modified (off by default). */
+  autoNumberHeadings: boolean;
   // #190 — dedicated code font (code blocks / inline code / mono UI).
   // Empty = built-in monospace stack.
   codeFontFamily: string;
@@ -95,6 +113,7 @@ interface Settings {
    *  restores all previously-enabled panes in their previous state. */
   rightSidebarHidden: boolean;
   livePreview: boolean;
+  v503SourceModeMigrated?: boolean;
   // Editor super features
   spellCheck: boolean;
   focusMode: boolean;
@@ -256,6 +275,15 @@ interface Settings {
   // Persisted so Esc / the close-button restores their previous workspace
   // even across reloads. Never set to 'reading' — sentinel only.
   lastNonReadingViewMode: ViewMode;
+  // #459: last view mode the user was in before entering preview mode, so
+  // `view.togglePreview` flips back to their editing mode (`liveEdit`/`edit`/`split`).
+  lastNonPreviewViewMode: ViewMode;
+  // #458: WebDAV workspace sync configuration (Nutstore / Nextcloud / AList / Synology).
+  webdavEnabled: boolean;
+  webdavUrl: string;
+  webdavUsername: string;
+  webdavPassword: string;
+  webdavRemotePath: string;
   // v2.5 F2: writing stats — show the per-doc word/char goal pill in the
   // status bar. Off-by-default-ish: the pill stays inert unless the doc's
   // YAML front matter sets a `goal:` key, so this toggle is a hard kill
@@ -337,6 +365,9 @@ interface Settings {
   // like an IDE's "always select opened file". Default on. It never re-roots
   // the workspace: a file outside it is simply not followed.
   explorerFollowActive: boolean;
+  explorerDoubleClickFiles: boolean;
+  explorerShowFolderCount: boolean;
+  v507HighlightLineMigrated: boolean;
   // Show dot-files / dot-folders in the Explorer tree. Off by default: a
   // vault's `.git`, `.obsidian` and friends are noise for most people. On,
   // they're reachable from inside the app instead of only from Finder.
@@ -375,6 +406,25 @@ interface Settings {
   // becomes selectable. Kept separate from the UI `language` setting: people
   // routinely run an English interface while writing Spanish.
   spellcheckLang: string;
+  // LanguageTool grammar / style checking (lib/languagetool.ts). Off by
+  // default: 'local' talks to a server the user runs, 'premium' and 'public'
+  // send text to languagetool.org, which Settings states plainly. The Premium
+  // API key lives in the OS keychain, never here.
+  ltMode: LtMode;
+  ltLocalUrl: string;
+  /** Premium account e-mail (LanguageTool's `username`). */
+  ltUsername: string;
+  /** 'auto' or a LanguageTool code (`de-DE`); a note's front matter `lang:` wins. */
+  ltLanguage: string;
+  ltMotherTongue: string;
+  /** With 'auto': variants to prefer, e.g. `en-GB,de-DE`. */
+  ltPreferredVariants: string;
+  ltLevel: 'default' | 'picky';
+  ltDisabledRules: string[];
+  /** Words the user accepted from a LanguageTool spelling match. */
+  ltUserWords: string[];
+  /** Check the whole note in the background, not just what's on screen. */
+  ltCheckWholeDoc: boolean;
   smartQuotes: boolean;
   /** #180 — per-action shortcut overrides. Only what the user changed is
    *  stored; a `null` value means they unbound the action entirely, and a
@@ -584,7 +634,10 @@ function defaults(): Settings {
     solidCursor: false,
     selectionBubble: true,
     alwaysShowMarkers: false,
-    highlightCurrentLine: false,
+    highlightCurrentLine: true,
+    tabTitleFromFirstLine: false,
+    autoNumberHeadings: false,
+    v507HighlightLineMigrated: true,
     codeFontFamily: '',
     showOutline: false,
     outlineSide: 'right',
@@ -603,7 +656,8 @@ function defaults(): Settings {
     // 5.0 — writing first: a new install opens on the text alone; the right
     // sidebar is one click (or ⌘⌥B) away. Saved settings are untouched.
     rightSidebarHidden: true,
-    livePreview: true,
+    livePreview: false,
+    v503SourceModeMigrated: true,
     spellCheck: true,
     focusMode: false,
     toolbarHidden: false,
@@ -691,6 +745,12 @@ function defaults(): Settings {
     // 笔记, the bottom bar). Saved settings keep the user's choice.
     readingByDefaultOnMobile: false,
     lastNonReadingViewMode: 'liveEdit',
+    lastNonPreviewViewMode: 'liveEdit',
+    webdavEnabled: false,
+    webdavUrl: '',
+    webdavUsername: '',
+    webdavPassword: '',
+    webdavRemotePath: '/SoloMD',
     showWritingStats: true,
     showWorkspaceDailyTotal: false,
     pdfDefaults: defaultPdfDefaults(),
@@ -711,6 +771,8 @@ function defaults(): Settings {
     codeBlockWrap: false,
     explorerFullNames: false,
     explorerDoubleClickFolders: false,
+    explorerDoubleClickFiles: false,
+    explorerShowFolderCount: true,
     explorerFollowActive: true,
     explorerShowHidden: false,
     explorerExtFilter: [] as string[],
@@ -720,6 +782,16 @@ function defaults(): Settings {
     splitRatio: 50,
     markdownHardBreaks: true,
     spellcheckLang: 'en_US',
+    ltMode: 'off',
+    ltLocalUrl: 'http://localhost:8081',
+    ltUsername: '',
+    ltLanguage: 'auto',
+    ltMotherTongue: '',
+    ltPreferredVariants: '',
+    ltLevel: 'default',
+    ltDisabledRules: [],
+    ltUserWords: [],
+    ltCheckWholeDoc: false,
     smartQuotes: false,
     keybindings: {},
     smartQuotesOptInMigrated: true,
@@ -797,6 +869,17 @@ export function clampSplitRatio(n: unknown): number {
   return Math.round(Math.max(SPLIT_RATIO_MIN, Math.min(SPLIT_RATIO_MAX, v)) * 10) / 10;
 }
 
+export type LtMode = 'off' | 'local' | 'premium' | 'public';
+export const LT_MODES: readonly LtMode[] = ['off', 'local', 'premium', 'public'];
+
+/** Keep only the strings of a saved list (tampered / older blobs). */
+function stringList(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [];
+}
+
+/** Fired after any LanguageTool setting changes, so open editors re-check. */
+export const LT_SETTINGS_CHANGED_EVENT = 'solomd:languagetool-settings-changed';
+
 function load(): Settings {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -824,6 +907,10 @@ function load(): Settings {
         }
       }
       merged.splitRatio = clampSplitRatio(merged.splitRatio);
+      if (!LT_MODES.includes(merged.ltMode)) merged.ltMode = 'off';
+      if (merged.ltLevel !== 'picky') merged.ltLevel = 'default';
+      merged.ltDisabledRules = stringList(parsed.ltDisabledRules);
+      merged.ltUserWords = stringList(parsed.ltUserWords);
       // The old default Ctrl+Alt+M was also the formula editor's chord, and
       // the global registration always won. Users who never changed it move to
       // the new default; a chord someone picked is theirs to keep.
@@ -889,6 +976,14 @@ function load(): Settings {
       if (!parsed.v491MobileLayoutMigrated) {
         if (isMobile()) merged.rightSidebarHidden = true;
         merged.v491MobileLayoutMigrated = true;
+      }
+      if (!parsed.v503SourceModeMigrated) {
+        merged.livePreview = false;
+        merged.v503SourceModeMigrated = true;
+      }
+      if (!parsed.v507HighlightLineMigrated) {
+        merged.highlightCurrentLine = true;
+        merged.v507HighlightLineMigrated = true;
       }
       // D6 — a theme outside the built-in list (e.g. a hand-edited or
       // MCP-written 'system') rendered as a bare white page; reset it to the
@@ -976,6 +1071,9 @@ export const useSettingsStore = defineStore('settings', {
       } else if (mode !== 'reading') {
         this.lastNonReadingViewMode = mode;
       }
+      if (mode !== 'preview' && mode !== 'reading') {
+        this.lastNonPreviewViewMode = mode;
+      }
       this.viewMode = mode;
       this.persist();
     },
@@ -993,6 +1091,22 @@ export const useSettingsStore = defineStore('settings', {
      *  From any other view (split, preview, reading) it lands in live edit. */
     toggleLiveEditSource() {
       this.setViewMode(this.viewMode === 'liveEdit' ? 'edit' : 'liveEdit');
+    },
+    /** #459 - Toggle Preview mode on/off, restoring the previous editing mode. */
+    togglePreviewMode() {
+      if (this.viewMode === 'preview') {
+        const next =
+          this.lastNonPreviewViewMode === 'preview' || this.lastNonPreviewViewMode === 'reading'
+            ? 'liveEdit'
+            : this.lastNonPreviewViewMode;
+        this.setViewMode(next);
+      } else {
+        if (this.viewMode !== 'reading') {
+          this.lastNonPreviewViewMode = this.viewMode;
+        }
+        this.viewMode = 'preview';
+        this.persist();
+      }
     },
     /**
      * Toggle reading mode on/off. If the user is currently in reading mode
@@ -1068,6 +1182,14 @@ export const useSettingsStore = defineStore('settings', {
     },
     toggleHighlightCurrentLine() {
       this.highlightCurrentLine = !this.highlightCurrentLine;
+      this.persist();
+    },
+    toggleTabTitleFromFirstLine() {
+      this.tabTitleFromFirstLine = !this.tabTitleFromFirstLine;
+      this.persist();
+    },
+    toggleAutoNumberHeadings() {
+      this.autoNumberHeadings = !this.autoNumberHeadings;
       this.persist();
     },
     setCodeFontFamily(f: string) {
@@ -1189,8 +1311,12 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
     toggleLivePreview() {
-      this.livePreview = !this.livePreview;
-      this.persist();
+      if (this.viewMode === 'split') {
+        this.livePreview = !this.livePreview;
+        this.persist();
+        return;
+      }
+      this.setViewMode(this.viewMode === 'liveEdit' ? 'edit' : 'liveEdit');
     },
     toggleSpellCheck() {
       this.spellCheck = !this.spellCheck;
@@ -1554,6 +1680,14 @@ export const useSettingsStore = defineStore('settings', {
       this.explorerDoubleClickFolders = !this.explorerDoubleClickFolders;
       this.persist();
     },
+    toggleExplorerDoubleClickFiles() {
+      this.explorerDoubleClickFiles = !this.explorerDoubleClickFiles;
+      this.persist();
+    },
+    toggleExplorerShowFolderCount() {
+      this.explorerShowFolderCount = !this.explorerShowFolderCount;
+      this.persist();
+    },
     toggleExplorerFollowActive() {
       this.explorerFollowActive = !this.explorerFollowActive;
       this.persist();
@@ -1599,6 +1733,25 @@ export const useSettingsStore = defineStore('settings', {
     setSpellcheckLang(code: string) {
       this.spellcheckLang = code || 'en_US';
       this.persist();
+    },
+    /** Patch any LanguageTool setting(s); open editors re-check. */
+    setLanguageTool(patch: Partial<Pick<Settings,
+      'ltMode' | 'ltLocalUrl' | 'ltUsername' | 'ltLanguage' | 'ltMotherTongue'
+      | 'ltPreferredVariants' | 'ltLevel' | 'ltDisabledRules' | 'ltUserWords' | 'ltCheckWholeDoc'>>) {
+      Object.assign(this, patch);
+      this.persist();
+      try {
+        window.dispatchEvent(new CustomEvent(LT_SETTINGS_CHANGED_EVENT));
+      } catch {}
+    },
+    ltDisableRule(ruleId: string) {
+      if (!ruleId || this.ltDisabledRules.includes(ruleId)) return;
+      this.setLanguageTool({ ltDisabledRules: [...this.ltDisabledRules, ruleId] });
+    },
+    ltAddUserWord(word: string) {
+      const w = word.trim();
+      if (!w || this.ltUserWords.includes(w)) return;
+      this.setLanguageTool({ ltUserWords: [...this.ltUserWords, w] });
     },
     toggleSmartQuotes() {
       this.smartQuotes = !this.smartQuotes;

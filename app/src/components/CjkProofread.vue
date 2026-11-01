@@ -211,6 +211,14 @@ function applyAll(severity: 'high' | 'medium' | 'low' | 'all') {
     toasts.info(t('proofread.nothingToApply'));
     return;
   }
+  if (
+    target.length > 1 &&
+    typeof window !== 'undefined' &&
+    typeof window.confirm === 'function' &&
+    !window.confirm(`${t('proofread.applyAll')} (${target.length})?`)
+  ) {
+    return;
+  }
   // Sort descending so applying late edits doesn't shift early offsets.
   // ALSO: skip overlapping issues (e.g. cjk_latin_space across the
   // same boundary) — a simple greedy filter keeps the first (latest

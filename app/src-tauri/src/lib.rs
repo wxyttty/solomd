@@ -1,6 +1,7 @@
 pub mod app_build;
 // App Store builds ask for a rating with Apple's own sheet (iOS starts here).
 pub mod store_review;
+pub mod iap;
 pub mod ios_folder;
 pub mod commands;
 // Image-bed (图床) upload: PicGo / shell command / sm.ms / S3-compatible / GitHub.
@@ -8,6 +9,8 @@ pub mod image_upload;
 pub mod search;
 pub mod workspace_index;
 pub mod spellcheck;
+// LanguageTool grammar / style checking — local server, Premium or public API.
+pub mod languagetool;
 // #102 — cross-platform AI key storage (OS keyring + Android encrypted-file
 // fallback). Declared before ai_proxy, which delegates to it.
 pub mod ai_keystore;
@@ -56,6 +59,8 @@ pub mod github_sync;
 // v2.6.1 cloud-folder detection (iCloud / Dropbox / OneDrive / Google Drive)
 // + cross-device session restore via per-device JSON.
 pub mod cloud_folder;
+// #458 — WebDAV workspace sync (Nutstore / Nextcloud / AList / Synology).
+pub mod webdav_sync;
 // v2.6.3 workspace-level E2EE: passphrase → Argon2id → key in keyring;
 // XChaCha20-Poly1305 over each .md before push, decrypt after pull.
 pub mod crypto;
@@ -156,9 +161,12 @@ pub fn run() {
             // catch documents opened in place from the Files app before tao
             // drops their security scope (setup runs inside
             // didFinishLaunching, ahead of a cold launch's open-URL call).
-            #[cfg(target_os = "ios")]
+            #[cfg(any(target_os = "ios", target_os = "macos"))]
             {
                 let _ = ios_folder::ios_restore_folder(app.handle().clone());
+            }
+            #[cfg(target_os = "ios")]
+            {
                 ios_folder::hook_open_url();
             }
             // Show the window only after first paint to suppress the
@@ -191,8 +199,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_build::app_build_info,
             store_review::request_store_review,
+            iap::iap_get_state,
+            iap::iap_fetch_products,
+            iap::iap_purchase,
+            iap::iap_restore,
             ios_folder::ios_pick_folder,
+            ios_folder::macos_bookmark_folder,
             ios_folder::ios_restore_folder,
+            ios_folder::ios_set_appearance,
             ios_folder::ios_scoped_files,
             commands::read_file,
             commands::read_binary_file,
@@ -213,7 +227,10 @@ pub fn run() {
             saf_android::saf_tree_name,
             saf_android::saf_list,
             saf_android::saf_read,
+            saf_android::saf_read_base64,
             saf_android::saf_write,
+            saf_android::saf_write_base64,
+            saf_android::saf_read_content_uri_base64,
             saf_android::saf_create,
             saf_android::saf_delete,
             image_upload::upload_image,
@@ -242,6 +259,13 @@ pub fn run() {
             spellcheck::spellcheck_load_user_dict,
             spellcheck::spellcheck_list_dicts,
             spellcheck::spellcheck_dicts_dir,
+            languagetool::languagetool_check,
+            languagetool::languagetool_detect,
+            languagetool::languagetool_set_api_key,
+            languagetool::languagetool_has_api_key,
+            languagetool::languagetool_clear_api_key,
+            languagetool::languagetool_words_add,
+            languagetool::languagetool_words_list,
             ai_proxy::ai_set_key,
             ai_proxy::ai_has_key,
             ai_proxy::ai_clear_key,
@@ -362,6 +386,9 @@ pub fn run() {
             cloud_folder::session_save,
             cloud_folder::session_load,
             cloud_folder::session_list_others,
+            webdav_sync::webdav_test_connection,
+            webdav_sync::webdav_push_workspace,
+            webdav_sync::webdav_pull_workspace,
             crypto::crypto_status,
             crypto::crypto_set_passphrase,
             crypto::crypto_clear_passphrase,

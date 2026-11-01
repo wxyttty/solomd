@@ -47,3 +47,7 @@ PRIVATO PER SCELTA
 SoloMD non raccoglie alcun dato. Niente account, niente statistiche, niente pubblicità, niente tracciamento. Le tue note restano in file che appartengono a te.
 
 SoloMD è open source con licenza MIT: github.com/zhitongblog/solomd
+
+100% GRATUITO PER SEMPRE E BADGE SOSTENITORE
+
+Tutte le funzionalità di SoloMD sono gratuite al 100% per sempre, senza abbonamenti né funzioni bloccate. Gli acquisti in-app singoli (Offri un caffè / Offri un pranzo / Supporto generoso) sono mance puramente volontarie per sostenere lo sviluppo indipendente e sbloccano per sempre il badge esclusivo «Sostenitore».

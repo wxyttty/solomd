@@ -47,3 +47,7 @@ PRIVADO DESDE EL DISEÑO
 SoloMD no recopila ningún dato. Sin cuenta, sin analíticas, sin anuncios, sin rastreo. Tus notas se quedan en archivos que son tuyos.
 
 SoloMD es de código abierto con licencia MIT: github.com/zhitongblog/solomd
+
+100 % GRATIS PARA SIEMPRE E INSIGNIA DE COLABORADOR
+
+Todas las funciones de SoloMD son 100 % gratuitas para siempre, sin suscripciones ni funciones bloqueadas. Las compras integradas únicas (Invitar a un café / Invitar a un almuerzo / Apoyo generoso) son propinas totalmente voluntarias para apoyar el desarrollo independiente y desbloquean permanentemente la insignia «Colaborador».

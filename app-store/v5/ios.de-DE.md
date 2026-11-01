@@ -47,3 +47,7 @@ PRIVAT VON GRUND AUF
 SoloMD erfasst keine Daten. Kein Konto, keine Analyse, keine Werbung, kein Tracking. Deine Notizen bleiben in Dateien, die dir gehören.
 
 SoloMD ist Open Source unter der MIT-Lizenz: github.com/zhitongblog/solomd
+
+DAUERHAFT 100 % KOSTENLOS & UNTERSTÜTZER-ABZEICHEN
+
+Alle Funktionen von SoloMD sind dauerhaft zu 100 % kostenlos – ohne Paywalls, Abos oder gesperrte Funktionen. Optionale einmalige In-App-Käufe (Einen Kaffee spendieren / Ein Mittagessen spendieren / Großzügige Unterstützung) sind rein freiwillige Trinkgelder zur Unterstützung der unabhängigen Entwicklung und schalten dauerhaft das exklusive „Unterstützer“-Abzeichen frei.

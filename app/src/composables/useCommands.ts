@@ -214,6 +214,7 @@ export function useCommands(): Command[] {
     { id: 'view.editor', title: 'View: Edit Only', run: () => settings.setViewMode('edit') },
     { id: 'view.split', title: 'View: Split', run: () => settings.setViewMode('split') },
     { id: 'view.preview', title: 'View: Preview Only', run: () => settings.setViewMode('preview') },
+    { id: 'view.togglePreview', title: 'View: Toggle Preview Mode', shortcut: kb('view.togglePreview'), run: () => settings.togglePreviewMode() },
     { id: 'view.cycleView', title: 'View: Cycle Mode', shortcut: kb('view.cycleView'), run: () => settings.cycleViewMode() },
     { id: 'view.toggleLiveEdit', title: 'View: Toggle Live Edit / Edit Only', shortcut: kb('view.toggleLiveEdit'), run: () => settings.toggleLiveEditSource() },
     { id: 'view.toggleOutline', title: 'View: Toggle Outline', shortcut: kb('view.toggleOutline'), run: () => { const tabs = useTabsStore(); if (tabs.activeId) tabs.toggleOutline(tabs.activeId); } },
@@ -486,6 +487,7 @@ export function useCommands(): Command[] {
         ['heading.promote', 'Increase Heading Level', 'headingPromote'],
         ['heading.demote', 'Decrease Heading Level', 'headingDemote'],
         ['heading.paragraph', 'Convert to Paragraph', 'headingParagraph'],
+        ['heading.autoNumber', 'Auto-Number Headings (1 / 1.1 / 1.1.1)', 'headingAutoNumber'],
       ] as const
     ).map(([id, title, cmd]) => ({
       id,
@@ -592,6 +594,7 @@ export function useCommands(): Command[] {
     // Gitee IK8QJQ — the raster/text distinction decides whether the output
     // is searchable, so it belongs in the palette too, not just the toolbar.
     { id: 'export.pdfPrint', title: 'Export to PDF (text)…', hint: 'real selectable text, via system print', shortcut: kb('export.pdfPrint'), run: () => exporter.exportPdfPrint() },
+    { id: 'file.print', title: 'Print…', hint: 'Open the system print dialog', shortcut: kb('file.print'), run: () => exporter.printDocument() },
     { id: 'export.pdf', title: 'Export to PDF (image)…', hint: 'rasterised, text not selectable', run: () => exporter.exportPdf() },
     { id: 'export.image', title: 'Export to Image (PNG)…', run: () => exporter.exportImage() },
     { id: 'export.epub', title: 'Export to EPUB…', hint: 'via Pandoc', run: () => pandoc.exportTo('epub') },
@@ -600,6 +603,7 @@ export function useCommands(): Command[] {
     { id: 'export.rtf', title: 'Export to RTF…', hint: 'via Pandoc', run: () => pandoc.exportTo('rtf') },
     { id: 'export.pandocCustom', title: 'Export via Pandoc Template…', run: () => pandoc.exportTo('custom') },
     { id: 'export.copyHtml', title: 'Copy as HTML', shortcut: kb('export.copyHtml'), run: () => exporter.copyAsHtml() },
+    { id: 'export.copyWord', title: 'Copy as Word', shortcut: kb('export.copyWord'), run: () => exporter.copyAsWord() },
     { id: 'export.copyPlain', title: 'Copy as Plain Text', run: () => exporter.copyAsPlainText() },
     { id: 'export.copyMd', title: 'Copy as Markdown', shortcut: kb('export.copyMd'), run: () => exporter.copyAsMarkdown() },
     { id: 'export.copyImage', title: 'Copy as Image (PNG)', run: () => exporter.copyAsImage() },
@@ -715,6 +719,79 @@ export function useCommands(): Command[] {
         await writeText(url);
         toasts.success('Git URL copied to clipboard.');
       },
+    },
+    {
+      id: 'sync.webdavPush',
+      title: 'WebDAV Sync: Upload Workspace Now',
+      hint: 'Upload all notes and attachments in the current folder to the configured WebDAV server',
+      run: async () => {
+        if (!ws.currentFolder) {
+          toasts.warning(settings.language === 'zh' ? '请先打开一个工作区文件夹' : 'Open a workspace folder first');
+          return;
+        }
+        if (!settings.webdavUrl.trim()) {
+          window.dispatchEvent(new CustomEvent('solomd:open-settings', { detail: { section: 'sync' } }));
+          toasts.info(settings.language === 'zh' ? '请先在设置 › 同步中配置 WebDAV 服务器地址' : 'Configure your WebDAV server URL in Settings › Sync first');
+          return;
+        }
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const res = await invoke<{ uploaded: number }>('webdav_push_workspace', {
+            workspace: ws.currentFolder,
+            url: settings.webdavUrl,
+            username: settings.webdavUsername,
+            password: settings.webdavPassword,
+            remotePath: settings.webdavRemotePath,
+          });
+          toasts.success(
+            settings.language === 'zh'
+              ? `WebDAV 上传完成（共上传 ${res.uploaded} 个文件）`
+              : `WebDAV upload complete (${res.uploaded} files uploaded)`,
+          );
+        } catch (e) {
+          toasts.warning(`WebDAV: ${e}`);
+        }
+      },
+    },
+    {
+      id: 'sync.webdavPull',
+      title: 'WebDAV Sync: Download Workspace Now',
+      hint: 'Download notes and attachments from the configured WebDAV server into the current folder',
+      run: async () => {
+        if (!ws.currentFolder) {
+          toasts.warning(settings.language === 'zh' ? '请先打开一个工作区文件夹' : 'Open a workspace folder first');
+          return;
+        }
+        if (!settings.webdavUrl.trim()) {
+          window.dispatchEvent(new CustomEvent('solomd:open-settings', { detail: { section: 'sync' } }));
+          toasts.info(settings.language === 'zh' ? '请先在设置 › 同步中配置 WebDAV 服务器地址' : 'Configure your WebDAV server URL in Settings › Sync first');
+          return;
+        }
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const res = await invoke<{ downloaded: number }>('webdav_pull_workspace', {
+            workspace: ws.currentFolder,
+            url: settings.webdavUrl,
+            username: settings.webdavUsername,
+            password: settings.webdavPassword,
+            remotePath: settings.webdavRemotePath,
+          });
+          window.dispatchEvent(new CustomEvent('solomd:remote-pulled'));
+          toasts.success(
+            settings.language === 'zh'
+              ? `WebDAV 下载完成（共更新 ${res.downloaded} 个文件）`
+              : `WebDAV download complete (${res.downloaded} files updated)`,
+          );
+        } catch (e) {
+          toasts.warning(`WebDAV: ${e}`);
+        }
+      },
+    },
+    {
+      id: 'sync.webdavSettings',
+      title: 'WebDAV Sync: Settings…',
+      hint: 'Configure WebDAV server URL, credentials, and remote directory',
+      run: () => window.dispatchEvent(new CustomEvent('solomd:open-settings', { detail: { section: 'sync' } })),
     },
 
     {

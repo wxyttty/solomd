@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { writeText, writeHtml, writeImage } from '@tauri-apps/plugin-clipboard-manager';
 import { Image } from '@tauri-apps/api/image';
 import { documentDir, join } from '@tauri-apps/api/path';
-import { isIOS, isMacOS, isWindowsDesktop } from '../lib/platform';
+import { isIOS, isMacOS, isMobile, isWindowsDesktop } from '../lib/platform';
 // Loaded per export rather than at startup. Between them these three pull in
 // `docx`, jsPDF + html2canvas and the mermaid renderer — megabytes that a user
 // who only opens a note to read it should never have to compile.
@@ -34,7 +34,7 @@ import {
   printableBox,
   withPrintPagination,
 } from '../lib/print-pages';
-import { rewriteLinkUrls, rewriteImageUrls } from '../lib/image-resolve';
+import { inlineLocalImages, rewriteLinkUrls, rewriteImageUrls } from '../lib/image-resolve';
 import { useTabsStore } from '../stores/tabs';
 import { useSettingsStore } from '../stores/settings';
 import { useToastsStore } from '../stores/toasts';
@@ -311,6 +311,8 @@ export function useExport() {
         title: ctx.baseName,
         filePath: ctx.filePath,
         plantumlServer: plantumlServer(),
+        codeBlockLineNumbers: settings.codeBlockLineNumbers,
+        codeBlockWrap: settings.codeBlockWrap,
       });
       toasts.dismiss(tid);
       await invoke('write_file', { path, content: html, encoding: 'UTF-8' });
@@ -362,7 +364,14 @@ export function useExport() {
         ctx.content,
         userTouchedPdfDefaults(settings.pdfDefaults),
       );
-      const blob = await markdownToPdfBlob(ctx.content, ctx.baseName, pdfOpts, ctx.filePath, plantumlServer());
+      const blob = await markdownToPdfBlob(
+        ctx.content,
+        ctx.baseName,
+        pdfOpts,
+        ctx.filePath,
+        plantumlServer(),
+        settings.codeBlockLineNumbers,
+      );
       const buffer = new Uint8Array(await blob.arrayBuffer());
       await invoke('write_binary_file', { path, data: Array.from(buffer) });
       toasts.dismiss(tid);
@@ -431,16 +440,18 @@ export function useExport() {
    * native print (NSPrintOperation on macOS, WebView2 PrintAsync on Windows,
    * WebKitGTK print on Linux).
    */
-  async function exportPdfPrint() {
-    track('file_exported', { format: 'pdf_print' });
+  async function exportPdfPrint(options?: { forcePrintDialog?: boolean }) {
+    track('file_exported', { format: options?.forcePrintDialog ? 'print' : 'pdf_print' });
     const ctx = activeOr();
     if (!ctx) return;
 
     // macOS: save the print layout straight to a file (print_webview_to_pdf)
     // instead of opening the print sheet, which on a Mac without a printer
-    // asks the user to add one first. Ask where to save BEFORE mounting the
-    // print overlay, so cancelling leaves nothing behind.
-    const directPdf = isMacOS() && !isIOS();
+    // asks the user to add one first — unless the user explicitly invoked
+    // `file.print` ("Print…") to open the native system print dialog.
+    // Ask where to save BEFORE mounting the print overlay, so cancelling
+    // leaves nothing behind.
+    const directPdf = !options?.forcePrintDialog && isMacOS() && !isIOS();
     let directPath: string | null = null;
     if (directPdf) {
       directPath = await pickWritePath(`${ctx.baseName}.pdf`, [{ name: 'PDF', extensions: ['pdf'] }]);
@@ -462,8 +473,13 @@ export function useExport() {
     // print dialog) doesn't show `http://tauri.localhost/...` links.
     const imageRoot = extractImageRoot(source);
     await loadRenderDeps(); // printed once — no placeholder math / plain code
+    const withLocalImages = await inlineLocalImages(
+      renderMarkdown(source),
+      imageRoot,
+      ctx.filePath,
+    );
     const body = rewriteLinkUrls(
-      rewriteImageUrls(renderMarkdown(source), imageRoot, ctx.filePath),
+      rewriteImageUrls(withLocalImages, imageRoot, ctx.filePath),
       imageRoot,
       ctx.filePath,
     );
@@ -486,6 +502,11 @@ export function useExport() {
       body,
       printTheme,
       printCss,
+      undefined,
+      {
+        codeBlockLineNumbers: settings.codeBlockLineNumbers,
+        codeBlockWrap: settings.codeBlockWrap,
+      },
     );
 
     // #301 — swap mermaid fences for SVGs and WAIT for them. This has to
@@ -578,6 +599,10 @@ export function useExport() {
       // rejected, the editor was left under the print-mode body state and
       // felt unresponsive ("mouse input dead after an export error" on macOS).
       cleanup();
+      if (isMobile() && !options?.forcePrintDialog) {
+        await exportPdf();
+        return;
+      }
       toasts.error(t('toast.printFailed', { error: String(e) }));
     }
   }
@@ -615,6 +640,40 @@ export function useExport() {
       } catch (e2) {
         toasts.error(t('toast.copyFailed', { error: String(e2) }));
       }
+    }
+  }
+
+  /**
+   * #427 — Copy rendered Markdown as Word-ready rich HTML + MathML so pasting
+   * into Microsoft Word / WPS Office preserves native equations, multi-line
+   * code blocks, bordered tables, and per-section ordered list numbering.
+   */
+  async function copyAsWord() {
+    const src = copySource();
+    if (!src) return;
+    await loadRenderDeps();
+    const { buildWordClipboardHtml } = await import('../lib/word-clipboard');
+    const wordHtml = buildWordClipboardHtml(renderMarkdown(src.source));
+    const plain = stripMarkdown(src.source);
+    const okMsg = t(src.isSelection ? 'toast.copiedSelectionAsWord' : 'toast.copiedAsWord');
+    if (hasNativeClipboardWrite()) {
+      try {
+        const item = new ClipboardItem({
+          'text/html': new Blob([wordHtml], { type: 'text/html' }),
+          'text/plain': new Blob([plain], { type: 'text/plain' }),
+        });
+        await navigator.clipboard.write([item]);
+        toasts.success(okMsg);
+        return;
+      } catch {
+        // fall through to Tauri plugin
+      }
+    }
+    try {
+      await writeHtml(wordHtml, plain);
+      toasts.success(okMsg);
+    } catch (e) {
+      toasts.error(t('toast.copyFailed', { error: String(e) }));
     }
   }
 
@@ -665,6 +724,8 @@ export function useExport() {
     try {
       const blob = await markdownToImageBlob(source, ctx.baseName, ctx.filePath, {
         branding: settings.imageExportBranding,
+        codeBlockLineNumbers: settings.codeBlockLineNumbers,
+        codeBlockWrap: settings.codeBlockWrap,
       });
       const buffer = new Uint8Array(await blob.arrayBuffer());
       await invoke('write_binary_file', { path, data: Array.from(buffer) });
@@ -749,13 +810,19 @@ export function useExport() {
     }
   }
 
+  async function printDocument() {
+    await exportPdfPrint({ forcePrintDialog: true });
+  }
+
   return {
     exportHtml,
     exportDocx,
     exportPdf,
     exportPdfPrint,
+    printDocument,
     exportImage,
     copyAsHtml,
+    copyAsWord,
     copyAsPlainText,
     copyAsMarkdown,
     copyAsImage,

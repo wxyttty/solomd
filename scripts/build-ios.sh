@@ -109,6 +109,33 @@ fi
 echo "==> Applying the iOS project overlay"
 python3 scripts/lib/ios_project_overlay.py "$PROJECT_YML" app/src-tauri/ios-project-overlay.yml
 
+# #425 — Ensure AccentColor.colorset (#E07B39) exists in the gitignored
+# gen/apple/Assets.xcassets directory so iOS/iPadOS system controls and the
+# hardware keyboard candidate bar use SoloMD's warm accent color.
+mkdir -p app/src-tauri/gen/apple/Assets.xcassets/AccentColor.colorset
+cat > app/src-tauri/gen/apple/Assets.xcassets/AccentColor.colorset/Contents.json <<'EOF'
+{
+  "colors" : [
+    {
+      "color" : {
+        "color-space" : "srgb",
+        "components" : {
+          "alpha" : "1.000",
+          "blue" : "0.224",
+          "green" : "0.482",
+          "red" : "0.878"
+        }
+      },
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
+EOF
+
 echo "==> Patching ExportOptions.plist for app-store-connect + Manual"
 cat > "$EXPORT_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
