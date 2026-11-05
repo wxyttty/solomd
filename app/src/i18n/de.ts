@@ -480,6 +480,11 @@ export const de: I18n = {
     docxPresetReport: 'Bericht — Titelseite, Inhalt, Kopfzeile, Seitenzahlen',
     docxPresetAcademic: 'Akademisch — Titelseite, Inhalt, doppelter Zeilenabstand, Seitenzahlen',
     docxPresetHint: 'Womit ein Word-Export beginnt. Ein `docx:`-Block im Front Matter überschreibt einzelne Schlüssel (cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date) — genau wie `pdf:`.',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: 'Schnellerfassung-Hotkey',
     quickCaptureHint: 'Ein systemweiter Tastenbefehl, der überall ein kleines Fenster öffnet: tippen, Enter — die Notiz landet im Posteingang, ohne dass die App nach vorn kommt. Tauri-Accelerator-Syntax, z. B. CmdOrCtrl+Alt+Shift+M.',
     quickCaptureFailed: 'Nicht registriert: {error}',
@@ -515,6 +520,8 @@ export const de: I18n = {
     highlightCurrentLineHint: "Hinterlegt die Zeile mit dem Cursor farbig. Gilt für den CodeMirror-Editor.",
     tabTitleFromFirstLine: "Erste Dokumentzeile als Tab-Titel verwenden",
     tabTitleFromFirstLineHint: "Zeigt in der Tab-Leiste die erste nicht-leere Zeile statt des Dateinamens an (hilfreich bei temporären Dateinamen externer Tools).",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, prompt to confirm creating a new file if the original file on disk no longer exists when saving. Off by default.",
     autoNumberHeadings: "Überschriften (1–6) automatisch nummerieren",
     autoNumberHeadingsHint: "Fügt beim Hinzufügen, Löschen oder Ändern von Überschriften automatisch hierarchische Abschnittsnummern (1. / 1.1 / 1.1.1) hinzu und aktualisiert sie. Standardmäßig deaktiviert.",
     codeFontFamily: 'Code-Schriftart',
@@ -832,6 +839,12 @@ export const de: I18n = {
     shareFailed: "Teilen fehlgeschlagen: {error}",
     androidAllFilesReturn: "Aktiviere „Zugriff auf alle Dateien“ und kehre dann zurück — SoloMD startet sich neu, damit die Berechtigung wirksam wird.",
     pinyinCopied: "Pinyin in die Zwischenablage kopiert",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk.\n\nCreate a new file and save at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'Bild aus URL einfügen',
@@ -2327,6 +2340,8 @@ export const de: I18n = {
     tab: {
       prev: "Vorheriger Tab",
       next: "Nächster Tab",
+      mru: "Zum zuletzt verwendeten Tab wechseln",
+      mruPrev: "Zum vorigen zuletzt verwendeten Tab wechseln",
       reopenClosed: "Geschlossenen Tab wieder öffnen",
     },
     settings: {

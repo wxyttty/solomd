@@ -71,6 +71,10 @@ interface Settings {
    *  on-disk filename (off by default). Useful when a 3rd-party tool opens
    *  temporary/UUID-named files in SoloMD. */
   tabTitleFromFirstLine: boolean;
+  /** Before saving an existing file path, check whether the file still exists
+   *  on disk; if missing (e.g. a 3rd-party app cleaned up its temporary file),
+   *  prompt the user to confirm creating a new file at that path (off by default). */
+  confirmSaveMissingFile: boolean;
   /** #484 — automatically maintain hierarchical 1–6 heading numbers (`1.`, `1.1`, `1.1.1`)
    *  when headings are added, deleted, or modified (off by default). */
   autoNumberHeadings: boolean;
@@ -284,6 +288,21 @@ interface Settings {
   webdavUsername: string;
   webdavPassword: string;
   webdavRemotePath: string;
+  webdavEncrypted: boolean;
+  webdavPassphrase: string;
+  webdavAutoSync: boolean;
+  // Local personal cloud drive encrypted backup & sync directory (百度网盘 / 阿里云盘 / 夸克网盘 / OneDrive / iCloud / 坚果云).
+  cloudVaultDir: string;
+  cloudVaultPassphrase: string;
+  cloudVaultAutoSync: boolean;
+  // Direct Personal Cloud Drive OpenAPI encrypted backup & sync (百度网盘 OpenAPI / 阿里云盘 OpenAPI / OneDrive / Dropbox).
+  cloudApiProvider: 'baidu' | 'alipan' | 'onedrive' | 'dropbox';
+  cloudApiToken: string;
+  cloudApiClientId: string;
+  cloudApiClientSecret: string;
+  cloudApiRemotePath: string;
+  cloudApiPassphrase: string;
+  cloudApiAutoSync: boolean;
   // v2.5 F2: writing stats — show the per-doc word/char goal pill in the
   // status bar. Off-by-default-ish: the pill stays inert unless the doc's
   // YAML front matter sets a `goal:` key, so this toggle is a hard kill
@@ -339,6 +358,9 @@ interface Settings {
   // academic) a Word export starts from. A per-document `docx:` front-matter
   // block overrides individual keys, the same way `pdf:` does.
   docxPreset: 'plain' | 'report' | 'academic';
+  // #503 — Optional default export directory. When empty, exports default to
+  // the current note's own directory (#260).
+  defaultExportDir: string;
   // Print / system-PDF palette, independent of the app theme. Printing in a
   // dark theme put a dark slab on paper and wasted ink; `light` (the default)
   // always prints on white, `dark` prints the dark palette on purpose, and
@@ -636,6 +658,7 @@ function defaults(): Settings {
     alwaysShowMarkers: false,
     highlightCurrentLine: true,
     tabTitleFromFirstLine: false,
+    confirmSaveMissingFile: false,
     autoNumberHeadings: false,
     v507HighlightLineMigrated: true,
     codeFontFamily: '',
@@ -751,6 +774,19 @@ function defaults(): Settings {
     webdavUsername: '',
     webdavPassword: '',
     webdavRemotePath: '/SoloMD',
+    webdavEncrypted: false,
+    webdavPassphrase: '',
+    webdavAutoSync: false,
+    cloudVaultDir: '',
+    cloudVaultPassphrase: '',
+    cloudVaultAutoSync: false,
+    cloudApiProvider: 'baidu',
+    cloudApiToken: '',
+    cloudApiClientId: '',
+    cloudApiClientSecret: '',
+    cloudApiRemotePath: '/apps/SoloMD',
+    cloudApiPassphrase: '',
+    cloudApiAutoSync: false,
     showWritingStats: true,
     showWorkspaceDailyTotal: false,
     pdfDefaults: defaultPdfDefaults(),
@@ -800,6 +836,7 @@ function defaults(): Settings {
     rsPaneOrder: ['search', 'outline', 'backlinks', 'relationships', 'tags', 'tasks', 'neighborhood', 'types', 'history', 'inspector', 'agent'],
     previewFontSize: 16,
     attachmentMode: 'shared',
+    defaultExportDir: '',
     assetsDirName: '_assets',
     attachmentCustomPath: './images/${filename}/',
     imageUploader: 'none',
@@ -1186,6 +1223,10 @@ export const useSettingsStore = defineStore('settings', {
     },
     toggleTabTitleFromFirstLine() {
       this.tabTitleFromFirstLine = !this.tabTitleFromFirstLine;
+      this.persist();
+    },
+    toggleConfirmSaveMissingFile() {
+      this.confirmSaveMissingFile = !this.confirmSaveMissingFile;
       this.persist();
     },
     toggleAutoNumberHeadings() {
@@ -1794,6 +1835,10 @@ export const useSettingsStore = defineStore('settings', {
     setAttachmentMode(mode: 'shared' | 'per-file' | 'custom') {
       this.attachmentMode =
         mode === 'per-file' ? 'per-file' : mode === 'custom' ? 'custom' : 'shared';
+      this.persist();
+    },
+    setDefaultExportDir(dir: string) {
+      this.defaultExportDir = (dir || '').trim();
       this.persist();
     },
     // #7 — Typora-style custom path template (used when attachmentMode==='custom').

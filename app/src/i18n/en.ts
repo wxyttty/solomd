@@ -483,6 +483,11 @@ export const en = {
     docxPresetReport: 'Report — cover, contents, running header, page numbers',
     docxPresetAcademic: 'Academic — cover, contents, double-spaced, page numbers',
     docxPresetHint: 'What a Word export starts from. A per-document `docx:` front-matter block overrides individual keys (cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date), the same way `pdf:` does.',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: 'Quick capture hotkey',
     quickCaptureHint: 'A system-wide chord that opens a small box anywhere — type, press Enter, and the note lands in your Inbox without the app coming forward. Tauri accelerator syntax, e.g. CmdOrCtrl+Alt+Shift+M.',
     quickCaptureFailed: 'Not registered: {error}',
@@ -518,6 +523,8 @@ export const en = {
     highlightCurrentLineHint: "Tint the background of the line the cursor is on. Applies to the CodeMirror editor.",
     tabTitleFromFirstLine: "Use first line of document as tab title",
     tabTitleFromFirstLineHint: "Show the first non-empty line of the document instead of the filename in the tab bar (useful when opened by external apps with temporary filenames). Off by default.",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, if the original file on disk no longer exists when saving (e.g. a temporary file cleaned up by a 3rd-party app), prompt to confirm creating a new file at that path to prevent silent data loss. Off by default.",
     autoNumberHeadings: "Automatically number 1–6 headings",
     autoNumberHeadingsHint: "Automatically add and refresh hierarchical section numbers (1. / 1.1 / 1.1.1) when headings are added, deleted, or modified. Off by default.",
     codeFontFamily: 'Code font',
@@ -838,6 +845,12 @@ export const en = {
     shareFailed: "Share failed: {error}",
     androidAllFilesReturn: "Turn on “All files access”, then come back — SoloMD restarts itself so the permission takes effect.",
     pinyinCopied: "Pinyin copied to clipboard",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk (it may have been removed or cleaned up by an external app).\n\nDo you want to create a new file and save it at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'Insert image from URL',
@@ -2356,6 +2369,8 @@ export const en = {
     tab: {
       prev: "Previous Tab",
       next: "Next Tab",
+      mru: "Switch to Recent Tab",
+      mruPrev: "Switch to Previous Recent Tab",
       reopenClosed: "Reopen Closed Tab",
     },
     settings: {

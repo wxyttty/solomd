@@ -480,6 +480,11 @@ export const pl: I18n = {
     docxPresetReport: 'Raport — okładka, spis treści, żywa pagina, numery stron',
     docxPresetAcademic: 'Akademicki — okładka, spis treści, podwójna interlinia, numery stron',
     docxPresetHint: 'Od czego zaczyna eksport do Worda. Blok `docx:` we front matter nadpisuje pojedyncze klucze (cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date), tak jak `pdf:`.',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: 'Skrót szybkiego zapisu',
     quickCaptureHint: 'Skrót systemowy otwierający małe okno w dowolnym miejscu: wpisz, naciśnij Enter, a notatka trafi do skrzynki odbiorczej bez przełączania się do aplikacji. Składnia akceleratora Tauri, np. CmdOrCtrl+Alt+Shift+M.',
     quickCaptureFailed: 'Nie zarejestrowano: {error}',
@@ -515,6 +520,8 @@ export const pl: I18n = {
     highlightCurrentLineHint: "Koloruje tło wiersza z kursorem. Dotyczy edytora CodeMirror.",
     tabTitleFromFirstLine: "Użyj pierwszego wiersza jako tytułu karty",
     tabTitleFromFirstLineHint: "Wyświetla pierwszy niepusty wiersz dokumentu zamiast nazwy pliku na pasku kart.",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, prompt to confirm creating a new file if the original file on disk no longer exists when saving. Off by default.",
     autoNumberHeadings: "Automatycznie numeruj nagłówki 1–6",
     autoNumberHeadingsHint: "Automatycznie dodaje i odświeża wielopoziomową numerację sekcji (1. / 1.1 / 1.1.1) podczas dodawania, usuwania lub edycji nagłówków. Domyślnie wyłączone.",
     codeFontFamily: 'Czcionka kodu',
@@ -832,6 +839,12 @@ export const pl: I18n = {
     shareFailed: "Udostępnianie nie powiodło się: {error}",
     androidAllFilesReturn: "Włącz „Dostęp do wszystkich plików”, a potem wróć — SoloMD uruchomi się ponownie, aby uprawnienie zaczęło działać.",
     pinyinCopied: "Skopiowano pinyin do schowka",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk.\n\nCreate a new file and save at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'Wstaw obraz z adresu URL',
@@ -2344,6 +2357,8 @@ export const pl: I18n = {
     tab: {
       prev: "Poprzednia karta",
       next: "Następna karta",
+      mru: "Przełącz na ostatnią kartę",
+      mruPrev: "Przełącz na poprzednią ostatnią kartę",
       reopenClosed: "Przywróć zamkniętą kartę",
     },
     settings: {

@@ -314,8 +314,9 @@ const HEADING_LEVELS: Record<string, number> = {
 
 function buildDecorations(view: EditorView, showMarkers = false): DecorationSet {
   const sel = view.state.selection.main;
-  const fromLine = view.state.doc.lineAt(sel.from).number;
-  const toLine = view.state.doc.lineAt(sel.to).number;
+  const dragging = isDragging(view.state);
+  const fromLine = dragging ? -1 : view.state.doc.lineAt(sel.from).number;
+  const toLine = dragging ? -1 : view.state.doc.lineAt(sel.to).number;
   const tree = syntaxTree(view.state);
 
   // We collect into a flat list of `Range<Decoration>` and then call
@@ -345,6 +346,14 @@ function buildDecorations(view: EditorView, showMarkers = false): DecorationSet 
           Math.min(nTo, view.state.doc.length),
         ).number;
         const caretTouches = lineEndAtNode >= fromLine && lineAtNode <= toLine;
+
+        // #506 — When `showMarkers` is off and the caret is off this line,
+        // `liveBlocksExtension` replaces the entire `Image` range with an
+        // `ImageWidget`. Skip emitting overlapping `hideDeco` replacements on
+        // the `![`, `]`, `(`, `URL`, `)` child nodes inside `Image`.
+        if (name === 'Image' && !showMarkers && !caretTouches) {
+          return false;
+        }
 
         // ---- Marker hiding (off-line only) ----
         if (HIDDEN_MARK_NODES.has(name)) {
@@ -385,7 +394,9 @@ function buildDecorations(view: EditorView, showMarkers = false): DecorationSet 
           // GFM also emits a URL node for a URL-valued label (#395).
           // Only the URL immediately following `(` is the destination.
           const previous = node.node.prevSibling;
-          const inLabeledLink = parent?.name === 'Link' && previous?.name === 'LinkMark' &&
+          const inLabeledLink =
+            (parent?.name === 'Link' || parent?.name === 'Image') &&
+            previous?.name === 'LinkMark' &&
             view.state.doc.sliceString(previous.from, previous.to) === '(';
           if (inLabeledLink) {
             if (!showMarkers && !caretTouches && nTo > nFrom) {
@@ -480,10 +491,15 @@ function buildDecorations(view: EditorView, showMarkers = false): DecorationSet 
                     const mark = view.state.doc.sliceString(ch.from, ch.to);
                     const isBullet = mark === '-' || mark === '*' || mark === '+';
                     const leadSpaces = ch.from - markLine.from;
-                    const markCols = ch.to - ch.from + 1;
+                    const markLen = ch.to - ch.from;
+                    const markEm = isBullet
+                      ? 1.25
+                      : markLen <= 3
+                        ? 2.25
+                        : Math.min(6, markLen * 0.65 + 0.55);
                     indentEm = isBullet
                       ? Math.min(6, Math.max(1.15, leadSpaces * 0.55 + 1.15))
-                      : Math.min(8, Math.max(1.65, leadSpaces * 0.55 + markCols * 0.58));
+                      : Math.min(8, leadSpaces * 0.55 + markEm);
                     break;
                   }
                 }
@@ -589,14 +605,15 @@ function buildDecorations(view: EditorView, showMarkers = false): DecorationSet 
             seenListLines.add(lineObj.from);
             const leadSpaces = nFrom - lineObj.from;
             const markLen = nTo - nFrom;
-            // #486 — Use a uniform column width (1.65em) for 1–2 digit ordered
+            // #486 — Use a uniform column width (2.25em) for 1–2 digit ordered
             // list markers (`1.`..`99.`) so single- and double-digit items in
-            // the same list share the exact same body text start X coordinate.
+            // the same list share the exact same body text start X coordinate
+            // without overflowing on 2-digit Level-1 markers (`10. `..`99. `).
             const markEm = isBullet
               ? 1.25
               : markLen <= 3
-                ? 1.65
-                : Math.min(5, markLen * 0.55 + 0.35);
+                ? 2.25
+                : Math.min(6, markLen * 0.65 + 0.55);
             const indentEm = Math.min(8, leadSpaces * 0.55 + markEm);
             const indentStr = `${indentEm.toFixed(2)}em`;
             ranges.push(
@@ -611,6 +628,8 @@ function buildDecorations(view: EditorView, showMarkers = false): DecorationSet 
             // space) in an inline-block span of width `indentStr` (`text-indent: 0`)
             // so the first line's body text starts at the exact same X offset
             // (`indentStr`) as soft-wrapped continuation lines (`padding-left`).
+            // `white-space: pre` ensures the marker + trailing space can never
+            // wrap onto a second line inside the inline-block (#10).
             if (!isTask && after === ' ') {
               let leadFrom = nFrom;
               while (
@@ -627,7 +646,7 @@ function buildDecorations(view: EditorView, showMarkers = false): DecorationSet 
                 Decoration.mark({
                   class: 'cm-md-list-prefix',
                   attributes: {
-                    style: `display: inline-block; width: ${prefixWidthEm.toFixed(2)}em; text-indent: 0; font-variant-numeric: tabular-nums;`,
+                    style: `display: inline-block; width: ${prefixWidthEm.toFixed(2)}em; text-indent: 0; white-space: pre; font-variant-numeric: tabular-nums;`,
                   },
                 }).range(leadFrom, prefixTo),
               );
@@ -648,6 +667,16 @@ function buildDecorations(view: EditorView, showMarkers = false): DecorationSet 
         if (name === 'HorizontalRule') {
           if (showMarkers || caretTouches || nTo <= nFrom) return;
           ranges.push(hrDeco.range(nFrom, nTo));
+          return;
+        }
+
+        // ---- Backslash escapes (`\#`, `\*`, `\[`, etc.) ----
+        if (name === 'Escape' && nTo - nFrom >= 2) {
+          if (showMarkers || caretTouches) {
+            ranges.push(markerMark.range(nFrom, nFrom + 1));
+          } else {
+            ranges.push(hideDeco.range(nFrom, nFrom + 1));
+          }
           return;
         }
       },
@@ -721,7 +750,8 @@ const makeLiveRenderPlugin = (showMarkers: boolean) => ViewPlugin.fromClass(
       // so Windows WebView2 doesn't lose pointer capture mid-selection.
       const dragEnded = u.transactions.some(isDragEndTransaction);
       const imeFlush = u.transactions.some(isImeSafeFlushTransaction);
-      if (u.docChanged || u.viewportChanged || dragEnded || imeFlush) {
+      const treeChanged = syntaxTree(u.state) !== syntaxTree(u.startState);
+      if (u.docChanged || u.viewportChanged || dragEnded || imeFlush || treeChanged) {
         this.decorations = buildDecorations(u.view, showMarkers);
         return;
       }
@@ -862,12 +892,16 @@ const liveEditTheme = EditorView.theme({
     textDecoration: 'underline',
     textDecorationColor: 'color-mix(in srgb, var(--accent-text) 35%, transparent)',
     textUnderlineOffset: '3px',
+    cursor: 'pointer',
   },
 
   // v4.7.1 — bullet glyph that replaces a `-`/`*`/`+` list marker off-line.
   '.cm-md-bullet': {
     color: 'var(--text-3)',
     fontWeight: '700',
+  },
+  '.cm-md-list-prefix': {
+    whiteSpace: 'pre',
   },
 
   // v4.7.1 — `---` / `***` / `___` rendered as a real rule off-line. The

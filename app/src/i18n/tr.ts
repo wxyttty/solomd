@@ -480,6 +480,11 @@ export const tr: I18n = {
     docxPresetReport: 'Rapor — kapak, içindekiler, üst bilgi, sayfa numarası',
     docxPresetAcademic: 'Akademik — kapak, içindekiler, çift satır aralığı, sayfa numarası',
     docxPresetHint: 'Word dışa aktarımının başlangıç noktası. Front matter’daki `docx:` bloğu tek tek anahtarları geçersiz kılar (cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date) — `pdf:` ile aynı.',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: 'Hızlı yakalama kısayolu',
     quickCaptureHint: 'Her yerde küçük bir kutu açan sistem geneli kısayol: yazın, Enter’a basın, not uygulamayı öne getirmeden Gelen Kutusu’na düşsün. Tauri hızlandırıcı yazımı, ör. CmdOrCtrl+Alt+Shift+M.',
     quickCaptureFailed: 'Kaydedilemedi: {error}',
@@ -515,6 +520,8 @@ export const tr: I18n = {
     highlightCurrentLineHint: "İmlecin bulunduğu satırın arka planını renklendirir. CodeMirror düzenleyicisi için geçerlidir.",
     tabTitleFromFirstLine: "Sekme başlığı olarak ilk satırı kullan",
     tabTitleFromFirstLineHint: "Sekme çubuğunda dosya adı yerine belgenin ilk satırını gösterir.",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, prompt to confirm creating a new file if the original file on disk no longer exists when saving. Off by default.",
     autoNumberHeadings: "1–6 başlıkları otomatik numaralandır",
     autoNumberHeadingsHint: "Başlıklar eklendiğinde, silindiğinde veya değiştirildiğinde çok düzeyli bölüm numaralarını (1. / 1.1 / 1.1.1) otomatik olarak günceller. Varsayılan olarak kapalıdır.",
     codeFontFamily: 'Kod yazı tipi',
@@ -832,6 +839,12 @@ export const tr: I18n = {
     shareFailed: "Paylaşım başarısız: {error}",
     androidAllFilesReturn: "“Tüm dosyalara erişim”i açın ve geri dönün — iznin geçerli olması için SoloMD kendini yeniden başlatır.",
     pinyinCopied: "Pinyin panoya kopyalandı",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk.\n\nCreate a new file and save at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'URL\'den görsel ekle',
@@ -2344,6 +2357,8 @@ export const tr: I18n = {
     tab: {
       prev: "Önceki sekme",
       next: "Sonraki sekme",
+      mru: "Son kullanılan sekmeye geç",
+      mruPrev: "Önceki son kullanılan sekmeye geç",
       reopenClosed: "Kapatılan sekmeyi yeniden aç",
     },
     settings: {

@@ -480,6 +480,11 @@ export const ja: I18n = {
     docxPresetReport: 'レポート —— 表紙・目次・ヘッダー・ページ番号',
     docxPresetAcademic: '学術 —— 表紙・目次・行間2.0・ページ番号',
     docxPresetHint: 'Word 書き出しの土台。文書ごとに front matter の `docx:` ブロックで個別のキー（cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date）を上書きできます（`pdf:` と同じ書き方）。',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: 'クイックキャプチャのホットキー',
     quickCaptureHint: 'どのアプリからでも小さな入力欄を開くシステム全体のショートカット。入力して Enter を押すと、アプリを前面に出さずに受信箱へ保存されます。Tauri のアクセラレータ記法（例: CmdOrCtrl+Alt+Shift+M）。',
     quickCaptureFailed: '登録できませんでした: {error}',
@@ -515,6 +520,8 @@ export const ja: I18n = {
     highlightCurrentLineHint: "カーソルのある行の背景に色を付けます。CodeMirror エディタに適用されます。",
     tabTitleFromFirstLine: "タブのタイトルに文書の1行目を使用",
     tabTitleFromFirstLineHint: "タブバーにファイル名の代わりに文書の最初の行を表示します（外部アプリから一時ファイル名で開かれた場合に便利）。デフォルトはオフです。",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, prompt to confirm creating a new file if the original file on disk no longer exists when saving. Off by default.",
     autoNumberHeadings: "1〜6レベルの見出しに自動で階層番号を付与",
     autoNumberHeadingsHint: "見出しの追加・削除・変更時に文書全体の階層番号（1. / 1.1 / 1.1.1）を自動更新します。デフォルトはオフです。",
     codeFontFamily: 'コードフォント',
@@ -832,6 +839,12 @@ export const ja: I18n = {
     shareFailed: "共有に失敗しました: {error}",
     androidAllFilesReturn: "「すべてのファイルへのアクセス」をオンにしてから戻ってください — 権限を反映するため SoloMD が自動で再起動します。",
     pinyinCopied: "ピンインをクリップボードにコピーしました",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk.\n\nCreate a new file and save at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'URL から画像を挿入',
@@ -2327,6 +2340,8 @@ export const ja: I18n = {
     tab: {
       prev: "前のタブ",
       next: "次のタブ",
+      mru: "最近使ったタブに切り替え",
+      mruPrev: "前の最近使ったタブに切り替え",
       reopenClosed: "閉じたタブを再度開く",
     },
     settings: {

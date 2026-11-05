@@ -480,6 +480,11 @@ export const ko: I18n = {
     docxPresetReport: '보고서 — 표지·목차·머리글·쪽 번호',
     docxPresetAcademic: '학술 — 표지·목차·2줄 간격·쪽 번호',
     docxPresetHint: 'Word 내보내기의 기본 틀. 문서별로 front matter의 `docx:` 블록에서 개별 키(cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date)를 덮어쓸 수 있습니다(`pdf:`와 동일).',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: '빠른 캡처 단축키',
     quickCaptureHint: '어느 앱에서든 작은 입력창을 여는 시스템 전역 단축키. 입력하고 Enter를 누르면 앱을 앞으로 가져오지 않고 받은 편지함에 저장됩니다. Tauri 액셀러레이터 표기(예: CmdOrCtrl+Alt+Shift+M).',
     quickCaptureFailed: '등록하지 못했습니다: {error}',
@@ -515,6 +520,8 @@ export const ko: I18n = {
     highlightCurrentLineHint: "커서가 있는 줄의 배경에 색을 입힙니다. CodeMirror 편집기에 적용됩니다.",
     tabTitleFromFirstLine: "문서 첫 줄을 탭 제목으로 사용",
     tabTitleFromFirstLineHint: "탭 바에 파일 이름 대신 문서의 첫 번째 줄을 표시합니다(외부 프로그램에서 임시 파일명으로 호출할 때 유용). 기본값은 꺼짐입니다.",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, prompt to confirm creating a new file if the original file on disk no longer exists when saving. Off by default.",
     autoNumberHeadings: "1~6단계 제목에 다단계 번호 자동 추가",
     autoNumberHeadingsHint: "제목을 추가·삭제·수정할 때 문서 전체의 다단계 번호(1. / 1.1 / 1.1.1)를 자동으로 갱신합니다. 기본값은 꺼짐입니다.",
     codeFontFamily: '코드 글꼴',
@@ -832,6 +839,12 @@ export const ko: I18n = {
     shareFailed: "공유 실패: {error}",
     androidAllFilesReturn: "“모든 파일 액세스”를 켠 다음 돌아오세요 — 권한이 적용되도록 SoloMD가 자동으로 다시 시작됩니다.",
     pinyinCopied: "병음이 클립보드에 복사됨",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk.\n\nCreate a new file and save at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'URL에서 이미지 삽입',
@@ -2327,6 +2340,8 @@ export const ko: I18n = {
     tab: {
       prev: "이전 탭",
       next: "다음 탭",
+      mru: "최근 탭으로 전환",
+      mruPrev: "이전 최근 탭으로 전환",
       reopenClosed: "닫은 탭 다시 열기",
     },
     settings: {

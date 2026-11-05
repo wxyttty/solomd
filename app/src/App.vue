@@ -1628,19 +1628,20 @@ onMounted(async () => {
 
 async function checkForUpdatesNow(): Promise<void> {
   try {
-    const { checkForUpdateOnStartup, openReleaseUrl } = await import('./lib/check-update');
+    const { checkForUpdateOnStartup } = await import('./lib/check-update');
+    const { runDirectUpdateInstall } = await import('./composables/useUpdateCheck');
     const result = await checkForUpdateOnStartup();
-    if (result && result.hasUpdate) {
+    if (result && result.hasUpdate && result.latest) {
       const toastsStore = (await import('./stores/toasts')).useToastsStore();
       const { useI18n } = await import('./i18n');
-      const { t: tr } = useI18n();
-      // #171 — no auto-opening the browser (it yanks the user out of
-      // whatever they're writing). The toast lingers; clicking it opens
-      // the download page.
-      toastsStore.success(
+      const { t: tr, lang } = useI18n();
+      const actionLabel = lang.value === 'zh' ? '立即升级' : 'Update';
+      toastsStore.push(
         tr('settings.updateAvailable', { version: result.latest || '' }),
-        12000,
-        () => { void openReleaseUrl(result.url); },
+        'success',
+        15000,
+        () => { void runDirectUpdateInstall(result.latest!); },
+        { actionLabel },
       );
     }
   } catch { /* silent */ }
@@ -2307,29 +2308,26 @@ watchEffect(() => { void settings.aiEnabled; void settings.aiProvider; refreshAi
     }"
   >
     <!--
-      v2.4 reading mode swaps out the entire toolbar / sidebar / status-bar
-      stack for a single ReadingView component. We keep all the modal
-      dialogs (settings, palette, etc.) mounted at the bottom so the user
-      can still summon them from inside reading mode if needed.
+      v2.4 reading mode shows a single ReadingView component while keeping the
+      workspace shell mounted via v-show (#512 / #516) so the editor's undo/redo
+      stack and scroll/DOM state survive entering and leaving reading mode.
     -->
-    <template v-if="settings.viewMode === 'reading'">
-      <ReadingView />
-    </template>
-    <template v-else>
-      <!-- 5.0 window (docs/v5-ui-spec.md §3): on Windows a 44px frameless title
-           bar spans the window; below it — and on every other platform at the
-           top — the sidebar runs full height beside a column holding the 52px
-           header and the workspace. On macOS the traffic lights sit in the
-           sidebar's top inset, or over the header when the sidebar is hidden. -->
-      <Toolbar
-        v-if="winTitleBar"
-        variant="titlebar"
-        @open-palette="paletteOpen = true"
-        @open-settings="openSettingsAt()"
-        @open-help="helpOpen = true"
-        @open-search="toggleGlobalSearch()"
-      />
-      <div class="shell">
+    <ReadingView v-if="settings.viewMode === 'reading'" />
+    <!-- 5.0 window (docs/v5-ui-spec.md §3): on Windows a 44px frameless title
+         bar spans the window; below it — and on every other platform at the
+         top — the sidebar runs full height beside a column holding the 52px
+         header and the workspace. On macOS the traffic lights sit in the
+         sidebar's top inset, or over the header when the sidebar is hidden. -->
+    <Toolbar
+      v-if="winTitleBar"
+      v-show="settings.viewMode !== 'reading'"
+      variant="titlebar"
+      @open-palette="paletteOpen = true"
+      @open-settings="openSettingsAt()"
+      @open-help="helpOpen = true"
+      @open-search="toggleGlobalSearch()"
+    />
+    <div v-show="settings.viewMode !== 'reading'" class="shell">
         <!-- #168 — on a phone the side panes float over the editor instead of
              stealing its width; this catches the tap that dismisses them. -->
         <div
@@ -2572,7 +2570,6 @@ watchEffect(() => { void settings.aiEnabled; void settings.aiProvider; refreshAi
         </div>
         <div v-if="sidebarCtx" class="sidebar-ctx__backdrop" @click="closeSidebarCtx" />
       </Teleport>
-    </template>
 
     <AIRewriteOverlay
       v-if="!IS_APP_STORE_BUILD"

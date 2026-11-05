@@ -480,6 +480,11 @@ export const nl: I18n = {
     docxPresetReport: 'Rapport — omslag, inhoud, koptekst, paginanummers',
     docxPresetAcademic: 'Academisch — omslag, inhoud, dubbele regelafstand, paginanummers',
     docxPresetHint: 'Waar een Word-export mee begint. Een `docx:`-blok in de front matter overschrijft losse sleutels (cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date), net als `pdf:`.',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: 'Sneltoets voor snelle notitie',
     quickCaptureHint: 'Een systeembrede sneltoets die overal een klein venster opent: typ, druk op Enter en de notitie belandt in je Inbox zonder dat de app naar voren komt. Tauri-acceleratorsyntaxis, bijv. CmdOrCtrl+Alt+Shift+M.',
     quickCaptureFailed: 'Niet geregistreerd: {error}',
@@ -515,6 +520,8 @@ export const nl: I18n = {
     highlightCurrentLineHint: "Kleurt de achtergrond van de regel met de cursor. Geldt voor de CodeMirror-editor.",
     tabTitleFromFirstLine: "Eerste regel gebruiken als tabbladtitel",
     tabTitleFromFirstLineHint: "Toont de eerste niet-lege regel van het document in plaats van de bestandsnaam in de tabbladbalk.",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, prompt to confirm creating a new file if the original file on disk no longer exists when saving. Off by default.",
     autoNumberHeadings: "Koppen (1–6) automatisch nummereren",
     autoNumberHeadingsHint: "Voegt automatisch hiërarchische sectienummers (1. / 1.1 / 1.1.1) toe en werkt ze bij wanneer koppen worden toegevoegd, verwijderd of gewijzigd. Standaard uitgeschakeld.",
     codeFontFamily: 'Code-lettertype',
@@ -832,6 +839,12 @@ export const nl: I18n = {
     shareFailed: "Delen mislukt: {error}",
     androidAllFilesReturn: "Zet “Toegang tot alle bestanden” aan en kom dan terug — SoloMD herstart zichzelf zodat de toestemming van kracht wordt.",
     pinyinCopied: "Pinyin naar klembord gekopieerd",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk.\n\nCreate a new file and save at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'Afbeelding van URL invoegen',
@@ -2344,6 +2357,8 @@ export const nl: I18n = {
     tab: {
       prev: "Vorig tabblad",
       next: "Volgend tabblad",
+      mru: "Wisselen naar recent tabblad",
+      mruPrev: "Wisselen naar vorig recent tabblad",
       reopenClosed: "Gesloten tabblad heropenen",
     },
     settings: {

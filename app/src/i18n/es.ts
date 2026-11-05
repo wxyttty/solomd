@@ -480,6 +480,11 @@ export const es: I18n = {
     docxPresetReport: 'Informe: portada, índice, encabezado y números de página',
     docxPresetAcademic: 'Académica: portada, índice, doble espacio y números de página',
     docxPresetHint: 'El punto de partida de una exportación a Word. Un bloque `docx:` en el front matter sustituye claves concretas (cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date), igual que `pdf:`.',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: 'Atajo de captura rápida',
     quickCaptureHint: 'Un atajo de todo el sistema que abre una pequeña ventana en cualquier parte: escribe, pulsa Intro y la nota llega a la bandeja de entrada sin traer la app al frente. Sintaxis de acelerador de Tauri, p. ej. CmdOrCtrl+Alt+Shift+M.',
     quickCaptureFailed: 'No registrado: {error}',
@@ -515,6 +520,8 @@ export const es: I18n = {
     highlightCurrentLineHint: "Colorea el fondo de la línea donde está el cursor. Se aplica al editor CodeMirror.",
     tabTitleFromFirstLine: "Usar la primera línea como título de pestaña",
     tabTitleFromFirstLineHint: "Muestra la primera línea del documento en lugar del nombre de archivo en la barra de pestañas.",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, prompt to confirm creating a new file if the original file on disk no longer exists when saving. Off by default.",
     autoNumberHeadings: "Numerar automáticamente los encabezados 1–6",
     autoNumberHeadingsHint: "Añade y actualiza automáticamente la numeración jerárquica (1. / 1.1 / 1.1.1) al añadir, eliminar o modificar encabezados. Desactivado por defecto.",
     codeFontFamily: 'Fuente de código',
@@ -832,6 +839,12 @@ export const es: I18n = {
     shareFailed: "Error al compartir: {error}",
     androidAllFilesReturn: "Activa «Acceso a todos los archivos» y vuelve — SoloMD se reiniciará para que el permiso surta efecto.",
     pinyinCopied: "Pinyin copiado al portapapeles",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk.\n\nCreate a new file and save at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'Insertar imagen desde URL',
@@ -2327,6 +2340,8 @@ export const es: I18n = {
     tab: {
       prev: "Pestaña anterior",
       next: "Pestaña siguiente",
+      mru: "Cambiar a la pestaña reciente",
+      mruPrev: "Cambiar a la pestaña reciente anterior",
       reopenClosed: "Reabrir pestaña cerrada",
     },
     settings: {

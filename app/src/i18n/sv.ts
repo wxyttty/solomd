@@ -480,6 +480,11 @@ export const sv: I18n = {
     docxPresetReport: 'Rapport — omslag, innehåll, sidhuvud, sidnummer',
     docxPresetAcademic: 'Akademisk — omslag, innehåll, dubbelt radavstånd, sidnummer',
     docxPresetHint: 'Vad en Word-export utgår från. Ett `docx:`-block i front matter ersätter enskilda nycklar (cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date), precis som `pdf:`.',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: 'Snabbfångst-genväg',
     quickCaptureHint: 'En systemomfattande genväg som öppnar en liten ruta var som helst: skriv, tryck Enter, och anteckningen hamnar i Inkorgen utan att appen tas fram. Tauri-acceleratorsyntax, t.ex. CmdOrCtrl+Alt+Shift+M.',
     quickCaptureFailed: 'Inte registrerad: {error}',
@@ -515,6 +520,8 @@ export const sv: I18n = {
     highlightCurrentLineHint: "Färgar bakgrunden på raden med markören. Gäller CodeMirror-redigeraren.",
     tabTitleFromFirstLine: "Använd första raden som fliktitel",
     tabTitleFromFirstLineHint: "Visar dokumentets första rad i stället för filnamnet i flikfältet.",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, prompt to confirm creating a new file if the original file on disk no longer exists when saving. Off by default.",
     autoNumberHeadings: "Numrera rubriker (1–6) automatiskt",
     autoNumberHeadingsHint: "Lägger automatiskt till och uppdaterar hierarkiska avsnittsnummer (1. / 1.1 / 1.1.1) när rubriker läggs till, tas bort eller ändras. Av som standard.",
     codeFontFamily: 'Kodtypsnitt',
@@ -832,6 +839,12 @@ export const sv: I18n = {
     shareFailed: "Delningen misslyckades: {error}",
     androidAllFilesReturn: "Slå på ”Åtkomst till alla filer” och kom sedan tillbaka — SoloMD startar om sig själv så att behörigheten börjar gälla.",
     pinyinCopied: "Pinyin kopierat till urklipp",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk.\n\nCreate a new file and save at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'Infoga bild från URL',
@@ -2344,6 +2357,8 @@ export const sv: I18n = {
     tab: {
       prev: "Föregående flik",
       next: "Nästa flik",
+      mru: "Växla till senaste flik",
+      mruPrev: "Växla till föregående senaste flik",
       reopenClosed: "Öppna stängd flik igen",
     },
     settings: {

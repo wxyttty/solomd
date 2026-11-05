@@ -480,6 +480,11 @@ export const it: I18n = {
     docxPresetReport: 'Report — copertina, sommario, intestazione, numeri di pagina',
     docxPresetAcademic: 'Accademico — copertina, sommario, interlinea doppia, numeri di pagina',
     docxPresetHint: 'Da cosa parte un’esportazione in Word. Un blocco `docx:` nel front matter sovrascrive le singole chiavi (cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date), come `pdf:`.',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: 'Scorciatoia di cattura rapida',
     quickCaptureHint: 'Una scorciatoia di sistema che apre una piccola finestra ovunque: scrivi, premi Invio e la nota finisce in posta in arrivo senza portare l’app in primo piano. Sintassi acceleratore di Tauri, es. CmdOrCtrl+Alt+Shift+M.',
     quickCaptureFailed: 'Non registrata: {error}',
@@ -515,6 +520,8 @@ export const it: I18n = {
     highlightCurrentLineHint: "Colora lo sfondo della riga del cursore. Vale per l’editor CodeMirror.",
     tabTitleFromFirstLine: "Usa la prima riga come titolo della scheda",
     tabTitleFromFirstLineHint: "Mostra la prima riga del documento invece del nome del file nella barra delle schede.",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, prompt to confirm creating a new file if the original file on disk no longer exists when saving. Off by default.",
     autoNumberHeadings: "Numera automaticamente i titoli 1–6",
     autoNumberHeadingsHint: "Aggiunge e aggiorna automaticamente la numerazione gerarchica (1. / 1.1 / 1.1.1) quando i titoli vengono aggiunti, eliminati o modificati. Disattivato per impostazione predefinita.",
     codeFontFamily: 'Font del codice',
@@ -832,6 +839,12 @@ export const it: I18n = {
     shareFailed: "Condivisione non riuscita: {error}",
     androidAllFilesReturn: "Attiva «Accesso a tutti i file», poi torna qui — SoloMD si riavvia da solo per applicare l’autorizzazione.",
     pinyinCopied: "Pinyin copiato negli appunti",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk.\n\nCreate a new file and save at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'Inserisci immagine da URL',
@@ -2327,6 +2340,8 @@ export const it: I18n = {
     tab: {
       prev: "Scheda precedente",
       next: "Scheda successiva",
+      mru: "Passa alla scheda recente",
+      mruPrev: "Passa alla scheda recente precedente",
       reopenClosed: "Riapri scheda chiusa",
     },
     settings: {

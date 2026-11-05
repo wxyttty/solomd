@@ -77,8 +77,9 @@ const makeLiveMarkdownPlugin = (showMarkers: boolean) => ViewPlugin.fromClass(
     build(view: EditorView): DecorationSet {
       const builder = new RangeSetBuilder<Decoration>();
       const sel = view.state.selection.main;
-      const fromLine = view.state.doc.lineAt(sel.from).number;
-      const toLine = view.state.doc.lineAt(sel.to).number;
+      const dragging = isDragging(view.state);
+      const fromLine = dragging ? -1 : view.state.doc.lineAt(sel.from).number;
+      const toLine = dragging ? -1 : view.state.doc.lineAt(sel.to).number;
       const tree = syntaxTree(view.state);
 
       for (const { from, to } of view.visibleRanges) {
@@ -137,6 +138,15 @@ const makeLiveMarkdownPlugin = (showMarkers: boolean) => ViewPlugin.fromClass(
             if (name === 'HorizontalRule') {
               if (showMarkers || onCaretLine || node.to <= node.from) return;
               builder.add(node.from, node.to, hrDeco);
+              return;
+            }
+            if (name === 'Escape' && node.to - node.from >= 2) {
+              if (showMarkers) {
+                builder.add(node.from, node.from + 1, markerMark);
+                return;
+              }
+              if (onCaretLine) return;
+              builder.add(node.from, node.from + 1, hideDeco);
               return;
             }
           },

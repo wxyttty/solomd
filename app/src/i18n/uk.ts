@@ -480,6 +480,11 @@ export const uk: I18n = {
     docxPresetReport: 'Звіт — обкладинка, зміст, колонтитул, номери сторінок',
     docxPresetAcademic: 'Академічний — обкладинка, зміст, подвійний інтервал, номери сторінок',
     docxPresetHint: 'З чого починається експорт у Word. Блок `docx:` у front matter перекриває окремі ключі (cover, toc, header, pageNumbers, font, fontSize, lineSpacing, title, author, date), так само як `pdf:`.',
+    defaultExportDir: 'Default export directory',
+    defaultExportDirPlaceholder: 'Same folder as current note',
+    defaultExportDirBrowse: 'Browse…',
+    defaultExportDirClear: 'Clear',
+    defaultExportDirHint: 'Default folder shown in the save dialog when exporting PDF, Word, HTML, or images. Leave empty to default to the current note’s folder.',
     quickCapture: 'Гаряча клавіша швидкого запису',
     quickCaptureHint: 'Загальносистемна комбінація, що відкриває маленьке вікно будь-де: введіть текст, натисніть Enter — нотатка потрапить у Вхідні, не виводячи застосунок наперед. Синтаксис прискорювача Tauri, напр. CmdOrCtrl+Alt+Shift+M.',
     quickCaptureFailed: 'Не зареєстровано: {error}',
@@ -515,6 +520,8 @@ export const uk: I18n = {
     highlightCurrentLineHint: "Забарвлює тло рядка з курсором. Стосується редактора CodeMirror.",
     tabTitleFromFirstLine: "Використовувати перший рядок як заголовок вкладки",
     tabTitleFromFirstLineHint: "Показувати перший непорожній рядок документа замість імені файлу на панелі вкладок.",
+    confirmSaveMissingFile: "Check if original file exists before saving",
+    confirmSaveMissingFileHint: "When enabled, prompt to confirm creating a new file if the original file on disk no longer exists when saving. Off by default.",
     autoNumberHeadings: "Автоматично нумерувати заголовки 1–6",
     autoNumberHeadingsHint: "Автоматично додає й оновлює багаторівневу нумерацію розділів (1. / 1.1 / 1.1.1) під час додавання, видалення або зміни заголовків. За замовчуванням вимкнено.",
     codeFontFamily: 'Шрифт коду',
@@ -832,6 +839,12 @@ export const uk: I18n = {
     shareFailed: "Не вдалося поширити: {error}",
     androidAllFilesReturn: "Увімкніть «Доступ до всіх файлів» і поверніться — SoloMD перезапуститься, щоб дозвіл набув чинності.",
     pinyinCopied: "Піньїнь скопійовано в буфер обміну",
+  },
+  dialog: {
+    missingFileTitle: "Original File Does Not Exist",
+    missingFileBody: "The original file \"{name}\" no longer exists on disk.\n\nCreate a new file and save at the original path?\nPath: {path}",
+    missingFileConfirm: "Create & Save",
+    missingFileCancel: "Cancel",
   },
   imageUrlDialog: {
     title: 'Вставити зображення з URL',
@@ -2344,6 +2357,8 @@ export const uk: I18n = {
     tab: {
       prev: "Попередня вкладка",
       next: "Наступна вкладка",
+      mru: "Перемкнути на нещодавню вкладку",
+      mruPrev: "Перемкнути на попередню нещодавню вкладку",
       reopenClosed: "Відновити закриту вкладку",
     },
     settings: {

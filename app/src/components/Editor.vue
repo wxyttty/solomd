@@ -42,7 +42,9 @@ import {
   EDITOR_COMMANDS,
   MARKDOWN_ONLY_COMMANDS,
   autoNumberHeadings,
+  dedentCodeBlockSelection,
   deleteWord as deleteWordEdit,
+  indentCodeBlockPaste,
   selectCodeBlockBody,
   selectLine as selectLineRange,
   selectWord as selectWordRange,
@@ -60,7 +62,7 @@ import { useToastsStore } from '../stores/toasts';
 import type { Tab } from '../types';
 import { livePreviewExtension, richHighlightOnly } from '../lib/cm-live-preview';
 import { liveEditExtension, setLiveEditCopyLabel } from '../lib/cm-live-render';
-import { liveBlocksExtension, liveBlocksTheme, extractImageRoot } from '../lib/cm-live-blocks';
+import { liveBlocksExtension, liveBlocksTheme, extractImageRoot, findTableCellOffsetInLine } from '../lib/cm-live-blocks';
 import { findTldrawFences, replaceBoardSnapshot } from '../lib/tldraw-board';
 import { dragAwareExtension } from '../lib/cm-drag-aware';
 import { imagePasteExtension, insertImageFromPath as cmInsertImageFromPath, imageTextFromPath, handleTextareaImagePaste, type ImagePasteOptions } from '../lib/cm-image-paste';
@@ -115,7 +117,7 @@ import { copyImageElement } from '../lib/image-clipboard';
 import { readText as readClipboardTextPlugin, writeText as writeClipboardTextPlugin } from '@tauri-apps/plugin-clipboard-manager';
 import { computeListContinuation, computeListSoftBreak, repairIndentedFenceEdit } from '../lib/list-continuation';
 import { mapPos, renumberAfterEdit, renumberChanges } from '../lib/list-renumber';
-import { openRenderedLink } from '../lib/link-open';
+import { findMarkdownLinkAt, openMarkdownHref, openRenderedLink } from '../lib/link-open';
 
 // Incremental find. CoreMirror's search panel only scrolls to a match when you
 // press Enter / click Next — typing in the field just repaints the highlights
@@ -549,8 +551,18 @@ const plainRenderCache = new Map<string, string>();
 // code re-render — the plainBlocks computed reads it through that key.
 const renderDepsVersion = useRenderDepsVersion();
 
+// #512 / #516 — Keep the editor's internal rendering mode ('liveEdit' | 'edit' | 'split')
+// stable while the pane is temporarily hidden in 'preview' or 'reading' mode so
+// neither the Windows block editor nor CodeMirror's live-edit compartment unmounts
+// or resets its undo/redo stack or scroll layout.
+const activeEditorViewMode = ref<'edit' | 'liveEdit' | 'split'>(
+  settings.viewMode === 'edit' || settings.viewMode === 'liveEdit' || settings.viewMode === 'split'
+    ? settings.viewMode
+    : 'liveEdit',
+);
+
 const plainLiveEnabled = computed(
-  () => usePlainWindowsEditor && settings.viewMode === 'liveEdit' && props.tab.language === 'markdown',
+  () => usePlainWindowsEditor && activeEditorViewMode.value === 'liveEdit' && props.tab.language === 'markdown',
 );
 
 const plainEditorStyle = computed(() => ({
@@ -1165,6 +1177,48 @@ function plainSelectionText(): string {
   return from === to ? '' : el.value.slice(from, to);
 }
 
+function onPlainTextareaMouseUp(event: MouseEvent) {
+  const el = event.currentTarget as HTMLTextAreaElement | null;
+  if (el && event.button === 0 && event.detail >= 3) {
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    if (end > start && el.value[end - 1] === '\n') {
+      el.setSelectionRange(start, end - 1);
+    }
+  }
+  emitPlainCursorAndSelection();
+  if (
+    el &&
+    props.tab.language === 'markdown' &&
+    event.button === 0 &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.shiftKey &&
+    !event.altKey &&
+    (el.selectionStart ?? 0) === (el.selectionEnd ?? 0)
+  ) {
+    const match = findMarkdownLinkAt(el.value, el.selectionStart ?? 0);
+    if (match) {
+      openMarkdownHref(match.href, props.tab.filePath, match.wikilink);
+    }
+  }
+}
+
+function handlePlainCopy(event: ClipboardEvent) {
+  if (props.tab.language !== 'markdown') return;
+  const el = event.currentTarget as HTMLTextAreaElement | null;
+  if (!el) return;
+  const from = el.selectionStart ?? 0;
+  const to = el.selectionEnd ?? 0;
+  if (from === to) return;
+  const raw = el.value.slice(from, to);
+  const dedented = dedentCodeBlockSelection(el.value, from, to, raw);
+  if (dedented !== raw) {
+    event.preventDefault();
+    event.clipboardData?.setData('text/plain', dedented);
+    void writeClipboard(dedented);
+  }
+}
+
 function emitPlainCursorAndSelection() {
   // Every selection-ish event in both plain paths funnels through here, so
   // it is also where the focus shade and the drawn caret get repainted.
@@ -1177,25 +1231,29 @@ function emitPlainCursorAndSelection() {
     const el = plainBlockEditors.value[plainActiveBlock.value];
     const block = plainBlocks.value[plainActiveBlock.value];
     if (!el || !block) return;
-    const head = el.selectionStart ?? 0;
+    const head = (el.selectionDirection === 'backward' ? el.selectionStart : el.selectionEnd) ?? 0;
     const before = plainText.value.slice(0, block.start) + el.value.slice(0, head);
     const lines = before.split('\n');
     const line = lines.length;
     const col = lines[lines.length - 1]?.length ?? 0;
     emit('cursor', line, col + 1);
     emit('selection', plainSelectionText());
-    maybeTypewriterScroll();
+    if ((el.selectionStart ?? 0) === (el.selectionEnd ?? 0)) {
+      maybeTypewriterScroll();
+    }
     return;
   }
   const el = plainEditor.value;
   if (!el) return;
-  const head = el.selectionStart ?? 0;
+  const head = (el.selectionDirection === 'backward' ? el.selectionStart : el.selectionEnd) ?? 0;
   const lines = el.value.slice(0, head).split('\n');
   const line = lines.length;
   const col = lines[lines.length - 1]?.length ?? 0;
   emit('cursor', line, col + 1);
   emit('selection', plainSelectionText());
-  maybePlainTypewriterScroll(line);
+  if ((el.selectionStart ?? 0) === (el.selectionEnd ?? 0)) {
+    maybePlainTypewriterScroll(line);
+  }
 }
 
 // #199 — typewriter mode for the single-textarea (edit-only / split) plain
@@ -1481,6 +1539,25 @@ function syncPlainLiveScroll() {
 }
 
 function handlePlainPaste(event: ClipboardEvent) {
+  if (props.tab.language === 'markdown' && event.clipboardData) {
+    const hasImage = Array.from(event.clipboardData.items || []).some((it) =>
+      it.type.startsWith('image/'),
+    );
+    if (!hasImage) {
+      const raw = event.clipboardData.getData('text/plain');
+      const el = event.currentTarget as HTMLTextAreaElement | null;
+      if (raw && el) {
+        const from = el.selectionStart ?? 0;
+        const to = el.selectionEnd ?? 0;
+        const indented = indentCodeBlockPaste(el.value, from, to, raw);
+        if (indented !== raw) {
+          event.preventDefault();
+          plainInsertText(indented);
+          return;
+        }
+      }
+    }
+  }
   // Clipboard image paste (Ctrl+V of a screenshot). Text paste falls through to
   // the textarea's native handling. plainInsertText records its own undo step.
   void handleTextareaImagePaste(event, imagePasteOpts(), (text) => plainInsertText(text));
@@ -2863,6 +2940,29 @@ function estimatePlainBlockCaretFromClick(index: number, event: MouseEvent): num
   const render = target?.querySelector('.plain-block__render') as HTMLElement | null;
   if (!block || !render) return undefined;
 
+  // #504 — When clicking a rendered table cell (`<th>` / `<td>`) in the Windows
+  // plain-block live editor, map the clicked row and column directly to the
+  // corresponding Markdown pipe-table cell offset so even empty cells or cells
+  // with repeated characters land in the exact target cell.
+  const eventTarget = event.target as HTMLElement | null;
+  const cell = eventTarget?.closest('th, td') as HTMLTableCellElement | null;
+  const row = cell?.closest('tr') as HTMLTableRowElement | null;
+  const table = row?.closest('table') as HTMLTableElement | null;
+  if (cell && row && table && render.contains(table)) {
+    const allRows = Array.from(table.querySelectorAll('tr'));
+    const rowIdx = allRows.indexOf(row);
+    const cellsInRow = Array.from(row.querySelectorAll('th, td'));
+    const colIdx = Math.max(0, cellsInRow.indexOf(cell));
+    const lines = block.text.split('\n');
+    const sourceRowIdx = rowIdx <= 0 ? 0 : Math.min(rowIdx + 1, lines.length - 1);
+    let lineStartOffset = 0;
+    for (let i = 0; i < sourceRowIdx; i++) lineStartOffset += lines[i].length + 1;
+    const rect = cell.getBoundingClientRect();
+    const clickRatio =
+      rect.width > 0 ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) : 0.5;
+    return lineStartOffset + findTableCellOffsetInLine(lines[sourceRowIdx] ?? '', colIdx, clickRatio);
+  }
+
   // Preferred: map the exact click point in the rendered preview back to a
   // source offset, so a single click lands the caret where the user clicked
   // instead of snapping to the line start.
@@ -2913,7 +3013,12 @@ function activatePlainBlockFromClick(index: number, event: MouseEvent) {
   // webview must never follow it itself — that replaced the whole UI with the
   // page, with no way back but right-click → Back.
   const anchor = target?.closest('a') as Element | null;
-  if (anchor && (anchor.hasAttribute('href') || anchor.hasAttribute('xlink:href'))) {
+  if (
+    anchor &&
+    (anchor.hasAttribute('href') ||
+      anchor.hasAttribute('xlink:href') ||
+      anchor.classList.contains('md-wikilink'))
+  ) {
     event.preventDefault();
     if (event.ctrlKey || event.metaKey) {
       openRenderedLink(anchor, event, props.tab.filePath);
@@ -3810,13 +3915,24 @@ async function onEditorMenuAction(id: EditorMenuAction) {
       });
     } else if (id === 'copy' || id === 'cut') {
       if (sel.empty) return;
-      await writeClipboard(v.state.sliceDoc(sel.from, sel.to));
+      const raw = v.state.sliceDoc(sel.from, sel.to);
+      const out =
+        props.tab.language === 'markdown'
+          ? dedentCodeBlockSelection(v.state.doc.toString(), sel.from, sel.to, raw)
+          : raw;
+      await writeClipboard(out);
       if (id === 'cut') {
         v.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' }, userEvent: 'delete.cut' });
       }
     } else if (id === 'paste') {
       const text = await readClipboard();
-      if (text) v.dispatch({ ...v.state.replaceSelection(text), userEvent: 'input.paste', scrollIntoView: true });
+      if (text) {
+        const out =
+          props.tab.language === 'markdown'
+            ? indentCodeBlockPaste(v.state.doc.toString(), sel.from, sel.to, text)
+            : text;
+        v.dispatch({ ...v.state.replaceSelection(out), userEvent: 'input.paste', scrollIntoView: true });
+      }
     }
     v.focus();
     return;
@@ -3830,8 +3946,14 @@ async function onEditorMenuAction(id: EditorMenuAction) {
   if (!el) return;
   el.focus();
   if (id === 'copy' || id === 'cut') {
-    const text = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
-    if (!text) return;
+    const from = el.selectionStart ?? 0;
+    const to = el.selectionEnd ?? 0;
+    const raw = el.value.slice(from, to);
+    if (!raw) return;
+    const text =
+      props.tab.language === 'markdown'
+        ? dedentCodeBlockSelection(el.value, from, to, raw)
+        : raw;
     await writeClipboard(text);
     if (id === 'cut') {
       el.focus();
@@ -3842,8 +3964,12 @@ async function onEditorMenuAction(id: EditorMenuAction) {
   } else if (id === 'paste') {
     const text = await readClipboard();
     if (!text) return;
+    const out =
+      props.tab.language === 'markdown'
+        ? indentCodeBlockPaste(el.value, el.selectionStart ?? 0, el.selectionEnd ?? 0, text)
+        : text;
     el.focus();
-    document.execCommand('insertText', false, text);
+    document.execCommand('insertText', false, out);
   }
 }
 
@@ -4143,7 +4269,7 @@ function richExtensionsFor(tab: Tab) {
   // the WYSIWYG bundle ALREADY includes rich highlighting + marker hiding,
   // and stacking livePreviewExtension on top would cause duplicate
   // marker-replace decorations.
-  if (settings.viewMode === 'liveEdit') {
+  if (activeEditorViewMode.value === 'liveEdit') {
     // v3.6 issue #44: in live-edit mode, also collapse standalone image
     // lines + GFM tables into block widgets when the cursor is elsewhere.
     // Cursor enters → widget unmounts → source returns. Image paths
@@ -4186,7 +4312,7 @@ function richExtensionsFor(tab: Tab) {
   }
   // In 'edit' (源码 / Source mode), always render raw Markdown source — never
   // hide markers, enlarge headings, or swap task/wikilink syntax for widgets.
-  if (settings.viewMode === 'edit') {
+  if (activeEditorViewMode.value === 'edit') {
     return richHighlightOnly();
   }
   return settings.livePreview
@@ -4341,8 +4467,41 @@ function buildExtensions() {
     // turn into phantom multi-line selections when the layout shifts.
     stableClickSelection(),
     // Double-click on CJK picks a word (Intl.Segmenter, same as ⌘D), not the
-    // whole run between two punctuation marks.
+    // whole run between two punctuation marks; triple-click selects the line
+    // without its trailing newline.
     cjkDoubleClickSelection(),
+    EditorView.clipboardOutputFilter.of((text, state) => {
+      if (props.tab.language !== 'markdown' || state.selection.ranges.length !== 1) return text;
+      const sel = state.selection.main;
+      return dedentCodeBlockSelection(state.doc.toString(), sel.from, sel.to, text);
+    }),
+    EditorView.clipboardInputFilter.of((text, state) => {
+      if (props.tab.language !== 'markdown' || state.selection.ranges.length !== 1) return text;
+      const sel = state.selection.main;
+      return indentCodeBlockPaste(state.doc.toString(), sel.from, sel.to, text);
+    }),
+    EditorView.domEventHandlers({
+      mousedown(event, v) {
+        if (
+          props.tab.language !== 'markdown' ||
+          event.button !== 0 ||
+          !(event.ctrlKey || event.metaKey) ||
+          event.shiftKey ||
+          event.altKey
+        ) {
+          return false;
+        }
+        const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+        if (pos == null) return false;
+        const match = findMarkdownLinkAt(v.state.doc.toString(), pos);
+        if (!match) return false;
+        if (openMarkdownHref(match.href, props.tab.filePath, match.wikilink)) {
+          event.preventDefault();
+          return true;
+        }
+        return false;
+      },
+    }),
     EditorView.updateListener.of((u) => {
       if (u.docChanged) {
         if (u.transactions.some((tr) => tr.isUserEvent('undo'))) {
@@ -4747,7 +4906,7 @@ function onEditorHistory(e: Event) {
  * route it to `plainUndo` / `plainRedo` on the active tab's plain editor.
  */
 function onPlainWindowKeydown(event: KeyboardEvent) {
-  if (!usePlainWindowsEditor || event.defaultPrevented) return;
+  if (event.defaultPrevented) return;
   if (props.tab.id !== tabs.activeId) return;
   if (settings.viewMode === 'preview' || settings.viewMode === 'reading') return;
   const active = document.activeElement;
@@ -4756,13 +4915,28 @@ function onPlainWindowKeydown(event: KeyboardEvent) {
     (active.tagName === 'INPUT' ||
       active.tagName === 'TEXTAREA' ||
       active.tagName === 'SELECT' ||
-      active.isContentEditable)
+      active.isContentEditable ||
+      active.closest('.cm-editor'))
   ) {
     return;
   }
   const mod = event.ctrlKey || event.metaKey;
   if (!mod || event.altKey) return;
   const letter = plainModLetter(event);
+  if (!usePlainWindowsEditor) {
+    if (!view) return;
+    if (letter === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) cmRedo(view);
+      else cmUndo(view);
+      focusFreshCodeMirror();
+    } else if (letter === 'y') {
+      event.preventDefault();
+      cmRedo(view);
+      focusFreshCodeMirror();
+    }
+    return;
+  }
   if (letter === 'z') {
     event.preventDefault();
     if (event.shiftKey) plainRedo();
@@ -5600,16 +5774,34 @@ watch(
   }
 );
 
-// v2.3: switching into / out of `liveEdit` swaps the rich extension
-// bundle (live-edit decorations are MUCH more aggressive than the
-// livePreview fallback, so we need a real reconfigure).
+// v2.3 / #512 / #516: switching into / out of `liveEdit` swaps the rich extension
+// bundle only when switching between actual editor modes ('liveEdit' | 'edit' | 'split').
+// Entering 'preview' or 'reading' flushes pending edits and snapshots the caret/scroll
+// while keeping the editor's internal state and undo history untouched.
 watch(
   () => settings.viewMode,
-  () => {
-    view?.dispatch({ effects: richCompartment.reconfigure(richExtensionsFor(props.tab)) });
-    syncPlainEditorAfterModeSwitch();
-    void processPlainLiveRenderedBlocks();
-  }
+  (mode, oldMode) => {
+    if (mode === 'preview' || mode === 'reading') {
+      flushContentSync();
+      saveCurrentTabCaret(props.tab.id);
+      return;
+    }
+    const modeChanged = activeEditorViewMode.value !== mode;
+    activeEditorViewMode.value = mode;
+    if (modeChanged) {
+      view?.dispatch({ effects: richCompartment.reconfigure(richExtensionsFor(props.tab)) });
+      syncPlainEditorAfterModeSwitch();
+      void processPlainLiveRenderedBlocks();
+    }
+    if (oldMode === 'preview' || oldMode === 'reading') {
+      if (usePlainWindowsEditor) {
+        focusPlainEditor(true);
+      } else {
+        focusFreshCodeMirror();
+      }
+    }
+  },
+  { flush: 'sync' },
 );
 
 // A stale select-all must not survive leaving live edit (the merged single
@@ -5938,7 +6130,151 @@ function insertMarkdown(snippet: string): void {
   view.focus();
 }
 
-defineExpose({ gotoLine, setCaret, insertImageFromPath, insertImageUrl, uploadLocalImages, getViewLine, scrollToLine, lineTopY, insertMarkdown, openFind, applyFold, openTableAtCursor, openFormulaAtCursor });
+/**
+ * #487 / #516 — Return the 1-indexed anchor line (the active caret line if it is
+ * currently visible inside the editor viewport, otherwise the top visible line)
+ * together with its visual Y offset in px relative to the scroll container's top.
+ */
+function getViewportAnchor(): { line: number; offsetTop: number } | null {
+  if (usePlainWindowsEditor) {
+    if (plainLiveEnabled.value) {
+      const hostEl = plainLiveHost.value;
+      const blocks = plainBlocks.value;
+      if (hostEl && hostEl.clientHeight > 0 && blocks.length > 0) {
+        const hostRect = hostEl.getBoundingClientRect();
+        const idx = plainActiveBlock.value;
+        const activeBlock = blocks[idx];
+        const activeNode = hostEl.querySelector<HTMLElement>(`[data-plain-block-index="${idx}"]`);
+        if (activeBlock && activeNode) {
+          const blockRect = activeNode.getBoundingClientRect();
+          const el = plainBlockEditors.value[idx];
+          const subLines = el ? el.value.slice(0, el.selectionStart ?? 0).split('\n').length - 1 : 0;
+          const caretOffsetTop = blockRect.top - hostRect.top + subLines * plainLineHeightPx();
+          if (caretOffsetTop >= -4 && caretOffsetTop <= hostEl.clientHeight - 12) {
+            const blockStartLine = plainText.value.slice(0, activeBlock.start).split('\n').length;
+            return {
+              line: blockStartLine + subLines,
+              offsetTop: Math.max(0, Math.round(caretOffsetTop)),
+            };
+          }
+        }
+        const blockNodes = hostEl.querySelectorAll<HTMLElement>('[data-plain-block-index]');
+        for (const node of Array.from(blockNodes)) {
+          const rect = node.getBoundingClientRect();
+          if (rect.bottom > hostRect.top + 12) {
+            const bIdx = Number(node.getAttribute('data-plain-block-index') || '0');
+            const b = blocks[bIdx];
+            if (b) {
+              return {
+                line: plainText.value.slice(0, b.start).split('\n').length,
+                offsetTop: Math.max(0, Math.round(rect.top - hostRect.top)),
+              };
+            }
+          }
+        }
+      }
+      const topLine = getViewLine();
+      return topLine != null ? { line: topLine, offsetTop: 8 } : null;
+    }
+    const el = plainEditor.value;
+    if (el && el.clientHeight > 0) {
+      const caretLine = el.value.slice(0, el.selectionStart ?? 0).split('\n').length;
+      const tops = plainLineTops.value;
+      const lineTop =
+        tops && caretLine >= 1 && caretLine <= tops.length
+          ? plainPaddingTopPx(el) + tops[caretLine - 1]
+          : plainPaddingTopPx(el) + (caretLine - 1) * plainLineHeightPx();
+      const caretOffsetTop = lineTop - el.scrollTop;
+      if (caretOffsetTop >= -4 && caretOffsetTop <= el.clientHeight - 12) {
+        return { line: caretLine, offsetTop: Math.max(0, Math.round(caretOffsetTop)) };
+      }
+    }
+    const topLine = getViewLine();
+    return topLine != null ? { line: topLine, offsetTop: 8 } : null;
+  }
+  if (!view) return null;
+  const scroller = view.scrollDOM;
+  const scrollerRect = scroller.getBoundingClientRect();
+  const clientHeight = scroller.clientHeight || scrollerRect.height;
+  if (clientHeight > 0) {
+    try {
+      const head = view.state.selection.main.head;
+      const caretBlock = view.lineBlockAt(head);
+      const caretOffsetTop = view.documentTop + caretBlock.top - scrollerRect.top;
+      if (caretOffsetTop >= -4 && caretOffsetTop <= clientHeight - 12) {
+        const caretLine = view.state.doc.lineAt(head).number;
+        return { line: caretLine, offsetTop: Math.max(0, Math.round(caretOffsetTop)) };
+      }
+    } catch {}
+  }
+  const topLine = getViewLine();
+  return topLine != null ? { line: topLine, offsetTop: 8 } : null;
+}
+
+/**
+ * #516 — Restore the exact saved editor viewport scroll + caret anchor for the
+ * current tab after returning from Preview or Reading mode.
+ */
+function restoreSavedScroll(): void {
+  const saved = tabCaretMemory.get(props.tab.id);
+  if (usePlainWindowsEditor) {
+    restorePlainScroll(saved);
+    focusPlainEditor(true);
+    return;
+  }
+  restoreCodeMirrorScroll(saved);
+  focusFreshCodeMirror();
+}
+
+/**
+ * #487 — Scroll the given 1-indexed line to a specific visual Y offset (`offsetTop` px)
+ * from the top of the editor viewport.
+ */
+function scrollToLineAtOffset(line: number, offsetTop = 8): void {
+  cancelCmScrollRestore?.();
+  const safeOffset = Math.max(0, offsetTop);
+  if (usePlainWindowsEditor) {
+    if (plainLiveEnabled.value) {
+      const hostEl = plainLiveHost.value;
+      if (!hostEl) return;
+      const offset = plainLineStartOffset(Math.floor(line));
+      const blocks = plainBlocks.value;
+      const idx = blocks.findIndex((b) => offset >= b.start && offset <= b.end);
+      const targetIdx = idx >= 0 ? idx : Math.max(0, blocks.length - 1);
+      const blockEl = hostEl.querySelector<HTMLElement>(`[data-plain-block-index="${targetIdx}"]`);
+      if (blockEl) {
+        const hostRect = hostEl.getBoundingClientRect();
+        const blockRect = blockEl.getBoundingClientRect();
+        hostEl.scrollTop = Math.max(0, hostEl.scrollTop + (blockRect.top - hostRect.top) - safeOffset);
+      }
+      return;
+    }
+    const el = plainEditor.value;
+    if (!el) return;
+    const safeLine = Math.max(1, Math.floor(line));
+    const frac = Math.max(0, Math.min(line - safeLine, 0.999));
+    const tops = plainLineTops.value;
+    if (tops && safeLine <= tops.length) {
+      const i = safeLine - 1;
+      const h = i + 1 < tops.length ? tops[i + 1] - tops[i] : plainLineHeightPx();
+      el.scrollTop = Math.max(0, plainPaddingTopPx(el) + tops[i] + frac * h - safeOffset);
+    } else {
+      el.scrollTop = Math.max(0, (safeLine - 1 + frac) * plainLineHeightPx() - safeOffset);
+    }
+    syncPlainLiveScroll();
+    return;
+  }
+  if (!view) return;
+  const safe = Math.max(1, Math.min(Math.floor(line), view.state.doc.lines));
+  const frac = Math.max(0, Math.min(line - safe, 0.999));
+  const lineObj = view.state.doc.line(safe);
+  const block = view.lineBlockAt(lineObj.from);
+  const y = view.documentTop + block.top + frac * block.height;
+  const scroller = view.scrollDOM.getBoundingClientRect();
+  view.scrollDOM.scrollTop = Math.max(0, view.scrollDOM.scrollTop + (y - scroller.top) - safeOffset);
+}
+
+defineExpose({ gotoLine, setCaret, insertImageFromPath, insertImageUrl, uploadLocalImages, getViewLine, getViewportAnchor, restoreSavedScroll, scrollToLine, scrollToLineAtOffset, lineTopY, insertMarkdown, openFind, applyFold, openTableAtCursor, openFormulaAtCursor });
 
 const cls = computed(() => ({
   'cm-host': true,
@@ -6021,6 +6357,7 @@ const cls = computed(() => ({
           :spellcheck="props.spellCheck"
           :wrap="settings.wordWrap ? 'soft' : 'off'"
           @keydown="(event) => handlePlainBlockKeydown(index, event)"
+          @copy="handlePlainCopy"
           @paste="handlePlainPaste"
           @input="(event) => handlePlainBlockInput(index, event)"
           @compositionstart="handlePlainBlockCompositionStart"
@@ -6028,7 +6365,7 @@ const cls = computed(() => ({
           @click.stop
           @blur="handlePlainBlur"
           @keyup="emitPlainCursorAndSelection"
-          @mouseup="emitPlainCursorAndSelection"
+          @mouseup="onPlainTextareaMouseUp"
           @select="emitPlainCursorAndSelection"
           @focus="emitPlainCursorAndSelection"
         ></textarea>
@@ -6090,6 +6427,7 @@ const cls = computed(() => ({
         :spellcheck="props.spellCheck"
         :wrap="settings.wordWrap ? 'soft' : 'off'"
         @keydown="handlePlainEditorKeydown"
+        @copy="handlePlainCopy"
         @paste="handlePlainPaste"
         @input="handlePlainInput"
         @compositionstart="handlePlainBlockCompositionStart"
@@ -6098,7 +6436,7 @@ const cls = computed(() => ({
         @mousedown="$event.button === 0 && clearStrayDocumentSelection($event.currentTarget as HTMLElement)"
         @blur="handlePlainBlur"
         @keyup="emitPlainCursorAndSelection"
-        @mouseup="emitPlainCursorAndSelection"
+        @mouseup="onPlainTextareaMouseUp"
         @select="emitPlainCursorAndSelection"
         @focus="emitPlainCursorAndSelection"
       ></textarea>
@@ -6612,7 +6950,14 @@ const cls = computed(() => ({
   font-weight: 620;
 }
 .plain-block__render :deep(h3) {
+  font-size: 1.125em;
+}
+.plain-block__render :deep(h4) {
   font-size: 1.0625em;
+}
+.plain-block__render :deep(h5),
+.plain-block__render :deep(h6) {
+  font-size: 1em;
 }
 .plain-block__render :deep(p),
 .plain-block__render :deep(ul),
