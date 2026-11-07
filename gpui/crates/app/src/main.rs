@@ -3,6 +3,7 @@
 //! 用法：`solomd [vault_dir]`（缺省：上次打开的库，首次为 `~/Documents/Solomd`）。
 
 mod ai_panel;
+mod clipboard_html;
 #[cfg(debug_assertions)]
 mod dev_bridge;
 mod file_tree;

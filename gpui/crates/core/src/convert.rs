@@ -433,6 +433,98 @@ fn convert_html(path: &str) -> Result<String, String> {
     Ok(htmd::convert(&clean).map_err(|e| format!("HTML conversion failed: {e}"))?)
 }
 
+/// HTML → Markdown（剪贴板富文本粘贴用）。
+///
+/// 入参是系统剪贴板里的 `public.html` / `CF_HTML`：整篇 HTML 文档，常带
+/// `<meta charset>`、内联样式、`<!--StartFragment-->…<!--EndFragment-->`
+/// 包裹（Word / 浏览器 / 备忘录都这么放）。`strip_html_noise` 会去掉注释
+/// （Fragment 标记）与 style/script/head/nav/footer，再交给 htmd 转。
+///
+/// 失败返回 Err（空输入不算失败，返回空串）。
+pub fn html_to_markdown(html: &str) -> Result<String, String> {
+    if html.trim().is_empty() {
+        return Ok(String::new());
+    }
+    let clean = strip_html_noise(html);
+    let md = htmd::convert(&clean).map_err(|e| format!("HTML conversion failed: {e}"))?;
+    // htmd 输出的无序列表标记是 `*` + 多个空格（`*   项`）；统一成 `- `，
+    // 顺带保留缩进（嵌套列表）。
+    let md = normalize_list_markers(&md);
+    // htmd 会留大量连续空行（Word 里每个 <p> 之间有空段落）；压到最多一个空行。
+    Ok(collapse_blank_lines(&md))
+}
+
+/// 剪贴板 HTML 是否**真的带格式**（标题 / 粗斜体 / 列表 / 表格 / 链接 /
+/// 代码 / 引用 / 图片）。
+///
+/// 用途：几乎所有 macOS 富文本控件都会往剪贴板放 `public.html`，即使内容
+/// 只是普通段落。若不加判断就一律走 HTML→Markdown，会让「本来想粘纯文本」
+/// 的用户得到被重排过的结果。只有真带格式时才接管粘贴。
+pub fn html_has_formatting(html: &str) -> bool {
+    let lower = html.to_ascii_lowercase();
+    const MARKERS: &[&str] = &[
+        "<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<strong", "<b>", "<b ", "<em", "<i>", "<i ",
+        "<ul", "<ol", "<li", "<table", "<tr", "<td", "<th", "<pre", "<code", "<blockquote",
+        "<img", "<a ", "<hr", "<math",
+    ];
+    MARKERS.iter().any(|m| lower.contains(m))
+}
+
+/// `*   项` / `+  项` → `- 项`（保留前导缩进）。有序列表（`1.`）不动。
+/// 只匹配「标记 + 至少一个空白」——`*斜体*` 这种行首强调不受影响。
+fn normalize_list_markers(md: &str) -> String {
+    let Ok(re) = regex_lite::Regex::new(r"^([ \t]*)[*+]\s+(.*)$") else {
+        return md.to_string();
+    };
+    md.lines()
+        .map(|line| {
+            if let Some(caps) = re.captures(line) {
+                let indent = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                let body = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+                format!("{indent}- {body}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 连续 2+ 空行压成 1 个（保留代码块内的空行不动——块内以 4 空格或围栏起头
+/// 的行不参与压缩）。
+fn collapse_blank_lines(md: &str) -> String {
+    let mut out: Vec<&str> = Vec::with_capacity(md.lines().count());
+    let mut blank_run = 0usize;
+    let mut in_fence = false;
+    for line in md.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+            out.push(line);
+            blank_run = 0;
+            continue;
+        }
+        if in_fence {
+            out.push(line);
+            continue;
+        }
+        if line.trim().is_empty() {
+            blank_run += 1;
+            if blank_run > 1 {
+                continue;
+            }
+            out.push("");
+        } else {
+            blank_run = 0;
+            out.push(line);
+        }
+    }
+    while out.last().is_some_and(|l| l.trim().is_empty()) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
 /// Remove <style>…</style>, <script>…</script>, <head>…</head>, and HTML
 /// comments before converting to Markdown.
 fn strip_html_noise(html: &str) -> String {
@@ -913,5 +1005,93 @@ mod docx_import_tests {
         let set = docx_ordered_lists(numbering);
         assert!(set.contains("6"));
         assert!(!set.contains("5"));
+    }
+}
+
+#[cfg(test)]
+mod clipboard_html_tests {
+    use super::html_to_markdown;
+
+    /// Word / macOS 剪贴板实测形状：整篇文档 + Fragment 标记 + 内联样式。
+    fn word_html(body: &str) -> String {
+        format!(
+            r#"<html xmlns:o="urn:schemas-microsoft-com:office:office">
+<head><meta charset="utf-8"><style>p {{ margin:0 }}</style></head>
+<body>
+<!--StartFragment-->{body}<!--EndFragment-->
+</body></html>"#
+        )
+    }
+
+    #[test]
+    fn word_bold_and_heading_survive() {
+        let html = word_html(
+            r#"<h1>季度总结</h1><p>这是<b>加粗</b>与<i>斜体</i>。</p>"#,
+        );
+        let md = html_to_markdown(&html).unwrap();
+        assert!(md.contains("# 季度总结"), "got: {md}");
+        assert!(md.contains("**加粗**"), "got: {md}");
+        assert!(md.contains("*斜体*"), "got: {md}");
+    }
+
+    #[test]
+    fn word_lists_survive() {
+        let html = word_html("<ul><li>第一项</li><li>第二项</li></ul>");
+        let md = html_to_markdown(&html).unwrap();
+        assert!(md.contains("- 第一项"), "got: {md}");
+        assert!(md.contains("- 第二项"), "got: {md}");
+    }
+
+    #[test]
+    fn fragment_markers_and_style_are_dropped() {
+        let html = word_html("<p>正文</p>");
+        let md = html_to_markdown(&html).unwrap();
+        assert!(!md.contains("StartFragment"));
+        assert!(!md.contains("margin"), "style leaked: {md}");
+        assert!(md.contains("正文"));
+    }
+
+    #[test]
+    fn blank_line_runs_collapse() {
+        let html = word_html("<p>a</p><p></p><p></p><p></p><p>b</p>");
+        let md = html_to_markdown(&html).unwrap();
+        assert!(!md.contains("\n\n\n"), "got: {md:?}");
+    }
+
+    #[test]
+    fn empty_input_is_empty_not_error() {
+        assert_eq!(html_to_markdown("").unwrap(), "");
+        assert_eq!(html_to_markdown("   ").unwrap(), "");
+    }
+
+    #[test]
+    fn plain_text_html_passes_through() {
+        let html = word_html("<p>只有文字</p>");
+        assert_eq!(html_to_markdown(&html).unwrap().trim(), "只有文字");
+    }
+}
+
+#[cfg(test)]
+mod html_formatting_detect_tests {
+    use super::html_has_formatting;
+
+    #[test]
+    fn plain_paragraphs_are_not_formatting() {
+        assert!(!html_has_formatting("<p>普通文字</p>"));
+        assert!(!html_has_formatting(
+            "<html><body><p>a</p><p>b</p></body></html>"
+        ));
+        assert!(!html_has_formatting(""));
+    }
+
+    #[test]
+    fn real_markup_is_formatting() {
+        assert!(html_has_formatting("<h2>标题</h2>"));
+        assert!(html_has_formatting("<p><strong>粗</strong></p>"));
+        assert!(html_has_formatting("<ul><li>x</li></ul>"));
+        assert!(html_has_formatting("<table><tr><td>x</td></tr></table>"));
+        assert!(html_has_formatting(r#"<a href="https://x">链接</a>"#));
+        assert!(html_has_formatting("<pre><code>x</code></pre>"));
+        assert!(html_has_formatting("<blockquote>引用</blockquote>"));
     }
 }

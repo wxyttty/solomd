@@ -26,7 +26,12 @@ actions!(solomd, [SaveNote, NewNote, PasteImage, ToggleFind, CloseFind]);
 
 pub struct NotePanel {
     pub path: PathBuf,
+    /// 文件名（标题开关关闭时直接用它）。
+    pub file_name: String,
+    /// 标签显示标题（开关开时取文档首行，随编辑刷新）。
     pub title: String,
+    /// 标题是否取文档首行（Settings.tab_title_from_first_line 快照）。
+    title_from_line: bool,
     pub dirty: bool,
     pub state: gpui::Entity<zorite_editor::EditorState>,
     vault: Vault,
@@ -35,6 +40,19 @@ pub struct NotePanel {
     /// 标签被激活时通知 Workspace（活跃笔记跟踪）。
     on_activated: Option<Box<dyn Fn(&mut gpui::App)>>,
     proof_issues: usize,
+    /// LanguageTool 语法检查：开关状态 + 最近一批问题（含替换建议）。
+    lt_enabled: bool,
+    lt_matches: Vec<LtIssue>,
+    /// 语法检查运行中（防重入 + 状态显示）。
+    lt_running: bool,
+    /// 已排队但未执行的检查（编辑期间防抖；在途时置位，完成后补跑）。
+    lt_pending: bool,
+    /// 防抖代数（每次编辑 +1；定时器醒来只有最新一代才执行）。
+    lt_debounce: u64,
+    /// 本次会话已确认过“原文件不存在仍要保存”（避免每次 ⌘S 都弹）。
+    save_missing_confirmed: bool,
+    /// Settings.confirm_save_missing_file 快照（构造时读一次）。
+    confirm_save_missing: bool,
     /// 打字机模式：光标行垂直居中（Settings.typewriter 持久化）。
     typewriter: bool,
     /// AutoGit：⌘S 保存后自动提交（Settings.auto_git 持久化；提交在
@@ -67,6 +85,15 @@ pub struct NotePanel {
     replace_input: Option<gpui::Entity<gpui_component::input::InputState>>,
 }
 
+/// 一条 LanguageTool 问题（已转成字节偏移，可直接喂编辑器诊断）。
+#[derive(Clone)]
+pub struct LtIssue {
+    pub start: usize,
+    pub end: usize,
+    pub message: String,
+    pub replacements: Vec<String>,
+}
+
 impl NotePanel {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -81,11 +108,25 @@ impl NotePanel {
     ) -> Self {
         let content = vault.read_note(&path).unwrap_or_default();
         let scroll = ScrollHandle::new();
-        let title = path
+        let file_name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "untitled".into());
-        let auto_git = crate::settings::Settings::load(&vault.root).auto_git;
+        let settings = crate::settings::Settings::load(&vault.root);
+        let auto_git = settings.auto_git;
+        let confirm_save_missing = settings.confirm_save_missing_file;
+        let title_from_line = settings.tab_title_from_first_line;
+        // 标题：开关开且首行能推出标题时用它，否则回退文件名。
+        let title = if title_from_line {
+            let derived = solomd_core::tab_title::extract_first_line_title(&content);
+            if derived.is_empty() {
+                file_name.clone()
+            } else {
+                derived
+            }
+        } else {
+            file_name.clone()
+        };
 
         let state = cx.new(|cx| {
             let mut ed = zorite_editor::EditorState::new(window, cx).with_text(content.clone());
@@ -188,9 +229,45 @@ impl NotePanel {
             window,
             |this, _, ev: &EditorEvent, window, cx| match ev {
                 EditorEvent::Changed => {
+                    // 标题随首行刷新（仅开关开启时；extract 只扫 8KB，够快）。
+                    if this.title_from_line {
+                        let text = this.state.read(cx).text().to_string();
+                        let derived = solomd_core::tab_title::extract_first_line_title(&text);
+                        let next = if derived.is_empty() {
+                            this.file_name.clone()
+                        } else {
+                            derived
+                        };
+                        if next != this.title {
+                            this.title = next;
+                            // dock 的 tab 标题由 Panel::title 每帧拉取——
+                            // 需要刷新窗口才能重画 tab 栏。
+                            cx.refresh_windows();
+                        }
+                    }
                     if !this.dirty {
                         this.dirty = true;
                         cx.notify();
+                    }
+                    // 语法检查开启时：编辑停止 1.5s 后补跑一次（防抖，
+                    // 避免每次按键都打 LT；public 模式还有 20 次/分钟的限流）。
+                    if this.lt_enabled {
+                        let generation = this.lt_debounce.wrapping_add(1);
+                        this.lt_debounce = generation;
+                        let weak = cx.entity().downgrade();
+                        cx.spawn_in(window, async move |_, cx| {
+                            cx.background_executor()
+                                .timer(std::time::Duration::from_millis(1500))
+                                .await;
+                            let Some(panel) = weak.upgrade() else { return };
+                            let _ = panel.update_in(cx, |panel, window, cx| {
+                                // 期间又有编辑 → 更新的一轮会自己跑。
+                                if panel.lt_enabled && panel.lt_debounce == generation {
+                                    panel.run_languagetool(window, cx);
+                                }
+                            });
+                        })
+                        .detach();
                     }
                 }
                 EditorEvent::PreviewImage(src) => {
@@ -232,7 +309,9 @@ impl NotePanel {
 
         Self {
             path,
+            file_name,
             title,
+            title_from_line,
             dirty: false,
             state,
             vault,
@@ -240,6 +319,13 @@ impl NotePanel {
             on_removed: None,
             on_activated: None,
             proof_issues: 0,
+            lt_enabled: false,
+            lt_matches: Vec::new(),
+            lt_running: false,
+            lt_pending: false,
+            lt_debounce: 0,
+            save_missing_confirmed: false,
+            confirm_save_missing,
             typewriter,
             auto_git,
             scroll,
@@ -358,6 +444,116 @@ impl NotePanel {
         cx.notify();
     }
 
+    /// LanguageTool 语法/拼写检查：后台跑一次，把结果落成编辑器诊断。
+    /// 文档整体作为单段纯文本发给 LT（不做 markup 标注——GPUI 侧拿不到
+    /// 编辑器的 markdown 分词，代价是偶尔会把 Markdown 标记本身报出来；
+    /// 该功能默认关闭、由用户显式开启，注释里如实标注了这个边界）。
+    pub fn run_languagetool(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.lt_running {
+            self.lt_pending = true;
+            return;
+        }
+        let text = self.state.read(cx).text().to_string();
+        if text.trim().is_empty() {
+            self.lt_matches.clear();
+            self.state.update(cx, |ed, cx| ed.set_diagnostics(Vec::new(), cx));
+            cx.notify();
+            return;
+        }
+        self.lt_running = true;
+        cx.notify();
+
+        let settings = crate::settings::Settings::load(&self.vault.root);
+        let config = solomd_core::languagetool::LtConfig {
+            mode: if settings.lt_mode.trim().is_empty() {
+                "local".into()
+            } else {
+                settings.lt_mode.clone()
+            },
+            base_url: (!settings.lt_base_url.trim().is_empty())
+                .then(|| settings.lt_base_url.clone()),
+            username: (!settings.lt_username.trim().is_empty())
+                .then(|| settings.lt_username.clone()),
+        };
+        let language = if settings.lt_language.trim().is_empty() {
+            "auto".to_string()
+        } else {
+            settings.lt_language.clone()
+        };
+
+        cx.spawn_in(window, async move |this, cx| {
+            let req = solomd_core::languagetool::CheckRequest {
+                config,
+                annotation: vec![solomd_core::languagetool::Segment {
+                    text: Some(text.clone()),
+                    markup: None,
+                    interpret_as: None,
+                }],
+                language,
+                mother_tongue: None,
+                preferred_variants: None,
+                level: Some(
+                    if settings.lt_level.trim().is_empty() {
+                        "default".into()
+                    } else {
+                        settings.lt_level.clone()
+                    },
+                ),
+                disabled_rules: Vec::new(),
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    solomd_core::languagetool::languagetool_check(req).await
+                })
+                .await;
+            let _ = this.update_in(cx, |panel, window, cx| {
+                panel.lt_running = false;
+                match result {
+                    Ok(resp) => {
+                        // UTF-16（LT/Java）→ 字节（zorite Diagnostic）。
+                        let issues: Vec<LtIssue> = resp
+                            .matches
+                            .into_iter()
+                            .filter_map(|m| {
+                                solomd_core::languagetool::utf16_range_to_bytes(
+                                    &text, m.offset, m.length,
+                                )
+                                .map(|(start, end)| LtIssue {
+                                    start,
+                                    end,
+                                    message: m.message,
+                                    replacements: m.replacements,
+                                })
+                            })
+                            .collect();
+                        let diags = issues
+                            .iter()
+                            .map(|i| zorite_editor::Diagnostic {
+                                range: i.start..i.end,
+                            })
+                            .collect();
+                        panel.lt_matches = issues;
+                        panel.state.update(cx, |ed, cx| ed.set_diagnostics(diags, cx));
+                    }
+                    Err(e) => {
+                        panel.lt_matches.clear();
+                        panel.state.update(cx, |ed, cx| ed.set_diagnostics(Vec::new(), cx));
+                        eprintln!("[languagetool] {e}");
+                    }
+                }
+                let rerun = panel.lt_pending;
+                panel.lt_pending = false;
+                window.refresh();
+                cx.notify();
+                if rerun && panel.lt_enabled {
+                    panel.run_languagetool(window, cx);
+                }
+            });
+        })
+        .detach();
+    }
+
     /// 明暗切换时重装 SyntaxStyle（Workspace 广播调用）。
     pub fn apply_theme(&mut self, dark: bool, cx: &mut Context<Self>) {
         let mono = cx.theme().mono_font_family.clone();
@@ -430,7 +626,61 @@ impl NotePanel {
         cx.notify();
     }
 
-    fn save(&mut self, _: &SaveNote, _: &mut Window, cx: &mut Context<Self>) {
+    fn save(&mut self, _: &SaveNote, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui_component::WindowExt as _;
+        // 上游 #9：原文件被外部删除/移动时先确认，避免“以为在改已有笔记，
+        // 实际在悄悄新建一个”。开关默认关（confirmSaveMissingFile）。
+        if self.confirm_save_missing
+            && !self.save_missing_confirmed
+            && !solomd_core::fs_file_exists(
+                self.path.to_string_lossy().to_string(),
+            )
+        {
+            let name = self.file_name.clone();
+            let path = self.path.to_string_lossy().to_string();
+            let weak = cx.entity().downgrade();
+            window.open_alert_dialog(cx, move |alert, _, _| {
+                let weak = weak.clone();
+                let path = path.clone();
+                let alert = alert
+                    .title("原文件已不存在")
+                    .description(format!(
+                        "“{name}” 在磁盘上已被删除或移动。
+仍要保存并重新创建它吗？
+{path}"
+                    ))
+                    .show_cancel(true)
+                    .on_ok(move |_, _, cx| {
+                        if let Some(panel) = weak.upgrade() {
+                            let _ = panel.update(cx, |panel, cx| {
+                                panel.save_missing_confirmed = true;
+                                panel.dirty = true;
+                                // 直接写盘（不再走回车确认）。
+                                let text = panel.state.read(cx).text().to_string();
+                                match panel.vault.write_note(&panel.path, &text) {
+                                    Ok(()) => {
+                                        panel.dirty = false;
+                                        if let Some(cb) = &panel.on_saved {
+                                            let p = panel.path.clone();
+                                            cb(cx, p);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!(
+                                            "[save] {}: {e}",
+                                            panel.path.display()
+                                        )
+                                    }
+                                }
+                                cx.notify();
+                            });
+                        }
+                        true
+                    });
+                alert
+            });
+            return;
+        }
         let text = self.state.read(cx).text().to_string();
         match self.vault.write_note(&self.path, &text) {
             Ok(()) => {
@@ -674,6 +924,28 @@ impl Render for NotePanel {
                                     })),
                             )
                             .child(
+                                Button::new("languagetool")
+                                    .label(if self.lt_enabled {
+                                        "语法检查 ✓"
+                                    } else {
+                                        "语法检查"
+                                    })
+                                    .xsmall()
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.lt_enabled = !this.lt_enabled;
+                                        if this.lt_enabled {
+                                            this.run_languagetool(window, cx);
+                                        } else {
+                                            this.lt_matches.clear();
+                                            this.state.update(cx, |ed, cx| {
+                                                ed.set_diagnostics(Vec::new(), cx)
+                                            });
+                                        }
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
                                 Button::new("open-board")
                                     .label("白板")
                                     .xsmall()
@@ -688,6 +960,56 @@ impl Render for NotePanel {
                                             snapshot,
                                             cx,
                                         );
+                                    })),
+                            )
+                            .child(
+                                Button::new("title-from-line")
+                                    .label(if self.title_from_line {
+                                        "首行标题 ✓"
+                                    } else {
+                                        "首行标题"
+                                    })
+                                    .xsmall()
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.title_from_line = !this.title_from_line;
+                                        let mut s =
+                                            crate::settings::Settings::load(&this.vault.root);
+                                        s.tab_title_from_first_line = this.title_from_line;
+                                        s.save(&this.vault.root);
+                                        // 立刻按新开关重算当前标题。
+                                        this.title = if this.title_from_line {
+                                            let text = this.state.read(cx).text().to_string();
+                                            let derived =
+                                                solomd_core::tab_title::extract_first_line_title(&text);
+                                            if derived.is_empty() {
+                                                this.file_name.clone()
+                                            } else {
+                                                derived
+                                            }
+                                        } else {
+                                            this.file_name.clone()
+                                        };
+                                        cx.refresh_windows();
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("confirm-missing")
+                                    .label(if self.confirm_save_missing {
+                                        "保存前校验 ✓"
+                                    } else {
+                                        "保存前校验"
+                                    })
+                                    .xsmall()
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.confirm_save_missing = !this.confirm_save_missing;
+                                        let mut s =
+                                            crate::settings::Settings::load(&this.vault.root);
+                                        s.confirm_save_missing_file = this.confirm_save_missing;
+                                        s.save(&this.vault.root);
+                                        cx.notify();
                                     })),
                             )
                             .child(
@@ -725,13 +1047,72 @@ impl Render for NotePanel {
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(if self.proof_issues > 0 {
-                                        format!("{} 处建议（波浪线标注，右键查看）", self.proof_issues)
-                                    } else {
-                                        String::new()
+                                    .child({
+                                        let mut bits: Vec<String> = Vec::new();
+                                        if self.proof_issues > 0 {
+                                            bits.push(format!(
+                                                "{} 处中文建议",
+                                                self.proof_issues
+                                            ));
+                                        }
+                                        if self.lt_running {
+                                            bits.push("语法检查中…".into());
+                                        } else if self.lt_enabled {
+                                            bits.push(format!(
+                                                "{} 处语法建议",
+                                                self.lt_matches.len()
+                                            ));
+                                        }
+                                        bits.join(" · ")
                                     }),
                             ),
                     )
+                    // 语法建议行（LanguageTool）：前 3 条 + 一键替换。
+                    .children((self.lt_enabled && !self.lt_matches.is_empty()).then(|| {
+                        let theme = cx.theme().clone();
+                        let mut row = v_flex()
+                            .id("lt-suggestions")
+                            .px_2()
+                            .py_1()
+                            .gap_0p5()
+                            .border_b_1()
+                            .border_color(theme.border)
+                            .text_xs();
+                        for (ix, issue) in self.lt_matches.iter().take(3).enumerate() {
+                            let start = issue.start;
+                            let end = issue.end;
+                            let mut line = h_flex().gap_1().min_w_0();
+                            line = line.child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_color(theme.muted_foreground)
+                                    .child(issue.message.clone()),
+                            );
+                            for (rk, repl) in issue.replacements.iter().take(2).enumerate() {
+                                let repl = repl.clone();
+                                line = line.child(
+                                    Button::new(SharedString::from(format!(
+                                        "lt-fix-{ix}-{rk}"
+                                    )))
+                                    .label(repl.clone())
+                                    .xsmall()
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        // 应用建议：替换 → 重跑检查刷新诊断。
+                                        this.state.update(cx, |ed, cx| {
+                                            ed.replace_range(start..end, &repl, cx)
+                                        });
+                                        this.dirty = true;
+                                        this.run_languagetool(window, cx);
+                                        cx.notify();
+                                    })),
+                                );
+                            }
+                            row = row.child(line);
+                        }
+                        row
+                    }))
                     // 查找/替换条（⌘F）：查找输入 + 匹配计数 + ▲/▼ + 替换行。
                     .children(self.find_open.then(|| {
                         let input = self.find_input.clone().unwrap();
@@ -903,6 +1284,44 @@ impl NotePanel {
                 return;
             }
             cx.propagate();
+            return;
+        }
+
+        // 富文本粘贴：剪贴板里若有 HTML flavor（浏览器 / Word / 备忘录 /
+        // Excel 都会放），转成 Markdown 插入——纯文本 flavor 会丢掉标题、
+        // 粗体、列表、表格。
+        //
+        // GPUI 的 ClipboardEntry 拿不到 HTML，所以走 clipboard_html 直连
+        // AppKit（见该模块文档）；拿不到就落到后面的纯文本路径。
+        if clip_image(cx).is_none()
+            && let Some(html) = crate::clipboard_html::read_html()
+            && let Ok(md) = solomd_core::convert::html_to_markdown(&html)
+            && !md.trim().is_empty()
+            // 只有「确实带格式」时才接管：纯文字 HTML（每个富文本源都有）
+            // 不该改写粘贴结果，避免把用户预期的原文换掉。
+            && solomd_core::convert::html_has_formatting(&html)
+        {
+            self.state
+                .update(cx, |ed, cx| ed.replace_text_in_range(None, &md, window, cx));
+            self.dirty = true;
+            cx.notify();
+            return;
+        }
+
+        // 表格粘贴（上游 #460）：Excel / WPS / Numbers / Sheets 的选区在
+        // text/plain 上是 TSV。没有 HTML flavor 的场合（如纯文本编辑器
+        // 复制的表格）靠这条兜底。
+        if clip_image(cx).is_none()
+            && let Some(text) = cx
+                .read_from_clipboard()
+                .and_then(|c| c.text())
+                .map(|s| s.to_string())
+            && let Some(table) = solomd_core::table_paste::tsv_to_markdown(&text)
+        {
+            self.state
+                .update(cx, |ed, cx| ed.replace_text_in_range(None, &table, window, cx));
+            self.dirty = true;
+            cx.notify();
             return;
         }
 

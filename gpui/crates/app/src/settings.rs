@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Settings {
     /// "light" | "dark"（serde 默认表达，避免引入 ThemeMode 类型依赖）。
     #[serde(default)]
@@ -27,6 +27,69 @@ pub struct Settings {
     /// Agent 允许写工具（上游 agentAllowWrite，默认关——agent 默认只读）。
     #[serde(default)]
     pub agent_allow_write: bool,
+    /// 标签标题取文档首个非空行（上游 tabTitleFromFirstLine，默认开）。
+    /// UUID / 哈希文件名场景下比文件名更有用。
+    #[serde(default = "default_true")]
+    pub tab_title_from_first_line: bool,
+    /// LanguageTool 语法检查（上游 ltMode 系列；默认关，opt-in）。
+    /// mode: "local" | "premium" | "public"。
+    #[serde(default = "default_lt_mode")]
+    pub lt_mode: String,
+    /// 本地服务地址（local 模式）。
+    #[serde(default)]
+    pub lt_base_url: String,
+    /// Premium 账号邮箱（API key 走系统钥匙串，provider id = "languagetool"）。
+    #[serde(default)]
+    pub lt_username: String,
+    /// 检查语言："auto" 或 LT 代码（如 de-DE）。
+    #[serde(default = "default_lt_language")]
+    pub lt_language: String,
+    /// "default" | "picky"。
+    #[serde(default = "default_lt_level")]
+    pub lt_level: String,
+    /// 保存前确认原文件已不存在（上游 #9 confirmSaveMissingFile，默认关）。
+    #[serde(default)]
+    pub confirm_save_missing_file: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_lt_mode() -> String {
+    "local".into()
+}
+
+fn default_lt_language() -> String {
+    "auto".into()
+}
+
+fn default_lt_level() -> String {
+    "default".into()
+}
+
+/// 手写 Default：`tab_title_from_first_line` 业务默认是 true，而
+/// derive(Default) 只会给 bool 的 false（新库首次启动会与“旧配置缺字段”
+/// 的 serde 默认值不一致）。
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            dark: false,
+            ai_provider: String::new(),
+            ai_model: String::new(),
+            ai_base_url: String::new(),
+            typewriter: false,
+            auto_git: false,
+            agent_allow_write: false,
+            tab_title_from_first_line: true,
+            lt_mode: default_lt_mode(),
+            lt_base_url: String::new(),
+            lt_username: String::new(),
+            lt_language: default_lt_language(),
+            lt_level: default_lt_level(),
+            confirm_save_missing_file: false,
+        }
+    }
 }
 
 /// AI 设置缺省值（Settings derive Default 走不到 String 字段的业务默认）。

@@ -13,6 +13,11 @@ pub fn fs_dir_exists(path: String) -> bool {
     Path::new(&path).is_dir()
 }
 
+/// 文件是否存在（上游 #9：保存前校验原文件是否被外部删除/移动）。
+pub fn fs_file_exists(path: String) -> bool {
+    Path::new(&path).is_file()
+}
+
 /// 新建文件（上游 v3.0 file-tree edit ops）。拒绝覆盖已存在文件，
 /// 父目录缺失时自动创建。空文件由调用方决定内容（上游传 ""）。
 pub fn fs_create_file(path: String, content: Option<String>) -> Result<(), String> {

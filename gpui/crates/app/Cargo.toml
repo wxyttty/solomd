@@ -24,3 +24,11 @@ solomd-core = { path = "../core" }
 image.workspace = true
 mermaid-rs-renderer.workspace = true
 dirs.workspace = true
+# macOS 剪贴板富文本：直接调 AppKit 读写 `public.html`（GPUI 的
+# ClipboardEntry 只有 String/Image/ExternalPaths，没有 HTML flavor）。
+# objc2 三件套本就在依赖树里（gpui_macos 用同版本），这里只是把它们
+# 变成直接依赖，不新增编译单元、不改框架。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSPasteboard"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSString", "NSData", "std"] }

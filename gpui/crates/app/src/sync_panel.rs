@@ -8,6 +8,7 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
 use solomd_core::github_sync;
+use solomd_core::webdav_sync;
 
 pub struct SyncPanel {
     focus_handle: FocusHandle,
@@ -15,6 +16,15 @@ pub struct SyncPanel {
     token_input: Entity<InputState>,
     remote_input: Entity<InputState>,
     status: SharedString,
+    /// WebDAV 同步（上游 #458）：服务器 / 账号 / 密码 / 远程目录 / 加密口令。
+    wd_url: Entity<InputState>,
+    wd_user: Entity<InputState>,
+    wd_pass: Entity<InputState>,
+    wd_path: Entity<InputState>,
+    wd_passphrase: Entity<InputState>,
+    wd_status: SharedString,
+    /// WebDAV 操作进行中（防重入）。
+    wd_busy: bool,
 }
 
 use crate::vault::Vault;
@@ -39,7 +49,147 @@ impl SyncPanel {
             } else {
                 "未配置 token".into()
             },
+            wd_url: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("https://dav.jianguoyun.com/dav/")
+            }),
+            wd_user: cx.new(|cx| InputState::new(window, cx).placeholder("账号（邮箱）")),
+            wd_pass: cx.new(|cx| {
+                InputState::new(window, cx).placeholder("应用密码 / App password")
+            }),
+            wd_path: cx.new(|cx| InputState::new(window, cx).placeholder("远程目录，如 Notes")),
+            wd_passphrase: cx.new(|cx| {
+                InputState::new(window, cx).placeholder("端到端加密口令（留空 = 不加密）")
+            }),
+            wd_status: "未配置".into(),
+            wd_busy: false,
         }
+    }
+
+    /// 从界面读 WebDAV 配置（url, user, pass, path, passphrase）。
+    fn webdav_config(&self, cx: &Context<Self>) -> (String, String, String, String, String) {
+        (
+            self.wd_url.read(cx).value().to_string(),
+            self.wd_user.read(cx).value().to_string(),
+            self.wd_pass.read(cx).value().to_string(),
+            self.wd_path.read(cx).value().to_string(),
+            self.wd_passphrase.read(cx).value().to_string(),
+        )
+    }
+
+    /// WebDAV：测试连接（PROPFIND Depth:0，404 时自动建目录）。
+    fn webdav_test(&mut self, _: &gpui::ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.wd_busy {
+            return;
+        }
+        let (url, user, pass, path, _) = self.webdav_config(cx);
+        if url.trim().is_empty() {
+            self.wd_status = "请填服务器地址".into();
+            cx.notify();
+            return;
+        }
+        self.wd_busy = true;
+        self.wd_status = "连接中…".into();
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let r = solomd_core::rt::spawn(async move {
+                webdav_sync::webdav_test_connection(url, user, pass, path).await
+            })
+            .await;
+            let _ = this.update_in(cx, |panel, window, cx| {
+                panel.wd_busy = false;
+                panel.wd_status = match r {
+                    Ok(Ok(msg)) => SharedString::from(msg),
+                    Ok(Err(e)) => SharedString::from(format!("失败：{e}")),
+                    Err(e) => SharedString::from(format!("任务失败：{e}")),
+                };
+                window.refresh();
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// WebDAV：上传整个笔记库。
+    fn webdav_push(&mut self, _: &gpui::ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.wd_busy {
+            return;
+        }
+        let (url, user, pass, path, passphrase) = self.webdav_config(cx);
+        let workspace = self.vault.root.to_string_lossy().to_string();
+        let encrypted = !passphrase.trim().is_empty();
+        self.wd_busy = true;
+        self.wd_status = if encrypted {
+            "加密上传中…".into()
+        } else {
+            "上传中…".into()
+        };
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let r = solomd_core::rt::spawn(async move {
+                webdav_sync::webdav_push_workspace(
+                    workspace,
+                    url,
+                    user,
+                    pass,
+                    path,
+                    Some(encrypted),
+                    Some(passphrase),
+                )
+                .await
+            })
+            .await;
+            let _ = this.update_in(cx, |panel, window, cx| {
+                panel.wd_busy = false;
+                panel.wd_status = match r {
+                    Ok(Ok(res)) => SharedString::from(res.message),
+                    Ok(Err(e)) => SharedString::from(format!("上传失败：{e}")),
+                    Err(e) => SharedString::from(format!("任务失败：{e}")),
+                };
+                window.refresh();
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// WebDAV：下载整个笔记库（覆盖同名本地文件）。
+    fn webdav_pull(&mut self, _: &gpui::ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.wd_busy {
+            return;
+        }
+        let (url, user, pass, path, passphrase) = self.webdav_config(cx);
+        let workspace = self.vault.root.to_string_lossy().to_string();
+        let encrypted = !passphrase.trim().is_empty();
+        self.wd_busy = true;
+        self.wd_status = "下载中…".into();
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let r = solomd_core::rt::spawn(async move {
+                webdav_sync::webdav_pull_workspace(
+                    workspace,
+                    url,
+                    user,
+                    pass,
+                    path,
+                    Some(encrypted),
+                    Some(passphrase),
+                )
+                .await
+            })
+            .await;
+            let _ = this.update_in(cx, |panel, window, cx| {
+                panel.wd_busy = false;
+                panel.wd_status = match r {
+                    Ok(Ok(res)) => SharedString::from(res.message),
+                    Ok(Err(e)) => SharedString::from(format!("下载失败：{e}")),
+                    Err(e) => SharedString::from(format!("任务失败：{e}")),
+                };
+                window.refresh();
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn save_token(&mut self, _: &gpui::ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -239,6 +389,67 @@ impl Render for SyncPanel {
                                     .ghost()
                                     .on_click(cx.listener(Self::pull)),
                             ),
+                    )
+                    // ---- WebDAV 同步（坚果云 / Nextcloud / AList …）----
+                    .child(
+                        div()
+                            .mt_3()
+                            .pt_3()
+                            .border_t_1()
+                            .border_color(cx.theme().border),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child("WebDAV 同步"))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(self.wd_status.clone()),
+                            ),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(Input::new(&self.wd_url).small())
+                            .child(Input::new(&self.wd_user).small())
+                            .child(Input::new(&self.wd_pass).small())
+                            .child(Input::new(&self.wd_path).small())
+                            .child(Input::new(&self.wd_passphrase).small()),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_1p5()
+                            .child(
+                                Button::new("webdav-test")
+                                    .label(if self.wd_busy { "…" } else { "测试连接" })
+                                    .xsmall()
+                                    .ghost()
+                                    .on_click(cx.listener(Self::webdav_test)),
+                            )
+                            .child(
+                                Button::new("webdav-push")
+                                    .label("⬆ 上传笔记库")
+                                    .xsmall()
+                                    .primary()
+                                    .on_click(cx.listener(Self::webdav_push)),
+                            )
+                            .child(
+                                Button::new("webdav-pull")
+                                    .label("⬇ 下载笔记库")
+                                    .xsmall()
+                                    .ghost()
+                                    .on_click(cx.listener(Self::webdav_pull)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("填了口令 = 端到端加密（远程只存 .enc）；留空 = 明文同步。"),
                     ),
             )
     }

@@ -39,5 +39,13 @@ pub mod recipe_runner;
 pub mod workspace_index;
 pub mod search;
 pub mod trace;
+pub mod tab_title;
+/// 语法 / 风格检查（上游 app/src-tauri/src/languagetool.rs 去壳移植）：
+/// local / premium / public 三后端，纯 HTTP，无 Tauri 依赖。
+pub mod languagetool;
+/// 剪贴板表格 → GFM 表格（上游 app/src/lib/table-paste.ts 移植）。
+pub mod table_paste;
+/// WebDAV 笔记库同步（上游 app/src-tauri/src/webdav_sync.rs 去壳移植）。
+pub mod webdav_sync;
 
 pub use deps::{ChannelSink, CorePaths, EventSink, NullSink};
