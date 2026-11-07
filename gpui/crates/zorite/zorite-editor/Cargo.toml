@@ -32,3 +32,4 @@ zorite-markdown = { path = "../zorite-markdown", version = "0.9", default-featur
 # byte index and x rise together, which is false for a right-to-left line — so
 # every caret/click lookup in this crate goes through `VisualMap` on RTL rows.
 gpui-bidi = { path = "../gpui-bidi", version = "0.1" }
+solomd-workspace-hack = { version = "0.0.0", path = "../../workspace-hack" }

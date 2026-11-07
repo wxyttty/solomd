@@ -3029,6 +3029,7 @@ dependencies = [
  "serde_json",
  "smallvec",
  "smol",
+ "solomd-workspace-hack",
  "syntect",
  "tracing",
  "unicode-segmentation",
@@ -3041,6 +3042,7 @@ name = "gpui-bidi"
 version = "0.1.0"
 dependencies = [
  "gpui",
+ "solomd-workspace-hack",
  "unicode-bidi",
 ]
 
@@ -3084,6 +3086,7 @@ dependencies = [
  "serde_repr",
  "smallvec",
  "smol",
+ "solomd-workspace-hack",
  "tracing",
  "tree-sitter",
  "tree-sitter-astro-next",
@@ -3133,6 +3136,7 @@ dependencies = [
  "gpui",
  "log",
  "rust-embed",
+ "solomd-workspace-hack",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "zed-reqwest",
@@ -3144,6 +3148,7 @@ version = "0.5.1"
 dependencies = [
  "proc-macro2",
  "quote",
+ "solomd-workspace-hack",
  "syn 2.0.119",
 ]
 
@@ -3155,6 +3160,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "solomd-workspace-hack",
  "ttf-parser",
 ]
 
@@ -6780,6 +6786,7 @@ dependencies = [
  "ratex-parser",
  "ratex-render",
  "ratex-svg",
+ "solomd-workspace-hack",
 ]
 
 [[package]]
@@ -8047,10 +8054,14 @@ dependencies = [
  "gpui_platform",
  "image",
  "mermaid-rs-renderer",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "ratex-gpui",
  "serde",
  "serde_json",
  "solomd-core",
+ "solomd-workspace-hack",
  "zorite-editor",
  "zorite-markdown",
 ]
@@ -8094,6 +8105,63 @@ dependencies = [
  "trash",
  "walkdir",
  "zip",
+]
+
+[[package]]
+name = "solomd-workspace-hack"
+version = "0.0.0"
+dependencies = [
+ "aho-corasick",
+ "arrayvec",
+ "bit-set 0.8.0",
+ "bit-vec 0.8.0",
+ "bitflags 2.13.1",
+ "block2 0.6.2",
+ "byteorder",
+ "collections",
+ "concurrent-queue",
+ "core-foundation 0.10.0",
+ "crossbeam-utils",
+ "either",
+ "errno",
+ "event-listener",
+ "fontdb",
+ "futures-core",
+ "futures-lite",
+ "getrandom 0.3.4",
+ "gpui",
+ "gpui_macros",
+ "http_client",
+ "image",
+ "itertools 0.13.0",
+ "libc",
+ "markdown",
+ "memchr",
+ "num-traits",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "phf 0.11.3",
+ "phf_shared 0.11.3",
+ "proc-macro2",
+ "regex",
+ "regex-automata",
+ "regex-syntax",
+ "rust-embed",
+ "rust-embed-impl",
+ "rust-embed-utils",
+ "rust-i18n-support",
+ "rustix",
+ "semver",
+ "serde",
+ "serde_core",
+ "serde_json",
+ "slab",
+ "smallvec",
+ "syn 2.0.119",
+ "ttf-parser",
+ "zerocopy",
 ]
 
 [[package]]
@@ -11542,6 +11610,7 @@ version = "0.10.0"
 dependencies = [
  "gpui",
  "gpui-bidi",
+ "solomd-workspace-hack",
  "unicode-segmentation",
  "zorite-markdown",
 ]
@@ -11553,6 +11622,7 @@ dependencies = [
  "gpui",
  "gpui-bidi",
  "markdown",
+ "solomd-workspace-hack",
 ]
 
 [[package]]

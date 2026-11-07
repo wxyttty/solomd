@@ -37,6 +37,7 @@ gpui = { workspace = true }
 # Decode RaTeX's PNG into BGRA frames for `RenderImage`. Pin to gpui's `image` minor
 # (0.25), like `gpui-pdf`, so `Frame`/`RgbaImage` unify with what `RenderImage::new` wants.
 image = "0.25"
+solomd-workspace-hack = { version = "0.0.0", path = "../../workspace-hack" }
 
 [dev-dependencies]
 # Opens a real window for `examples/editor.rs` (shared workspace gpui). The Linux backends are

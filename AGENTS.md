@@ -41,8 +41,9 @@
 ## 依赖与工具链
 
 - **三方锁步**：zed + gpui-component + zorite 必须同一 zed rev（当前 zed@f66ed399 ← gpc@0e2fb7a ← zorite@7915aad，后两者已 vendor 为 path 依赖）。pin 只在 `gpui/Cargo.toml` 一处；升级舞步见 `gpui/README.md` 依赖策略节。只改一处 rev = 锁步断裂 → 双 gpui 图编译失败。
-- **工具链 1.97.1 稳定版**（`gpui/rust-toolchain.toml`），禁 nightly（pathfinder_simd SIMD intrinsics 编译失败）。
+- **工具链 1.97.1 稳定版**（`gpui/rust-toolchain.toml`）。nightly 现状（2026-11-07 实测，旧的「pathfinder_simd 编不过」记录已失效）：nightly-2026-10-24 与 nightly 2026-11-06 都能编过整个 app；nightly 2026-10-31 有一个 rustc 回归（gpui `TaskState` 触发 `E0391: cycle detected when computing when … needs async drop`，`-Zprecise-enum-drop-elaboration=no` 也绕不过）。稳定版仍是默认选择：nightly 只带来约 6% 的全量构建收益，`-Zthreads` 在本仓库零收益（800 个 crate 跨 crate 并行已饱和），cranelift 后端**用不了**——链接时 `ctor` 依赖的 `__DATA§__CTOR0_ISIZE_FN` 段边界符号缺失，cg_clif 不生成 `link_section` 内容。
 - 本机无 Xcode：`gpui_platform` 必须带 `runtime_shaders` feature。
+- **构建产出**：`[profile.dev] debug = 1` + `[profile.dev.package."*"] debug = false`（依赖不带调试信息，实测干净构建 97s/6.5GB → 78s/3.5GB）。`crates/workspace-hack` + `.config/hakari.toml` 由 `cargo hakari` 维护，用于统一依赖 feature 解析；`solomd-core` 与 `spike`/`gpui-wry` 排除在外（core 被纳入会连带编译 gpui，干净的 `-p solomd-core` 从 23s 涨到 45s）。改依赖后必须 `cargo hakari generate` 并提交，CI 用 `cargo hakari generate --diff` 校验。日常只构建 `-p solomd-app` / `-p solomd-core`，不要 `cargo build` 整个 workspace（`spike` 带 webview feature，会产生第二套 gpui 依赖图）。
 - **写 gpui-component API 前对照 vendored 源码真实签名**，不凭记忆/文档：`rg -n "pub fn xxx" gpui/crates/gpui-component/{base,ui}/src/…`。
 
 ## GPUI 已踩坑（勿重复）

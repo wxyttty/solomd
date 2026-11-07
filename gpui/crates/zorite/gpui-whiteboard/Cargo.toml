@@ -26,3 +26,4 @@ log = "0.4"
 # lockfile unifies to a single copy. The default face (JetBrains Mono, OFL) is
 # bundled under `assets/`.
 ttf-parser = "0.25"
+solomd-workspace-hack = { version = "0.0.0", path = "../../workspace-hack" }

@@ -143,6 +143,7 @@ lsp-types.workspace = true
 
 # Cross-platform time APIs (zero-cost on native, uses web APIs on WASM)
 instant.workspace = true
+solomd-workspace-hack = { version = "0.0.0", path = "../../workspace-hack" }
 
 # Native-only dependencies (not available on WASM)
 [target.'cfg(not(target_family = "wasm"))'.dependencies]

@@ -30,6 +30,7 @@ markdown = { version = "1", optional = true }
 # last words in its first row; `RtlText` breaks the text instead. A leaf
 # utility crate, depended on by both renderers (see AGENTS.md).
 gpui-bidi = { path = "../gpui-bidi", version = "0.1", optional = true }
+solomd-workspace-hack = { version = "0.0.0", path = "../../workspace-hack" }
 
 # docs.rs builds with every feature so the whole API is documented.
 [package.metadata.docs.rs]

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/spike",
+    "crates/workspace-hack",
     "crates/app",
     "crates/core",
     # zorite 五 crate 已 vendor（@2dab499 = 0.11.0）：编辑器底座 + markdown
@@ -110,3 +111,14 @@ zorite-markdown = { path = "crates/zorite/zorite-markdown" }
 gpui-whiteboard = { path = "crates/zorite/gpui-whiteboard" }
 # P4 数学渲染（GPL-3.0）：RaTeX 引擎 + GPUI 层，接 gpui-editor 的 block math provider。
 ratex-gpui = { path = "crates/zorite/ratex-gpui" }
+
+# ---------------------------------------------------------------- 构建产出
+# 依赖（gpui / zed / zorite 等 800 个 crate）**不带调试信息**：实测同 crate
+# 的 rlib 里 debug=2 占 68%~90%（gpui 185MB→44MB，solomd_core 79MB→10MB），
+# target/debug 因此膨胀到 39GB。本工作区自己的 crate 保留行号表
+# （debug=1），出错时 backtrace 仍能定位到文件:行，只是没有变量视图。
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = false

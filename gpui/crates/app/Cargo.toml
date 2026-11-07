@@ -24,6 +24,8 @@ solomd-core = { path = "../core" }
 image.workspace = true
 mermaid-rs-renderer.workspace = true
 dirs.workspace = true
+solomd-workspace-hack = { version = "0.0.0", path = "../workspace-hack" }
+
 # macOS 剪贴板富文本：直接调 AppKit 读写 `public.html`（GPUI 的
 # ClipboardEntry 只有 String/Image/ExternalPaths，没有 HTML flavor）。
 # objc2 三件套本就在依赖树里（gpui_macos 用同版本），这里只是把它们

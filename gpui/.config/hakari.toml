@@ -1,0 +1,12 @@
+# cargo-hakari 配置：统一依赖 feature 解析，避免不同 `-p` 组合产生重复编译。
+# 目标：target/debug/deps 里同一 crate 只保留一份 rlib。
+hakari-package = "solomd-workspace-hack"
+resolver = "2"
+dep-format-version = "4"
+platforms = ["aarch64-apple-darwin"]
+
+# spike 是探索用实验台，依赖 gpui-wry/webview（与主应用互斥的 feature 面）。
+# 让它不参与统一，否则整个 workspace 构建会把 webview 那套 feature 带到
+# 主应用上，反而多编一份。
+[traversal-excludes]
+workspace-members = ["spike", "gpui-wry", "solomd-core"]

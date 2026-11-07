@@ -30,6 +30,7 @@ doctest = false
 anyhow.workspace = true
 gpui.workspace = true
 log.workspace = true
+solomd-workspace-hack = { version = "0.0.0", path = "../../workspace-hack" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 rust-embed = { version = "8.7.2", features = ["interpolate-folder-path", "include-exclude"] }

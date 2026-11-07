@@ -1,0 +1,117 @@
+[package]
+name = "solomd-workspace-hack"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+### BEGIN HAKARI SECTION
+[dependencies]
+aho-corasick = { version = "1" }
+arrayvec = { version = "0.7" }
+bit-set = { version = "0.8" }
+bit-vec = { version = "0.8" }
+collections = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8", default-features = false, features = ["test-support"] }
+crossbeam-utils = { version = "0.8" }
+fontdb = { version = "0.23" }
+getrandom = { version = "0.3", default-features = false, features = ["std"] }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8", features = ["inspector", "test-support"] }
+http_client = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8", default-features = false, features = ["test-support"] }
+image = { version = "0.25" }
+markdown = { version = "1", features = ["serde"] }
+memchr = { version = "2" }
+num-traits = { version = "0.2", features = ["i128", "libm"] }
+phf = { version = "0.11", features = ["macros"] }
+phf_shared = { version = "0.11" }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
+rust-i18n-support = { version = "4", default-features = false, features = ["codegen"] }
+serde = { version = "1", features = ["alloc", "derive", "rc"] }
+serde_core = { version = "1", features = ["alloc", "rc"] }
+serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
+smallvec = { version = "1", default-features = false, features = ["const_new", "union"] }
+ttf-parser = { version = "0.25", features = ["gvar-alloc", "no-std-float"] }
+zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
+
+[build-dependencies]
+aho-corasick = { version = "1" }
+arrayvec = { version = "0.7" }
+bit-set = { version = "0.8" }
+bit-vec = { version = "0.8" }
+collections = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8", default-features = false, features = ["test-support"] }
+crossbeam-utils = { version = "0.8" }
+fontdb = { version = "0.23" }
+getrandom = { version = "0.3", default-features = false, features = ["std"] }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8", features = ["inspector", "test-support"] }
+gpui_macros = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8", default-features = false, features = ["inspector"] }
+http_client = { git = "https://github.com/zed-industries/zed", rev = "f66ed399cdde86092af8af3dc7b418abf45f37f8", default-features = false, features = ["test-support"] }
+image = { version = "0.25" }
+markdown = { version = "1", features = ["serde"] }
+memchr = { version = "2" }
+num-traits = { version = "0.2", features = ["i128", "libm"] }
+phf = { version = "0.11", features = ["macros"] }
+phf_shared = { version = "0.11" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
+rust-i18n-support = { version = "4", default-features = false, features = ["codegen"] }
+serde = { version = "1", features = ["alloc", "derive", "rc"] }
+serde_core = { version = "1", features = ["alloc", "rc"] }
+serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
+smallvec = { version = "1", default-features = false, features = ["const_new", "union"] }
+syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
+ttf-parser = { version = "0.25", features = ["gvar-alloc", "no-std-float"] }
+zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
+
+[target.aarch64-apple-darwin.dependencies]
+bitflags = { version = "2", default-features = false, features = ["std"] }
+block2 = { version = "0.6" }
+byteorder = { version = "1" }
+concurrent-queue = { version = "2" }
+core-foundation = { version = "0.10" }
+either = { version = "1", default-features = false, features = ["use_std"] }
+errno = { version = "0.3" }
+event-listener = { version = "5" }
+futures-core = { version = "0.3" }
+futures-lite = { version = "2" }
+itertools = { version = "0.13" }
+libc = { version = "0.2" }
+objc2 = { version = "0.6" }
+objc2-app-kit = { version = "0.3" }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["CFArray", "CFAttributedString", "CFCGTypes", "CFCalendar", "CFCharacterSet", "CFData", "CFDate", "CFDictionary", "CFError", "CFFileSecurity", "CFLocale", "CFMachPort", "CFMessagePort", "CFNumber", "CFRunLoop", "CFSet", "CFStream", "CFString", "CFURL", "objc2"] }
+objc2-foundation = { version = "0.3" }
+regex = { version = "1" }
+regex-syntax = { version = "0.8" }
+rust-embed = { version = "8", default-features = false, features = ["include-exclude", "interpolate-folder-path"] }
+rust-embed-utils = { version = "8", default-features = false, features = ["include-exclude"] }
+rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "time"] }
+semver = { version = "1", features = ["serde"] }
+slab = { version = "0.4" }
+
+[target.aarch64-apple-darwin.build-dependencies]
+bitflags = { version = "2", default-features = false, features = ["std"] }
+block2 = { version = "0.6" }
+byteorder = { version = "1" }
+concurrent-queue = { version = "2" }
+core-foundation = { version = "0.10" }
+either = { version = "1", default-features = false, features = ["use_std"] }
+errno = { version = "0.3" }
+event-listener = { version = "5" }
+futures-core = { version = "0.3" }
+futures-lite = { version = "2" }
+itertools = { version = "0.13" }
+libc = { version = "0.2" }
+objc2 = { version = "0.6" }
+objc2-app-kit = { version = "0.3" }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["CFArray", "CFAttributedString", "CFCGTypes", "CFCalendar", "CFCharacterSet", "CFData", "CFDate", "CFDictionary", "CFError", "CFFileSecurity", "CFLocale", "CFMachPort", "CFMessagePort", "CFNumber", "CFRunLoop", "CFSet", "CFStream", "CFString", "CFURL", "objc2"] }
+objc2-foundation = { version = "0.3" }
+regex = { version = "1" }
+regex-syntax = { version = "0.8" }
+rust-embed = { version = "8", default-features = false, features = ["include-exclude", "interpolate-folder-path"] }
+rust-embed-impl = { version = "8", default-features = false, features = ["include-exclude", "interpolate-folder-path"] }
+rust-embed-utils = { version = "8", default-features = false, features = ["include-exclude"] }
+rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "time"] }
+semver = { version = "1", features = ["serde"] }
+slab = { version = "0.4" }
+
+### END HAKARI SECTION
