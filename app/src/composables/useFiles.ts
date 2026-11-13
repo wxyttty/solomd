@@ -332,6 +332,44 @@ export function useFiles() {
 
     const ext = (path.split('.').pop() || '').toLowerCase();
 
+    // #505 — Open `.textpack` (ZIP bundle) or `.textbundle` (directory bundle).
+    if (ext === 'textpack') {
+      try {
+        const { extractTextPackArchive } = await import('../lib/textbundle');
+        const rawBytes = await invoke<number[]>('read_binary_file', { path });
+        const sep = path.includes('\\') ? '\\' : '/';
+        const lastSep = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        const parentDir = lastSep > 0 ? path.slice(0, lastSep) : '';
+        const fileName = lastSep >= 0 ? path.slice(lastSep + 1) : path;
+        const stem = fileName.replace(/\.textpack$/i, '') || 'Bundle';
+        const assetsFolder = `${stem}.assets`;
+        const unpacked = extractTextPackArchive(new Uint8Array(rawBytes), assetsFolder);
+        if (parentDir) {
+          if (unpacked.assets.length > 0) {
+            const absAssetsDir = `${parentDir}${sep}${assetsFolder}`;
+            await invoke('fs_create_dir', { path: absAssetsDir }).catch(() => {});
+            for (const asset of unpacked.assets) {
+              await invoke('write_binary_file', {
+                path: `${absAssetsDir}${sep}${asset.name}`,
+                data: Array.from(asset.bytes),
+              });
+            }
+          }
+          const mdPath = `${parentDir}${sep}${stem}.md`;
+          await invoke('write_file', { path: mdPath, content: unpacked.markdown, encoding: 'UTF-8' });
+          path = mdPath;
+        }
+      } catch (e) {
+        toasts.error(t('toast.openFailed', { error: String(e) }));
+        return;
+      }
+    } else if (ext === 'textbundle') {
+      const sep = path.includes('\\') ? '\\' : '/';
+      const candidateMd = `${path.replace(/[/\\]+$/, '')}${sep}text.markdown`;
+      const exists = await invoke<boolean>('fs_file_exists', { path: candidateMd }).catch(() => false);
+      path = exists ? candidateMd : `${path.replace(/[/\\]+$/, '')}${sep}text.md`;
+    }
+
     // If it's a convertible format, convert to Markdown first.
     // #356 — except an HTML file clicked in the file tree: that is a text
     // file in the user's own folder (often one we just exported), and a click
@@ -423,6 +461,9 @@ export function useFiles() {
     opts: { bypassNewWindow?: boolean } = {},
   ) {
     const ext = (path.split('.').pop() || '').toLowerCase();
+    if (ext === 'textpack' || ext === 'textbundle') {
+      return openPath(path, opts);
+    }
     const isImage = IMAGE_EXTENSIONS.has(ext);
     const isTextLike = TEXT_LINK_EXTENSIONS.has(ext);
     if (settings.openLinkedFilesExternally && !isImage && !isTextLike) {
@@ -897,6 +938,7 @@ export function useFiles() {
         });
       }
       tabs.markSaved(tab.id, path);
+      delete (tab as any).saveFailed;
       if (!isSaf && !isContentUri) {
         workspace.pushRecent(path);
         // v2.5: feed the ⌘P quick-switcher's MFU ranking.
@@ -918,6 +960,7 @@ export function useFiles() {
       return true;
     } catch (e) {
       console.error('save failed', e);
+      (tab as any).saveFailed = true;
       const errStr = String(e);
       if (!opts.silent) {
         toasts.warning(
@@ -926,7 +969,9 @@ export function useFiles() {
             : `Cannot overwrite "${tab.fileName}" (read-only or permission denied) — choose where to Save As`,
           6500,
         );
-        return await saveTabAs(tab, { suggestCopyName: true });
+        const savedAs = await saveTabAs(tab, { suggestCopyName: true });
+        if (savedAs) delete (tab as any).saveFailed;
+        return savedAs;
       }
       toasts.error(t('toast.saveFailed', { error: errStr }), 6000);
       return false;
@@ -1009,6 +1054,30 @@ export function useFiles() {
     if (tabs.activeTab) await saveTabAs(tabs.activeTab);
   }
 
+  /** Save all open tabs that have unsaved changes. */
+  async function saveAll(): Promise<void> {
+    window.dispatchEvent(new Event('solomd:flush-content-sync'));
+    const targets = tabs.tabs.filter((tab) =>
+      tab.filePath ? tabs.isDirty(tab.id) : tab.content !== tab.savedContent,
+    );
+    if (targets.length === 0) {
+      if (tabs.activeTab && !tabs.activeTab.filePath) {
+        await saveTab(tabs.activeTab);
+        return;
+      }
+      toasts.info(t('toast.allSaved'));
+      return;
+    }
+    let savedCount = 0;
+    for (const tab of targets) {
+      const ok = await saveTab(tab, { silent: true });
+      if (ok) savedCount += 1;
+    }
+    if (savedCount > 0) {
+      toasts.success(t('toast.savedAll', { count: savedCount }));
+    }
+  }
+
   // #85 — auto-save on window blur. Persist every dirty tab that already has
   // a file path, silently (no per-file toast). Untitled tabs are skipped on
   // purpose: saving them would pop a Save-As dialog, which is jarring when
@@ -1076,6 +1145,7 @@ export function useFiles() {
     filePickerStartDir,
     saveActive,
     saveActiveAs,
+    saveAll,
     // Exposed for the task panel: ticking a checkbox in a file that happens to
     // be open has to go through the tab, not straight to disk, or the tab's
     // in-memory copy would silently overwrite it on the next save.

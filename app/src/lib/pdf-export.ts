@@ -12,7 +12,7 @@
  */
 
 // @ts-ignore — html2pdf.js ships no types
-import { initMermaid } from './mermaid-lazy';
+import { renderMermaidCached } from './mermaid-lazy';
 import { sanitizeModernColors } from './export-colors';
 import { renderMarkdown, extractImageRoot } from './markdown';
 import { loadRenderDeps } from './render-deps';
@@ -185,6 +185,13 @@ const PDF_CSS = `
     overflow-wrap: anywhere;
     word-break: break-word;
   }
+  :where(.pdf-page) th::after, :where(.pdf-page) td::after {
+    content: '\\00a0';
+    display: inline-block;
+    width: 0;
+    overflow: hidden;
+    visibility: hidden;
+  }
   /* #271 — short cells stay on one line (see markdown.ts table_short_cells). */
   :where(.pdf-page) .cell-nowrap { white-space: nowrap; }
   :where(.pdf-page) thead th {
@@ -220,30 +227,24 @@ const PDF_CSS = `
   }
 `;
 
-let mermaidId = 0;
-
 async function processMermaidBlocks(container: HTMLElement) {
   const blocks = container.querySelectorAll('pre > code.language-mermaid');
   if (!blocks.length) return;   // no diagrams: never pay for the renderer
-  const mermaid = await initMermaid({
-    startOnLoad: false,
-    securityLevel: 'strict',
-    theme: 'default',
-  });
+  // #522 — share the preview's serial queue and theme+source cache. Export
+  // containers are detached, so no isConnected guard here.
   for (const block of Array.from(blocks)) {
     const pre = block.parentElement as HTMLElement | null;
     if (!pre) continue;
     const code = (block.textContent || '').trim();
-    const id = `pdf-mmd-${++mermaidId}`;
-    try {
-      const { svg } = await mermaid.render(id, code);
+    const result = await renderMermaidCached('default', code);
+    if (result.svg) {
       const wrap = document.createElement('div');
       wrap.className = 'mermaid-block';
-      wrap.innerHTML = svg;
+      wrap.innerHTML = result.svg;
       pre.replaceWith(wrap);
-    } catch (e) {
+    } else {
       const err = document.createElement('pre');
-      err.textContent = `Mermaid error: ${(e as Error).message}`;
+      err.textContent = `Mermaid error: ${result.error ?? 'unknown error'}`;
       pre.replaceWith(err);
     }
   }
@@ -279,11 +280,68 @@ export interface PdfRasterCapture {
   /** One body line in raster pixels (drives the between-table-rows cut). */
   lineHeightPx: number;
   /** Hand back a re-paginated raster for `finish()` to slice. */
-  useCanvas(canvas: HTMLCanvasElement): void;
+  useCanvas(canvas: HTMLCanvasElement, breaks?: number[]): void;
   /** Slice the raster into pages and assemble the PDF. */
   finish(): Promise<Blob>;
   /** Drop the off-screen page and sweep any html2pdf leftovers (#115). */
   dispose(): void;
+}
+
+export interface PdfOutlineHeading {
+  level: number;
+  text: string;
+  pageNumber: number;
+}
+
+export interface JsPdfOutlineLike {
+  add(parent: unknown, title: string, options: { pageNumber: number }): unknown;
+}
+
+/**
+ * #515 — Map a heading's raster Y coordinate to a 1-based PDF page number.
+ * When `buildPagedCanvas` re-paginated the raster, `breaks` holds the ascending
+ * raster rows where each page ends (`breaks.length + 1` pages total).
+ */
+export function rasterRowToPageNumber(
+  rasterY: number,
+  pageHeightPx: number,
+  breaks?: number[] | null,
+): number {
+  const y = Math.max(0, rasterY);
+  if (breaks && breaks.length > 0) {
+    for (let i = 0; i < breaks.length; i++) {
+      if (y < breaks[i]) return i + 1;
+    }
+    return breaks.length + 1;
+  }
+  if (pageHeightPx > 0) {
+    return Math.max(1, Math.floor(y / pageHeightPx) + 1);
+  }
+  return 1;
+}
+
+/**
+ * #515 — Populate jsPDF's document outline (PDF left-sidebar bookmarks) with a
+ * properly nested H1–H6 hierarchy so PDF readers show a collapsible TOC tree.
+ */
+export function populatePdfOutline(
+  outline: JsPdfOutlineLike | null | undefined,
+  headings: PdfOutlineHeading[],
+): void {
+  if (!outline || typeof outline.add !== 'function' || !headings.length) return;
+  const stack: Array<{ level: number; node: unknown }> = [];
+  for (const h of headings) {
+    const title = h.text.replace(/\s+/g, ' ').trim();
+    if (!title) continue;
+    const level = Math.max(1, Math.min(6, Math.round(h.level || 1)));
+    const pageNumber = Math.max(1, Math.round(h.pageNumber || 1));
+    while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+      stack.pop();
+    }
+    const parent = stack.length > 0 ? stack[stack.length - 1].node : null;
+    const node = outline.add(parent, title, { pageNumber });
+    stack.push({ level, node });
+  }
 }
 
 /**
@@ -297,6 +355,10 @@ interface Html2PdfWorkerInternals {
   prop?: {
     canvas?: HTMLCanvasElement;
     pageSize?: { inner?: { width: number; height: number } };
+    pdf?: {
+      outline?: JsPdfOutlineLike;
+      internal?: { getNumberOfPages?: () => number };
+    };
   };
 }
 
@@ -464,15 +526,57 @@ export async function capturePdfRaster(
     const inner = prop?.pageSize?.inner;
     const geometry = pdfPaginationGeometry(canvas, inner, page);
 
+    // #515 — Measure heading positions on the live page before `dispose()`
+    // removes it, so `finish()` can inject a navigable PDF document outline.
+    const pageRect = page.getBoundingClientRect();
+    const pageHeightCss = page.offsetHeight || pageRect.height || 1;
+    const rawHeadings = Array.from(
+      page.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'),
+    )
+      .filter((el) => !el.closest('.md-toc'))
+      .map((el) => {
+        const level = Number(el.tagName.slice(1)) || 1;
+        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        const elRect = el.getBoundingClientRect();
+        const relTopCss = Math.max(0, elRect.top - pageRect.top);
+        const rasterY = canvas ? Math.round((relTopCss / pageHeightCss) * canvas.height) : 0;
+        return { level, text, rasterY };
+      })
+      .filter((h) => h.text.length > 0);
+
+    let pageBreaks: number[] | null = null;
+
     return {
       canvas,
       pageHeightPx: geometry.pageHeightPx,
       searchUpPx: geometry.searchUpPx,
       lineHeightPx: geometry.lineHeightPx,
-      useCanvas(replacement: HTMLCanvasElement) {
+      useCanvas(replacement: HTMLCanvasElement, breaks?: number[]) {
         if (prop) prop.canvas = replacement;
+        if (breaks) pageBreaks = breaks;
       },
       async finish(): Promise<Blob> {
+        await worker.toPdf();
+        const pdf = prop?.pdf;
+        if (pdf?.outline && rawHeadings.length > 0) {
+          const totalPages =
+            typeof pdf.internal?.getNumberOfPages === 'function'
+              ? pdf.internal.getNumberOfPages()
+              : Infinity;
+          const outlineHeadings: PdfOutlineHeading[] = rawHeadings.map((h) => ({
+            level: h.level,
+            text: h.text,
+            pageNumber: Math.min(
+              totalPages,
+              rasterRowToPageNumber(h.rasterY, geometry.pageHeightPx, pageBreaks),
+            ),
+          }));
+          try {
+            populatePdfOutline(pdf.outline, outlineHeadings);
+          } catch (err) {
+            console.warn('[pdf] outline generation skipped', err);
+          }
+        }
         return await worker.outputPdf('blob');
       },
       dispose,
@@ -559,7 +663,7 @@ export async function markdownToPdfBlob(
             capture.searchUpPx,
             capture.lineHeightPx,
           );
-          if (paged) capture.useCanvas(paged.canvas);
+          if (paged) capture.useCanvas(paged.canvas, paged.breaks);
         } catch (e) {
           console.warn('[pdf] pagination skipped', e);
         }

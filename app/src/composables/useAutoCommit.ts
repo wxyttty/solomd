@@ -14,13 +14,16 @@
  * and runs `git_auto_commit` immediately when AutoGit is enabled.
  */
 import { watch } from 'vue';
-import { useSettingsStore } from '../stores/settings';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { useSettingsStore, resolveSyncTargetFolder } from '../stores/settings';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useGitHistoryStore } from '../stores/gitHistory';
 import { useTabsStore } from '../stores/tabs';
 import { useToastsStore } from '../stores/toasts';
 import { useI18n } from '../i18n';
 import { hasGitBackend } from '../lib/platform';
+import { PROVIDERS } from '../lib/ai-providers';
 
 export function useAutoCommit() {
   const settings = useSettingsStore();
@@ -52,18 +55,87 @@ export function useAutoCommit() {
     }
   }
 
+  /** #129 — Optionally generate a concise 1-line Git commit message via AI. */
+  async function generateAiCommitMessage(filePath?: string): Promise<string | undefined> {
+    if (!settings.autoGitAiMessage || !settings.aiEnabled) return undefined;
+    const tab = tabs.activeTab;
+    const excerpt = (tab?.content || '').slice(0, 1800).trim();
+    if (!excerpt) return undefined;
+    const fileName = filePath ? filePath.split(/[/\\]/).pop() || 'note.md' : tab?.fileName || 'note.md';
+    const providerCfg = PROVIDERS.find((p) => p.id === settings.aiProvider);
+    const model = settings.aiModel?.trim() || providerCfg?.defaultModel || 'gpt-4o-mini';
+    const requestId = `autogit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    return new Promise<string | undefined>((resolve) => {
+      let settled = false;
+      let unlistenDone: (() => void) | null = null;
+      let unlistenErr: (() => void) | null = null;
+      const finish = (msg?: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (unlistenDone) unlistenDone();
+        if (unlistenErr) unlistenErr();
+        resolve(msg);
+      };
+      const timer = setTimeout(() => finish(undefined), 5000);
+
+      void (async () => {
+        try {
+          unlistenDone = await listen<{ request_id: string; full_text: string }>(
+            'solomd://ai-done',
+            (ev) => {
+              if (ev.payload?.request_id !== requestId) return;
+              const line = (ev.payload.full_text || '')
+                .replace(/^["'`]+|["'`]+$/g, '')
+                .split(/\r?\n/)[0]
+                ?.trim()
+                .slice(0, 72);
+              finish(line || undefined);
+            },
+          );
+          unlistenErr = await listen<{ request_id: string }>('solomd://ai-error', (ev) => {
+            if (ev.payload?.request_id !== requestId) return;
+            finish(undefined);
+          });
+          await invoke('ai_rewrite', {
+            request: {
+              provider: settings.aiProvider,
+              api_format: providerCfg?.apiFormat || settings.aiProvider,
+              model,
+              system:
+                'You write concise, single-line Git commit messages (under 60 characters, no quotes, no markdown fences) summarizing the note update.',
+              user: `Write a concise 1-line commit summary for saving "${fileName}":`,
+              selection: excerpt,
+              base_url: settings.aiBaseUrl?.trim() || providerCfg?.defaultBaseUrl || null,
+              request_id: requestId,
+            },
+          });
+        } catch {
+          finish(undefined);
+        }
+      })();
+    });
+  }
+
   /** Run a single auto-commit. Always surfaces a toast (no quiet path). */
   async function performCommit(): Promise<void> {
     if (busy) return;
     if (!isEnabled()) return;
-    const folder = workspace.currentFolder;
+    const filePath = tabs.activeTab?.filePath ?? undefined;
+    const folder = resolveSyncTargetFolder(
+      filePath,
+      workspace.currentFolder,
+      settings.syncVaults,
+      settings.syncOnlyRegisteredVaults,
+    );
     if (!folder) return;
     busy = true;
     try {
       if (!(await ensureInitialized(folder))) return;
-      const filePath = tabs.activeTab?.filePath ?? undefined;
       try {
-        const sha = await gh.commit(folder, filePath);
+        const aiMessage = await generateAiCommitMessage(filePath);
+        const sha = await gh.commit(folder, filePath, aiMessage);
         if (sha) {
           toasts.success(t('history.savedSnapshot', { sha: sha.slice(0, 7) }));
         }

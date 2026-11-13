@@ -13,7 +13,16 @@ import yaml from 'js-yaml';
 import { numberEquations } from './equations';
 import { parseImageAltSize } from './md-image-url';
 import { sanitizeRenderedHtml } from './sanitize-html';
+import { renderMarkmapSvg } from './markmap-render';
+import { renderExcalidrawSvg } from './excalidraw';
 import { getHljs, getKatex } from './render-deps';
+import {
+  parseOutlineSegments,
+  stripOutlineFormatting,
+  type OutlineSegment,
+} from './html-live-render';
+
+export { parseOutlineSegments, stripOutlineFormatting, type OutlineSegment };
 
 // NOTE: `@hedgedoc/markdown-it-task-lists` is installed but unusable here —
 // its compiled ESM entry does `import Token from 'markdown-it/lib/token.js'`
@@ -126,13 +135,157 @@ export const md = new MarkdownIt({
 // autolinks continue to linkify as expected.
 md.linkify.set({ fuzzyLink: false });
 
+// #380 — allow `file:` link / image destinations
+const stockValidateLink = md.validateLink.bind(md);
+md.validateLink = (url: string): boolean => {
+  const str = String(url ?? '').trim().toLowerCase();
+  if (!str) return false;
+  if (str.startsWith('file:')) return true;
+  return stockValidateLink(url);
+};
+
 // #464 — Allow GFM tables to interrupt blockquotes and lists without requiring
 // a blank line, matching CodeMirror's GFM parser in Live mode (`> quote\n| a | b |`).
 const tableBlockRule = (md.block.ruler as any).__rules__?.find((r: any) => r.name === 'table');
 if (tableBlockRule) {
   tableBlockRule.alt = ['paragraph', 'reference', 'blockquote', 'list'];
 }
+
+// #546 — Preserve full-width ideographic spaces (`\u3000`, `　`) at the start
+// and end of paragraphs. Stock markdown-it calls `.trim()` on paragraph content,
+// which in JavaScript strips all Unicode whitespace including `U+3000`, eating
+// CJK first-line / dialogue indentation (`　　　　李玲：...`). CommonMark §2.1
+// only trims ASCII spaces/tabs (`U+0020` / `U+0009`).
+const origParagraphRule = (md.block.ruler as any).__rules__?.find((r: any) => r.name === 'paragraph')?.fn;
+if (origParagraphRule) {
+  md.block.ruler.at('paragraph', (state, startLine, endLine, silent) => {
+    const blkIndent = state.blkIndent;
+    const ok = origParagraphRule(state, startLine, endLine, silent);
+    if (ok && !silent) {
+      const tok = state.tokens[state.tokens.length - 2];
+      if (tok && tok.type === 'inline') {
+        tok.content = state
+          .getLines(startLine, state.line, blkIndent, false)
+          .replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
+      }
+    }
+    return ok;
+  });
+}
 (md.block.ruler as any).__cache__ = null;
+
+// ---- Definition List (`Term\n: Definition`, #285) ---------------------------
+// Supports Pandoc / PHP Markdown Extra definition lists (`<dl><dt><dd>`).
+md.block.ruler.before(
+  'paragraph',
+  'deflist',
+  (state, startLine, endLine, silent) => {
+    const getLine = (lineNo: number): string => {
+      const pos = state.bMarks[lineNo] + state.tShift[lineNo];
+      const max = state.eMarks[lineNo];
+      return state.src.slice(pos, max);
+    };
+    const isDefMarkerLine = (lineNo: number): boolean => {
+      if (lineNo < 0 || lineNo >= endLine || state.isEmpty(lineNo)) return false;
+      if (state.sCount[lineNo] - state.blkIndent >= 4) return false;
+      return /^[:~][ \t]+/.test(getLine(lineNo));
+    };
+    const isTermCandidateLine = (lineNo: number): boolean => {
+      if (lineNo < 0 || lineNo >= endLine || state.isEmpty(lineNo)) return false;
+      if (state.sCount[lineNo] - state.blkIndent >= 4) return false;
+      const text = getLine(lineNo);
+      if (/^(?:#{1,6}[ \t]|`{3,}|~{3,}|>|[-*+][ \t]|\d+[.)][ \t]|[:~][ \t]|\||<(?:!--|[a-zA-Z/]))/.test(text)) {
+        return false;
+      }
+      if (/^(?:[-*_][ \t]*){3,}$/.test(text)) return false;
+      return true;
+    };
+    const matchTermGroupAt = (
+      fromLine: number,
+    ): { termEnd: number; ddStart: number } | null => {
+      if (!isTermCandidateLine(fromLine)) return null;
+      let tEnd = fromLine + 1;
+      while (tEnd < endLine && isTermCandidateLine(tEnd)) {
+        // Stop if `tEnd` itself is the last term directly above a `: def`
+        tEnd++;
+      }
+      let dd = tEnd;
+      if (dd < endLine && state.isEmpty(dd)) dd++;
+      if (!isDefMarkerLine(dd)) return null;
+      return { termEnd: tEnd, ddStart: dd };
+    };
+
+    const firstGroup = matchTermGroupAt(startLine);
+    if (!firstGroup) return false;
+    if (silent) return true;
+
+    const dlOpen = state.push('dl_open', 'dl', 1);
+    dlOpen.map = [startLine, 0];
+
+    let curLine = startLine;
+    while (curLine < endLine) {
+      const group = matchTermGroupAt(curLine);
+      if (!group) break;
+
+      for (let tl = curLine; tl < group.termEnd; tl++) {
+        const dtOpen = state.push('dt_open', 'dt', 1);
+        dtOpen.map = [tl, tl + 1];
+        const inlineTok = state.push('inline', '', 0);
+        inlineTok.content = getLine(tl).trim();
+        inlineTok.map = [tl, tl + 1];
+        inlineTok.children = [];
+        state.push('dt_close', 'dt', -1);
+      }
+
+      curLine = group.ddStart;
+      while (curLine < endLine) {
+        if (state.isEmpty(curLine)) {
+          if (curLine + 1 < endLine && isDefMarkerLine(curLine + 1)) {
+            curLine++;
+          } else {
+            break;
+          }
+        }
+        if (!isDefMarkerLine(curLine)) break;
+        const ddStartLine = curLine;
+        const firstMatch = getLine(curLine).match(/^[:~][ \t]+(.*)$/);
+        const ddLines: string[] = [firstMatch ? firstMatch[1] : ''];
+        curLine++;
+        while (
+          curLine < endLine &&
+          !state.isEmpty(curLine) &&
+          !isDefMarkerLine(curLine)
+        ) {
+          if (matchTermGroupAt(curLine)) break;
+          ddLines.push(getLine(curLine).trim());
+          curLine++;
+        }
+        const ddOpen = state.push('dd_open', 'dd', 1);
+        ddOpen.map = [ddStartLine, curLine];
+        const ddInline = state.push('inline', '', 0);
+        ddInline.content = ddLines.join('\n');
+        ddInline.map = [ddStartLine, curLine];
+        ddInline.children = [];
+        state.push('dd_close', 'dd', -1);
+      }
+
+      if (
+        curLine < endLine &&
+        state.isEmpty(curLine) &&
+        curLine + 1 < endLine &&
+        matchTermGroupAt(curLine + 1)
+      ) {
+        curLine++;
+      }
+    }
+
+    dlOpen.map = [startLine, curLine];
+    state.push('dl_close', 'dl', -1);
+    state.line = curLine;
+    return true;
+  },
+  { alt: ['paragraph', 'reference', 'blockquote'] },
+);
 
 // ---- Wikilink rule (`[[X]]`, `[[X|alias]]`, `[[X#heading]]`) ---------------
 // Used by F1 (v2.0). Renders into <a class="md-wikilink" data-wikilink-target="X">…</a>.
@@ -188,6 +341,114 @@ md.inline.ruler.before('link', 'wikilink', (state, silent) => {
   return false;
 });
 
+// ---- Superscript `^sup^` and Subscript `~sub~` (#284) -----------------------
+// Standard markdown-it-sup / markdown-it-sub rules:
+// - `^sup^` renders `<sup>sup</sup>` (ignoring `[^footnote]` and `^^`).
+// - `~sub~` renders `<sub>sub</sub>` (ignoring `~~strikethrough~~`).
+// - Unescaped spaces or newlines are disallowed inside the markers so prose like
+//   `~50 to ~60` is never misinterpreted as subscript.
+const UNESCAPE_RE = /\\([ \\!"#$%&'()*+,./:;<=>?@[\]^_`{|}~-])/g;
+
+md.inline.ruler.after('strikethrough', 'superscript', (state, silent) => {
+  const max = state.posMax;
+  const start = state.pos;
+  const src = state.src;
+  if (src.charCodeAt(start) !== 0x5e /* ^ */) return false;
+  if (silent) return false;
+  // Never steal footnote references `[^1]` or double carets `^^`.
+  if (start > 0 && (src.charCodeAt(start - 1) === 0x5b /* [ */ || src.charCodeAt(start - 1) === 0x5e)) {
+    return false;
+  }
+  if (start + 2 >= max) return false;
+  if (src.charCodeAt(start + 1) === 0x5e) return false;
+
+  state.pos = start + 1;
+  let found = false;
+  while (state.pos < max) {
+    const ch = src.charCodeAt(state.pos);
+    if (ch === 0x5e /* ^ */) {
+      if (state.pos + 1 < max && src.charCodeAt(state.pos + 1) === 0x5e) {
+        state.pos = start;
+        return false;
+      }
+      found = true;
+      break;
+    }
+    if (ch === 0x20 || ch === 0x09 || ch === 0x0a || ch === 0x0d) {
+      state.pos = start;
+      return false;
+    }
+    if (ch === 0x5c /* \ */ && state.pos + 1 < max) {
+      state.pos += 2;
+      continue;
+    }
+    state.pos++;
+  }
+  if (!found || start + 1 === state.pos) {
+    state.pos = start;
+    return false;
+  }
+  const content = src.slice(start + 1, state.pos);
+  state.posMax = state.pos;
+  state.pos = start + 1;
+  state.push('sup_open', 'sup', 1);
+  const textTok = state.push('text', '', 0);
+  textTok.content = content.replace(UNESCAPE_RE, '$1');
+  state.push('sup_close', 'sup', -1);
+  state.pos = state.posMax + 1;
+  state.posMax = max;
+  return true;
+});
+
+md.inline.ruler.after('strikethrough', 'subscript', (state, silent) => {
+  const max = state.posMax;
+  const start = state.pos;
+  const src = state.src;
+  if (src.charCodeAt(start) !== 0x7e /* ~ */) return false;
+  if (silent) return false;
+  // Never interfere with `~~strikethrough~~`.
+  if (start > 0 && src.charCodeAt(start - 1) === 0x7e) return false;
+  if (start + 2 >= max) return false;
+  if (src.charCodeAt(start + 1) === 0x7e) return false;
+
+  state.pos = start + 1;
+  let found = false;
+  while (state.pos < max) {
+    const ch = src.charCodeAt(state.pos);
+    if (ch === 0x7e /* ~ */) {
+      if (state.pos + 1 < max && src.charCodeAt(state.pos + 1) === 0x7e) {
+        state.pos = start;
+        return false;
+      }
+      found = true;
+      break;
+    }
+    if (ch === 0x20 || ch === 0x09 || ch === 0x0a || ch === 0x0d) {
+      state.pos = start;
+      return false;
+    }
+    if (ch === 0x5c /* \ */ && state.pos + 1 < max) {
+      state.pos += 2;
+      continue;
+    }
+    state.pos++;
+  }
+  if (!found || start + 1 === state.pos) {
+    state.pos = start;
+    return false;
+  }
+  const content = src.slice(start + 1, state.pos);
+  state.posMax = state.pos;
+  state.pos = start + 1;
+  state.push('sub_open', 'sub', 1);
+  const textTok = state.push('text', '', 0);
+  textTok.content = content.replace(UNESCAPE_RE, '$1');
+  state.push('sub_close', 'sub', -1);
+  state.pos = state.posMax + 1;
+  state.posMax = max;
+  return true;
+});
+
 // ---- Image with a space in its path (#345) -----------------------------------
 // CommonMark doesn't allow a space in a bare link destination, so
 // `![](D:/Program Files/a.png)` renders as literal text. SoloMD used to write
@@ -228,11 +489,16 @@ md.renderer.rules.image = function (tokens, idx, options, env, self) {
     ? self.renderInlineAsText(token.children, options, env)
     : (token.content || token.attrGet('alt') || '');
   const parsed = parseImageAltSize(rawAlt);
-  if (parsed.width) {
+  if (parsed.width || parsed.height) {
     const existingStyle = token.attrGet('style');
-    const sizeStyle = `width: ${parsed.width};${parsed.height ? ` height: ${parsed.height};` : ''}`;
+    const sizeStyle = [
+      parsed.width ? `width: ${parsed.width};` : '',
+      parsed.height ? `height: ${parsed.height};` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
     token.attrSet('style', existingStyle ? `${existingStyle}; ${sizeStyle}` : sizeStyle);
-    if (parsed.width.endsWith('px')) {
+    if (parsed.width?.endsWith('px')) {
       token.attrSet('width', parsed.width.slice(0, -2));
     }
     if (parsed.height?.endsWith('px')) {
@@ -242,7 +508,7 @@ md.renderer.rules.image = function (tokens, idx, options, env, self) {
   const html = defaultImageRenderer
     ? defaultImageRenderer(tokens, idx, options, env, self)
     : self.renderToken(tokens, idx, options);
-  if (parsed.width) {
+  if (parsed.width || parsed.height) {
     return html.replace(/\balt="[^"]*"/, `alt="${escapeHtml(parsed.alt)}"`);
   }
   return html;
@@ -259,6 +525,9 @@ const BLOCK_OPEN_TYPES = new Set([
   'list_item_open',
   'bullet_list_open',
   'ordered_list_open',
+  'dl_open',
+  'dt_open',
+  'dd_open',
   'table_open',
   'fence',
   'code_block',
@@ -273,18 +542,60 @@ const BLOCK_OPEN_TYPES = new Set([
 // `.preview-content` root — so flipping the setting is a pure-CSS swap,
 // no re-render needed.
 const defaultFenceRenderer = md.renderer.rules.fence;
+function isValidFenceInfoString(rawInfo: string): boolean {
+  const trimmed = rawInfo.trim();
+  if (!trimmed) return true;
+  const firstWord = trimmed.split(/\s+/)[0].toLowerCase();
+  if (
+    firstWord === 'mermaid' ||
+    firstWord === 'markmap' ||
+    firstWord === 'tldraw' ||
+    firstWord === 'plantuml' ||
+    firstWord === 'puml'
+  ) {
+    return true;
+  }
+  if (/^[a-zA-Z0-9_+#.-]+(?:\s+\{[^{}\n]*\})?$/.test(trimmed)) return true;
+  if (/^\{[a-zA-Z0-9_+#.,=\s-]+\}$/.test(trimmed)) return true;
+  return false;
+}
 md.renderer.rules.fence = function (tokens, idx, options, env, self) {
+  const tok = tokens[idx];
+  const origInfo = tok.info || '';
+  const origContent = tok.content || '';
+  // #537 — If the user typed non-language content directly after the opening
+  // ``` on line 1 (e.g. ```{内容写在这里} or ```第一行代码), treat it as the
+  // first line of the code block rather than swallowing it as an unknown
+  // language info string.
+  const treatInfoAsCodeLine = origInfo.trim().length > 0 && !isValidFenceInfoString(origInfo);
+  if (treatInfoAsCodeLine) {
+    tok.info = '';
+    tok.content = `${origInfo.trim()}\n${origContent}`;
+  }
   const html = defaultFenceRenderer
     ? defaultFenceRenderer(tokens, idx, options, env, self)
     : self.renderToken(tokens, idx, options);
+  if (treatInfoAsCodeLine) {
+    tok.info = origInfo;
+    tok.content = origContent;
+  }
   // Skip mermaid — Preview.vue replaces these blocks with rendered SVGs.
   // Skip tldraw (F7) the same way — Preview.vue swaps the ```tldraw fence for
   // a static board SVG thumbnail (the language class survives so the
   // post-processor can find it).
-  const tok = tokens[idx];
   const info = (tok.info || '').trim().toLowerCase();
   const lang = info.split(/\s+/)[0];
-  if (lang === 'mermaid' || lang === 'tldraw') return html;
+  if (!treatInfoAsCodeLine && (lang === 'markmap' || lang === 'mm')) {
+    const line = tok.map && tok.map.length > 0 ? tok.map[0] + 1 : 0;
+    const lineAttr = line ? ` data-source-line="${line}"` : '';
+    return `<div class="markmap-block"${lineAttr}>${renderMarkmapSvg(origContent)}</div>\n`;
+  }
+  if (!treatInfoAsCodeLine && lang === 'excalidraw') {
+    const line = tok.map && tok.map.length > 0 ? tok.map[0] + 1 : 0;
+    const lineAttr = line ? ` data-source-line="${line}"` : '';
+    return `<div class="excalidraw-block"${lineAttr}>${renderExcalidrawSvg(origContent)}</div>\n`;
+  }
+  if (!treatInfoAsCodeLine && (lang === 'mermaid' || lang === 'tldraw')) return html;
   // Inject .cb-line wrappers on each line. We do this on the rendered HTML
   // because the highlight has already produced <span class="hljs-..."> spans
   // that may straddle multiple lines (a few hljs grammars emit multi-line
@@ -521,6 +832,22 @@ md.core.ruler.before('source_line_map', 'table_of_contents', (state) => {
 // the output, so documents built around `<div>…<img>…</div>` containers had no
 // sync anchors at all and the split panes drifted apart across those regions
 // (#203 双栏错位). Wrap the raw block in a neutral div carrying the line.
+const HTML_CONTAINER_TAG_RE = /<(\/?)(details|div|section|article|aside|figure|blockquote)\b[^>]*>/gi;
+function hasUnbalancedContainerHtml(html: string): boolean {
+  let depth = 0;
+  HTML_CONTAINER_TAG_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = HTML_CONTAINER_TAG_RE.exec(html)) !== null) {
+    if (m[1] === '/') {
+      depth -= 1;
+      if (depth < 0) return true;
+    } else {
+      depth += 1;
+    }
+  }
+  return depth !== 0;
+}
+
 const defaultHtmlBlock = md.renderer.rules.html_block;
 md.renderer.rules.html_block = function (tokens, idx, options, env, self) {
   const html = defaultHtmlBlock
@@ -529,8 +856,36 @@ md.renderer.rules.html_block = function (tokens, idx, options, env, self) {
   const tok = tokens[idx];
   const line = tok.map && tok.map.length > 0 ? tok.map[0] + 1 : 0;
   if (!line) return html;
+  // When a container HTML block (e.g. `<details><summary>...</summary>` followed
+  // by a blank line, a Markdown table, and `</details>`) is split across
+  // multiple tokens, wrapping the opening fragment in `<div data-source-line>`
+  // forces the browser/DOMPurify to auto-close `<details>` before `</div>`,
+  // pushing the inner `<table>` outside `<details>` (#500 T09-4). Stamp
+  // `data-source-line` onto the opening tag directly and leave closing
+  // fragments unwrapped.
+  if (hasUnbalancedContainerHtml(html)) {
+    if (/^\s*<\//.test(html)) return html;
+    return html.replace(/^(\s*<[a-zA-Z][\w:-]*)/, `$1 data-source-line="${line}"`);
+  }
   return `<div data-source-line="${line}">${html}</div>`;
 };
+
+// Terminate a GFM pipe table when a subsequent line contains no pipe (`|`)
+// character (#500 T08-9: prose line immediately following a table without an
+// intervening blank line should render as a `<p>` paragraph, not be swallowed
+// into `<tbody>`).
+md.block.ruler.before(
+  'table',
+  'table_no_pipe_terminator',
+  (state, startLine, _endLine, silent) => {
+    if (!silent || (state.parentType as string) !== 'table') return false;
+    const pos = state.bMarks[startLine] + state.tShift[startLine];
+    const max = state.eMarks[startLine];
+    const lineText = state.src.slice(pos, max);
+    return !lineText.includes('|');
+  },
+  { alt: ['blockquote'] },
+);
 
 // Custom core rule: detect GitHub-style task list items (a leading
 // `[ ]` / `[x]` in the first inline child of a list item) and:
@@ -785,7 +1140,20 @@ function unwrapInlineHtmlBlocks(source: string): string {
     .map((seg) => {
       if (seg.isFence) return seg.text;
       return seg.text.replace(HTML_BLOCK_RE, (_match, _indent, html) => {
-        return `\n\n${html}\n\n`;
+        // Ensure `<details>` blocks that contain Markdown pipe tables without
+        // blank lines after `</summary>` / `<details>` or before `</details>`
+        // have blank lines so markdown-it parses the inner table rather than
+        // treating the whole `<details>` body as a single CommonMark Type-6
+        // raw HTML block.
+        const normalizedHtml = /^<details\b/i.test(html)
+          ? html
+              .replace(
+                /(<\/summary>[ \t]*)\n(?=[ \t]*\|[^\n]*\n[ \t]*\|?[\s:|-]+\|)/i,
+                '$1\n\n',
+              )
+              .replace(/(\n[ \t]*\|[^\n]*)\n(?=[ \t]*<\/details>)/i, '$1\n\n')
+          : html;
+        return `\n\n${normalizedHtml}\n\n`;
       });
     })
     .join('');
@@ -826,9 +1194,11 @@ function splitTableRow(line: string): string[] {
 }
 
 /** Cell count as markdown-it sees it: split on `|`, drop the empty leading /
- *  trailing cells produced by an outer `| … |` border. */
+ *  trailing cells produced by an outer `| … |` border. Also strips leading
+ *  `>` blockquote markers so tables inside blockquotes are normalized properly. */
 function tableRowCells(line: string): string[] {
-  const cells = splitTableRow(line.trim());
+  const stripped = line.replace(/^\s*(?:>\s*)+/, '').trim();
+  const cells = splitTableRow(stripped);
   if (cells.length && cells[0].trim() === '') cells.shift();
   if (cells.length && cells[cells.length - 1].trim() === '') cells.pop();
   return cells;
@@ -872,7 +1242,7 @@ function normalizeTableDelimiters(source: string): string {
   const out: string[] = [];
   let inFence = false;
   let fenceChar = '';
-  const fenceRe = /^(\s*)(```+|~~~+)/;
+  const fenceRe = /^(\s*(?:>\s*)*)(```+|~~~+)/;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const fm = fenceRe.exec(line);
@@ -915,9 +1285,9 @@ function normalizeTableDelimiters(source: string): string {
         for (let k = 0; k < headerCells.length; k++) {
           fixed.push(normalizeDelimiterCell(delimCells[k]));
         }
-        const indent = (next.match(/^\s*/) as RegExpMatchArray)[0];
+        const prefix = (next.match(/^\s*(?:>\s*)*/) as RegExpMatchArray)[0];
         out.push(line); // header unchanged
-        out.push(`${indent}| ${fixed.join(' | ')} |`); // corrected delimiter
+        out.push(`${prefix}| ${fixed.join(' | ')} |`); // corrected delimiter
         i++; // skip the original malformed delimiter
         continue;
       }
@@ -959,10 +1329,10 @@ function normalizeListIndent(source: string): string {
   let fenceChar = '';
   let curDelta = 0;
   let curOrig = -1;
-  const markRe = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)(.*)$/;
-  const noSpaceOrderedRe = /^(\s*)(\d{1,3}[.)])([^\s\d.)].*)$/;
+  const markRe = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
+  const noSpaceOrderedRe = /^([ \t]*)(\d{1,3}[.)])([^\s\d.)].*)$/;
   const cjkLeadRe = /^[\u3400-\u9fff\uf900-\ufaff\u3000-\u303f\uff00-\uffef“”‘’（【《「『]/;
-  const fenceRe = /^(\s*)(```+|~~~+)/;
+  const fenceRe = /^([ \t]*)(```+|~~~+)/;
   const hasAdjacentListLine = (idx: number): boolean => {
     for (let j = idx + 1; j < lines.length; j++) {
       const next = lines[j];
@@ -1027,17 +1397,51 @@ function normalizeListIndent(source: string): string {
       curDelta = norm - orig;
       curOrig = orig;
       out.push(' '.repeat(norm) + m[2] + m[3] + m[4]);
-    } else if (line.trim() === '') {
+    } else if (line.replace(/^[ \t]+|[ \t]+$/g, '') === '') {
       out.push(line);
     } else {
-      const leadWs = (line.match(/^\s*/) as RegExpMatchArray)[0];
+      const leadWs = (line.match(/^[ \t]*/) as RegExpMatchArray)[0];
       const lead = expand(leadWs);
       if (stack.length && curOrig >= 0 && lead >= curOrig) {
+        const top = stack[stack.length - 1];
+        const next = lines[i + 1];
+        if (
+          top &&
+          line.includes('|') &&
+          !isTableDelimiterRow(line) &&
+          next !== undefined &&
+          next.includes('|') &&
+          isTableDelimiterRow(next)
+        ) {
+          const tableIndent = ' '.repeat(top.norm + top.markerWidth);
+          while (i < lines.length && lines[i].includes('|') && lines[i].trim() !== '') {
+            out.push(tableIndent + lines[i].trimStart());
+            i++;
+          }
+          i--;
+          continue;
+        }
         out.push(' '.repeat(Math.max(0, lead + curDelta)) + line.slice(leadWs.length));
       } else {
         stack.length = 0;
         curDelta = 0;
         curOrig = -1;
+        const next = lines[i + 1];
+        if (
+          lead >= 4 &&
+          line.includes('|') &&
+          !isTableDelimiterRow(line) &&
+          next !== undefined &&
+          next.includes('|') &&
+          isTableDelimiterRow(next)
+        ) {
+          while (i < lines.length && lines[i].includes('|') && lines[i].trim() !== '') {
+            out.push(lines[i].trimStart());
+            i++;
+          }
+          i--;
+          continue;
+        }
         out.push(line);
       }
     }
@@ -1402,7 +1806,8 @@ function normalizeFullwidthEscapes(source: string): string {
 }
 
 export function preprocessMarkdown(source: string): string {
-  let s = normalizeTableDelimiters(unwrapInlineHtmlBlocks(source || ''));
+  const clean = (source || '').replace(/\r\n?/g, '\n');
+  let s = normalizeTableDelimiters(unwrapInlineHtmlBlocks(clean));
   s = normalizeLatexDelimiters(s);
   s = normalizeImageBackslashPaths(s);
   s = normalizeFullwidthEscapes(s);
@@ -1471,7 +1876,7 @@ export interface OutlineItem {
 }
 
 export function extractOutline(source: string): OutlineItem[] {
-  const lines = source.split('\n');
+  const lines = (source || '').replace(/\r\n?/g, '\n').split('\n');
   const items: OutlineItem[] = [];
   let inFence = false;
   for (let i = 0; i < lines.length; i++) {
@@ -1489,4 +1894,49 @@ export function extractOutline(source: string): OutlineItem[] {
     }
   }
   return items;
+}
+
+/**
+ * #418 — Reorder a Markdown heading section (from `sourceHeadingLine` up to the
+ * next heading of equal or higher rank) before or after `targetHeadingLine`'s
+ * section.
+ */
+export function reorderMarkdownHeadingSection(
+  source: string,
+  sourceHeadingLine: number,
+  targetHeadingLine: number,
+  position: 'before' | 'after' = 'before',
+): string {
+  if (!source || sourceHeadingLine === targetHeadingLine) return source;
+  const outline = extractOutline(source);
+  const srcIdx = outline.findIndex((h) => h.line === sourceHeadingLine);
+  const dstIdx = outline.findIndex((h) => h.line === targetHeadingLine);
+  if (srcIdx < 0 || dstIdx < 0) return source;
+
+  const lines = source.replace(/\r\n?/g, '\n').split('\n');
+  const sectionRange = (idx: number): [number, number] => {
+    const h = outline[idx];
+    const start = h.line - 1;
+    let end = lines.length;
+    for (let j = idx + 1; j < outline.length; j++) {
+      if (outline[j].level <= h.level) {
+        end = outline[j].line - 1;
+        break;
+      }
+    }
+    return [start, end];
+  };
+
+  const [srcStart, srcEnd] = sectionRange(srcIdx);
+  const [dstStart, dstEnd] = sectionRange(dstIdx);
+  const insertAt = position === 'before' ? dstStart : dstEnd;
+  if (insertAt >= srcStart && insertAt <= srcEnd) {
+    return source;
+  }
+
+  const moved = lines.slice(srcStart, srcEnd);
+  const remaining = [...lines.slice(0, srcStart), ...lines.slice(srcEnd)];
+  const adjustedInsert = insertAt > srcStart ? insertAt - (srcEnd - srcStart) : insertAt;
+  remaining.splice(adjustedInsert, 0, ...moved);
+  return remaining.join('\n');
 }

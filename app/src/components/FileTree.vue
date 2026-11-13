@@ -3,6 +3,7 @@ import { computed, h as hEdit, nextTick, onBeforeUnmount, onMounted, provide, re
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { revealInFileManager } from '../lib/reveal-in-file-manager';
+import { openPath } from '@tauri-apps/plugin-opener';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useFiles } from '../composables/useFiles';
 import { useInbox } from '../composables/useInbox';
@@ -15,7 +16,9 @@ import { useTabsStore } from '../stores/tabs';
 import { useI18n } from '../i18n';
 import { isIOS, isMobile, revealLabelKey, usesCommandKey } from '../lib/platform';
 import { usePendingDeletes, isDeletePending, UNDO_WINDOW_MS } from '../composables/usePendingDeletes';
-import { isSafPath, fromSafPath, safList, safCreate, safCreateDir } from '../lib/saf-fs';
+import { isSafPath, fromSafPath, safList, safRead, safCreate, safCreateDir } from '../lib/saf-fs';
+import { renderMarkdown } from '../lib/markdown';
+import { resolveImageSrc, rewriteImageUrls } from '../lib/image-resolve';
 import {
   revealRequest,
   revealedPath,
@@ -102,6 +105,22 @@ async function copyNodePath(node: Node) {
   await writeText(node.path);
   toasts.success(t('explorer.copyPathDone') || 'Path copied.');
   closeCtx();
+}
+
+function openNodeInNewWindow(node: Node) {
+  if (node.is_dir) return;
+  files.spawnAuxWindow(node.path);
+  closeCtx();
+}
+
+/** #214 / #140 / #152 — open non-Markdown or any file with the OS default application. */
+async function openNodeWithDefaultApp(node: Node) {
+  closeCtx();
+  try {
+    await openPath(node.path);
+  } catch (err) {
+    toasts.error(String(err));
+  }
 }
 
 /** #120 — copy the node's path relative to the workspace root, slash-normalised. */
@@ -1660,6 +1679,14 @@ function isDeleteChord(e: KeyboardEvent): boolean {
 
 function onTreeKey(e: KeyboardEvent) {
   if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+  // #397 / #543 — When Quick Look is open, Space always closes it regardless of
+  // which element inside the modal or tree currently holds focus.
+  if (quickPreviewNode.value && e.key === ' ' && !e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    closeQuickPreview();
+    return;
+  }
   const target = e.target as HTMLElement | null;
   // The inline rename box, the filter popover's inputs… type normally there.
   if (target?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return;
@@ -1678,6 +1705,17 @@ function onTreeKey(e: KeyboardEvent) {
     }
     return;
   }
+  // #397 — Space on a selected file opens Quick Look preview (like macOS Finder).
+  if (e.key === ' ' && !e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    const sel = selected.value;
+    const node = sel && !sel.isDir ? findNode(sel.path) : null;
+    if (node) {
+      e.preventDefault();
+      e.stopPropagation();
+      void openQuickPreview(node);
+    }
+    return;
+  }
   const isRename = e.key === 'F2' && !e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey;
   const isDelete = !isRename && isDeleteChord(e);
   if (!isRename && !isDelete) return;
@@ -1688,6 +1726,71 @@ function onTreeKey(e: KeyboardEvent) {
   e.stopPropagation();
   if (isRename) void startRename(node);
   else deleteNode(node);
+}
+
+// #397 — Quick Look modal preview for files in the FileTree.
+const quickPreviewNode = ref<{
+  path: string;
+  name: string;
+  kind: 'markdown' | 'text' | 'image';
+  html?: string;
+  text?: string;
+  imageSrc?: string;
+} | null>(null);
+
+async function openQuickPreview(node: Node) {
+  closeCtx();
+  if (node.is_dir) return;
+  const ext = (node.name.split('.').pop() || '').toLowerCase();
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext)) {
+    quickPreviewNode.value = {
+      path: node.path,
+      name: node.name,
+      kind: 'image',
+      imageSrc: resolveImageSrc(node.path, null, node.path),
+    };
+    return;
+  }
+  try {
+    const raw =
+      isSafPath(node.path) && workspace.safTreeUri
+        ? (await safRead(workspace.safTreeUri, fromSafPath(node.path))).content
+        : (await invoke<{ content: string }>('read_file', { path: node.path })).content;
+    if (['md', 'markdown', 'mdx'].includes(ext)) {
+      const rendered = renderMarkdown(raw.slice(0, 60000));
+      quickPreviewNode.value = {
+        path: node.path,
+        name: node.name,
+        kind: 'markdown',
+        html: rewriteImageUrls(rendered, null, node.path),
+      };
+    } else {
+      quickPreviewNode.value = {
+        path: node.path,
+        name: node.name,
+        kind: 'text',
+        text: raw.slice(0, 20000),
+      };
+    }
+  } catch (err) {
+    toasts.error(String(err));
+  }
+}
+
+function closeQuickPreview() {
+  if (!quickPreviewNode.value) return;
+  quickPreviewNode.value = null;
+  void nextTick(() => {
+    treeEl.value?.focus({ preventScroll: true });
+  });
+}
+
+async function openQuickPreviewInEditor() {
+  const item = quickPreviewNode.value;
+  quickPreviewNode.value = null;
+  if (!item) return;
+  await files.openPath(item.path, { fromTree: true });
+  focusEditor();
 }
 
 // CJK / IME guard for the rename / new-file inline input. Mirrors the pattern
@@ -1826,6 +1929,22 @@ function onWindowClick() {
   closeCtx();
 }
 function onWindowKey(e: KeyboardEvent) {
+  if (
+    !e.defaultPrevented &&
+    quickPreviewNode.value &&
+    e.key === ' ' &&
+    !e.altKey &&
+    !e.shiftKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.isComposing &&
+    e.keyCode !== 229
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    closeQuickPreview();
+    return;
+  }
   if (e.key === 'Escape') {
     closeCtx();
     closeSwitcher();
@@ -1915,7 +2034,10 @@ onBeforeUnmount(() => {
             v-if="localVault"
             class="ftree__tool"
             type="button"
-            :class="{ 'ftree__tool--on': extFilter.length > 0, 'ftree__tool--open': filterOpen }"
+            :class="{
+              'ftree__tool--on': extFilter.length > 0 || settings.explorerShowHidden,
+              'ftree__tool--open': filterOpen,
+            }"
             :title="t('explorer.filterByType') || 'Filter by file type'"
             :aria-label="t('explorer.filterByType') || 'Filter by file type'"
             aria-haspopup="menu"
@@ -2049,6 +2171,17 @@ onBeforeUnmount(() => {
         <div v-if="extList.length === 0" class="ftree__menu-empty">
           {{ t('explorer.filterNoTypes') || 'Nothing to filter yet.' }}
         </div>
+        <div class="ftree__menu-sep"></div>
+        <button
+          class="ftree__menu-item"
+          :class="{ 'ftree__menu-item--active': settings.explorerShowHidden }"
+          role="menuitemcheckbox"
+          :aria-checked="settings.explorerShowHidden"
+          @click="settings.toggleExplorerShowHidden()"
+        >
+          <span class="ftree__menu-check">{{ settings.explorerShowHidden ? '✓' : '' }}</span>
+          <span class="ftree__menu-name">{{ t('settings.explorerShowHidden') }}</span>
+        </button>
       </div>
 
       <!-- The folder itself is gone (moved in Finder, deleted, drive
@@ -2187,6 +2320,22 @@ onBeforeUnmount(() => {
            on a file the menu would otherwise open with an empty divider. -->
       <div v-if="ctx.node && ctx.node.is_dir" class="ftree__ctx-sep"></div>
       <button
+        v-if="ctx.node && !ctx.node.is_dir"
+        class="ftree__ctx-item ftree__ctx-item--kbd"
+        aria-keyshortcuts="Space"
+        @click="openQuickPreview(ctx.node)"
+      >
+        <span>{{ settings.language?.startsWith('zh') ? '快速预览' : 'Quick Look' }}</span>
+        <kbd v-if="!isMobile()" class="ftree__ctx-kbd">Space</kbd>
+      </button>
+      <button
+        v-if="ctx.node && !ctx.node.is_dir"
+        class="ftree__ctx-item"
+        @click="workspace.addVirtualItem(ctx.node.path); closeCtx()"
+      >
+        {{ settings.language?.startsWith('zh') ? '加入虚拟工作空间' : 'Pin to Virtual Workspace' }}
+      </button>
+      <button
         v-if="ctx.node"
         class="ftree__ctx-item ftree__ctx-item--kbd"
         aria-keyshortcuts="F2"
@@ -2226,6 +2375,12 @@ onBeforeUnmount(() => {
            on Android, and iOS has no Finder), so the item just looked broken. -->
       <template v-if="!isMobile()">
         <div class="ftree__ctx-sep"></div>
+        <button v-if="ctx.node && !ctx.node.is_dir" class="ftree__ctx-item" @click="openNodeInNewWindow(ctx.node)">
+          {{ t('tabMenu.openInNewWindow') }}
+        </button>
+        <button v-if="ctx.node && !ctx.node.is_dir" class="ftree__ctx-item" @click="openNodeWithDefaultApp(ctx.node)">
+          {{ settings.language === 'zh' ? '使用默认应用打开' : 'Open with Default App' }}
+        </button>
         <button class="ftree__ctx-item" @click="revealNode(ctx.node ?? root!)">
           {{ t(revealLabelKey('explorer.reveal')) }}
         </button>
@@ -2269,6 +2424,42 @@ onBeforeUnmount(() => {
       <template #footer>
         <DsButton variant="ghost" @click="deleteTarget = null">{{ t('explorer.cancel') }}</DsButton>
         <DsButton variant="danger" @click="confirmDelete">{{ t('explorer.delete') }}</DsButton>
+      </template>
+    </DsModal>
+
+    <!-- #397 — Quick Look modal preview (Space / context menu). -->
+    <DsModal
+      :model-value="!!quickPreviewNode"
+      :title="quickPreviewNode?.name ?? ''"
+      width="680px"
+      @update:model-value="closeQuickPreview"
+    >
+      <div v-if="quickPreviewNode" class="ftree__quicklook">
+        <div
+          v-if="quickPreviewNode.kind === 'image'"
+          class="ftree__quicklook-img-wrap"
+        >
+          <img
+            :src="quickPreviewNode.imageSrc"
+            :alt="quickPreviewNode.name"
+            class="ftree__quicklook-img"
+            referrerpolicy="no-referrer"
+          />
+        </div>
+        <div
+          v-else-if="quickPreviewNode.kind === 'markdown'"
+          class="ftree__quicklook-md preview-content"
+          v-html="quickPreviewNode.html"
+        ></div>
+        <pre v-else class="ftree__quicklook-text">{{ quickPreviewNode.text }}</pre>
+      </div>
+      <template #footer>
+        <DsButton variant="ghost" @click="closeQuickPreview">
+          {{ settings.language?.startsWith('zh') ? '关闭' : 'Close' }}
+        </DsButton>
+        <DsButton variant="primary" @click="openQuickPreviewInEditor">
+          {{ settings.language?.startsWith('zh') ? '在编辑器中打开' : 'Open in Editor' }}
+        </DsButton>
       </template>
     </DsModal>
 
@@ -3366,5 +3557,40 @@ html.solomd-tree-drag-invalid * {
     flex-shrink: 0;
   }
   .ftree__more:active { background: var(--fill-1); }
+}
+
+.ftree__quicklook {
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+.ftree__quicklook-img-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px;
+}
+.ftree__quicklook-img {
+  max-width: 100%;
+  max-height: 55vh;
+  border-radius: 6px;
+  object-fit: contain;
+}
+.ftree__quicklook-md {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+}
+.ftree__quicklook-text {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg-elev);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
 }
 </style>

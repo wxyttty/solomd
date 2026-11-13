@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { applyFormat, type FormatKind } from './md-format.ts';
+import { applyFormat, FORMAT_KINDS, type FormatKind } from './md-format.ts';
 
 /** `|` marks the selection ends (one `|` = a bare caret). */
 function run(marked: string, kind: FormatKind): string {
@@ -50,6 +50,45 @@ test('strike and inline code toggle', () => {
   assert.equal(run('|x|', 'strike'), '~~|x|~~');
   assert.equal(run('~~|x|~~', 'strike'), '|x|');
   assert.equal(run('`|x|`', 'code'), '|x|');
+});
+
+test('underline, subscript and superscript are HTML-tag toggles', () => {
+  // Markdown has no syntax for these three, so the note carries the tags.
+  assert.equal(run('a |word| b', 'underline'), 'a <u>|word|</u> b');
+  assert.equal(run('a <u>|word|</u> b', 'underline'), 'a |word| b');
+  assert.equal(run('a |<u>word</u>| b', 'underline'), 'a |word| b');
+  assert.equal(run('H|2|O', 'subscript'), 'H<sub>|2|</sub>O');
+  assert.equal(run('H<sub>|2|</sub>O', 'subscript'), 'H|2|O');
+  assert.equal(run('x|2|', 'superscript'), 'x<sup>|2|</sup>');
+  assert.equal(run('x<sup>|2|</sup>', 'superscript'), 'x|2|');
+  // Each tag is its own format: the caret inside <sub> is not inside <sup>.
+  assert.equal(run('H<sub>|2|</sub>O', 'superscript'), 'H<sub><sup>|2|</sup></sub>O');
+});
+
+test('the tags are toggles from a bare caret too, word under it and all', () => {
+  assert.equal(run('fo|o', 'underline'), '<u>|foo|</u>');
+  // The word rule must not swallow the tag name (`u>foo`): the caret inside
+  // <u>foo</u> removes the pair instead of nesting a new one.
+  assert.equal(run('<u>fo|o</u>', 'underline'), '|foo|');
+  assert.equal(run('H<sub>|2|</sub>O', 'subscript'), 'H|2|O');
+  // Empty pair, and the caret between two tags removes it rather than nesting.
+  assert.equal(run('a | b', 'underline'), 'a <u>|</u> b');
+  assert.equal(run('x<u>|</u>y', 'underline'), 'x|y');
+  // CJK has no word to take, so the caret lands between the tags.
+  assert.equal(run('这是重|点内容', 'underline'), '这是重<u>|</u>点内容');
+});
+
+test('every FormatKind has a case of its own — none falls through to the heading default', () => {
+  // applyFormat's `default:` is the heading branch; if a kind is ever added to
+  // FORMAT_KINDS without a case, `Number(kind.slice(1))` is NaN and the text
+  // comes back with the empty heading prefix (a leading space) rather than the
+  // format asked for.
+  for (const kind of FORMAT_KINDS) {
+    const out = run('a\nx|y', kind);
+    for (const line of out.split('\n')) {
+      assert.ok(!line.startsWith(' '), `${kind} fell through to the heading default: ${JSON.stringify(out)}`);
+    }
+  }
 });
 
 test('highlight wraps and unwraps with ==...==, including multi-line and CJK bare caret', () => {
@@ -291,5 +330,18 @@ test('unordered, ordered, and task list formatting inside blockquotes keeps > in
   assert.equal(run('> |', 'ul'), '> - |');
   assert.equal(run('> |', 'task'), '> - [ ] |');
 });
+
+test('#110 / #159: Tab on an empty line below a list item indents to the parent content column', async () => {
+  // Under ordered list `1. `: 3 spaces so typing `- sub` or `1. sub` nests properly
+  assert.equal(await tab('1. 一级列表\n|'), '1. 一级列表\n   |');
+  // Under unordered list `- `: 2 spaces
+  assert.equal(await tab('- 一级列表\n|'), '- 一级列表\n  |');
+  // Under 2-digit ordered list `10. `: 4 spaces
+  assert.equal(await tab('10. 十级列表\n|'), '10. 十级列表\n    |');
+  // Shift+Tab outdents the whitespace line back to column 0
+  assert.equal(await tab('1. 一级列表\n   |', true), '1. 一级列表\n|');
+  assert.equal(await tab('- 一级列表\n  |', true), '- 一级列表\n|');
+});
+
 
 

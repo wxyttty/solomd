@@ -14,7 +14,8 @@ import { watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useGithubSyncStore, isGithubAuthError, classifyPushError } from '../stores/githubSync';
 import { useWorkspaceStore } from '../stores/workspace';
-import { useSettingsStore } from '../stores/settings';
+import { useSettingsStore, resolveSyncTargetFolder } from '../stores/settings';
+import { useTabsStore } from '../stores/tabs';
 import { useToastsStore } from '../stores/toasts';
 import { useI18n } from '../i18n';
 import { hasGitBackend } from '../lib/platform';
@@ -23,6 +24,7 @@ export function useGithubSync() {
   const sync = useGithubSyncStore();
   const workspace = useWorkspaceStore();
   const settings = useSettingsStore();
+  const tabs = useTabsStore();
   const toasts = useToastsStore();
   const { t } = useI18n();
 
@@ -71,8 +73,15 @@ export function useGithubSync() {
     return `githubSync.${actual}`;
   }
 
-  async function pushIfWanted(): Promise<void> {
-    const folder = workspace.currentFolder;
+  async function pushIfWanted(targetFolderOverride?: string | null): Promise<void> {
+    const folder =
+      targetFolderOverride ??
+      resolveSyncTargetFolder(
+        tabs.activeTab?.filePath,
+        workspace.currentFolder,
+        settings.syncVaults,
+        settings.syncOnlyRegisteredVaults,
+      );
     if (!folder) return;
 
     if (settings.webdavEnabled && settings.webdavAutoSync && settings.webdavUrl.trim()) {
@@ -85,6 +94,9 @@ export function useGithubSync() {
           remotePath: settings.webdavRemotePath || '/SoloMD',
           encrypted: settings.webdavEncrypted,
           passphrase: settings.webdavPassphrase,
+          autoWorkspaceSubdir: settings.webdavAutoSubdir,
+          categorizeFiles: settings.webdavCategorizeFiles,
+          maxVersions: settings.syncMaxVersions,
         });
       } catch (e) {
         toasts.warning(`WebDAV: ${e}`);
@@ -94,31 +106,56 @@ export function useGithubSync() {
     if (
       settings.cloudVaultAutoSync &&
       settings.cloudVaultDir.trim() &&
-      settings.cloudVaultPassphrase.trim()
+      (!settings.cloudVaultEncrypted || settings.cloudVaultPassphrase.trim())
     ) {
       try {
         await invoke('cloud_vault_push_workspace', {
           workspace: folder,
           vaultDir: settings.cloudVaultDir,
           passphrase: settings.cloudVaultPassphrase,
+          encrypted: settings.cloudVaultEncrypted,
+          autoWorkspaceSubdir: settings.cloudVaultAutoSubdir,
+          categorizeFiles: settings.cloudVaultCategorizeFiles,
+          maxVersions: settings.syncMaxVersions,
         });
       } catch (e) {
         toasts.warning(`Cloud Vault: ${e}`);
       }
     }
 
+    const effectiveApiToken =
+      settings.cloudApiProvider === 'r2'
+        ? settings.cloudR2Endpoint.trim() &&
+          settings.cloudR2Bucket.trim() &&
+          settings.cloudR2AccessKeyId.trim() &&
+          settings.cloudR2SecretAccessKey.trim()
+          ? JSON.stringify({
+              endpoint: settings.cloudR2Endpoint.trim(),
+              bucket: settings.cloudR2Bucket.trim(),
+              access_key_id: settings.cloudR2AccessKeyId.trim(),
+              secret_access_key: settings.cloudR2SecretAccessKey.trim(),
+            })
+          : ''
+        : settings.cloudApiToken.trim();
+
     if (
       settings.cloudApiAutoSync &&
-      settings.cloudApiToken.trim() &&
-      settings.cloudApiPassphrase.trim()
+      effectiveApiToken &&
+      ((settings.cloudApiSyncMode === 'folder' && !settings.cloudApiEncrypted) ||
+        settings.cloudApiPassphrase.trim())
     ) {
       try {
         await invoke('cloud_api_push_workspace', {
           workspace: folder,
           provider: settings.cloudApiProvider,
-          accessToken: settings.cloudApiToken,
-          remotePath: settings.cloudApiRemotePath || '/apps/SoloMD',
+          accessToken: effectiveApiToken,
+          remotePath: settings.cloudApiRemotePath || '/SoloMD',
           passphrase: settings.cloudApiPassphrase,
+          syncMode: settings.cloudApiSyncMode,
+          encrypted: settings.cloudApiEncrypted,
+          autoWorkspaceSubdir: settings.cloudApiAutoSubdir,
+          categorizeFiles: settings.cloudApiCategorizeFiles,
+          maxVersions: settings.syncMaxVersions,
         });
       } catch (e) {
         toasts.warning(`Cloud API: ${e}`);
@@ -137,12 +174,30 @@ export function useGithubSync() {
   }
 
   function onSaved(): void {
+    const activeFile = tabs.activeTab?.filePath;
+    const folder = resolveSyncTargetFolder(
+      activeFile,
+      workspace.currentFolder,
+      settings.syncVaults,
+      settings.syncOnlyRegisteredVaults,
+    );
+    if (!folder) return;
+    if (activeFile && settings.autoSnapshotOnSave) {
+      void invoke('sync_save_file_snapshot', {
+        workspace: folder,
+        filePath: activeFile,
+        label: settings.language === 'zh' ? '自动保存快照' : 'Auto-save snapshot',
+        maxVersions: settings.syncMaxVersions,
+      }).then(() => {
+        window.dispatchEvent(new CustomEvent('solomd:snapshot-saved'));
+      }).catch(() => {});
+    }
     if (pushTimer) clearTimeout(pushTimer);
     // 5s debounce: AutoGit has just committed; give the user a moment in
     // case they ⌘S three more times before going to lunch.
     pushTimer = setTimeout(() => {
       pushTimer = null;
-      void pushIfWanted();
+      void pushIfWanted(folder);
     }, 5000);
   }
 

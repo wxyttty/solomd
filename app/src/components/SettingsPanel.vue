@@ -9,7 +9,7 @@ import { useToastsStore } from '../stores/toasts';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useRagStore } from '../stores/rag';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
-import { themeOptions } from '../lib/themes';
+import { themeOptions, themeFamily } from '../lib/themes';
 import { useI18n } from '../i18n';
 import { quickCaptureError } from '../lib/quick-capture-status';
 import {
@@ -46,7 +46,7 @@ import IntegrationsSettings from './IntegrationsSettings.vue';
 // than a brand-new top-level category.
 import RecipesSettings from './RecipesSettings.vue';
 import GithubSyncSettings from './GithubSyncSettings.vue';
-import WebdavSyncSettings from './WebdavSyncSettings.vue';
+import WebdavSyncSettings, { type SyncSubTab } from './WebdavSyncSettings.vue';
 import CloudFolderBanner from './CloudFolderBanner.vue';
 import ProxySettings from './ProxySettings.vue';
 import LanguageToolSettings from './LanguageToolSettings.vue';
@@ -99,11 +99,27 @@ function withChord(key: string, actionId: string): string {
 // split into 6 groups so the user navigates by category, not by scroll.
 type SettingsCategory = 'basics' | 'writing' | 'sync' | 'integrations' | 'export' | 'keys' | 'advanced';
 const activeCategory = ref<SettingsCategory>('basics');
+const activeSyncBranch = ref<SyncSubTab>(gitBackend ? 'git' : 'cloud_api');
+const syncBranches = computed<Array<{ id: SyncSubTab; label: string }>>(() => {
+  const zh = isZhLocale.value;
+  const items: Array<{ id: SyncSubTab; label: string }> = [];
+  if (gitBackend) {
+    items.push({ id: 'git', label: zh ? 'Git 同步' : 'Git Sync' });
+  }
+  items.push(
+    { id: 'vaults', label: zh ? '笔记库管理' : 'Vault Management' },
+    { id: 'cloud_api', label: zh ? '网盘直连 API' : 'Direct Cloud API' },
+    { id: 'local_vault', label: zh ? '本地网盘目录' : 'Local Cloud Folder' },
+    { id: 'webdav', label: zh ? 'WebDAV 同步' : 'WebDAV Sync' },
+    { id: 'history', label: zh ? '历史版本快照' : 'Version Snapshots' },
+  );
+  return items;
+});
 // #144 — all six category pages share the single scrolling `.settings__body`
 // (pages are toggled via CSS display), so one page's scrollTop leaked into
 // every other page. Reset to top on each category switch.
 const bodyEl = ref<HTMLElement | null>(null);
-watch(activeCategory, () => {
+watch([activeCategory, activeSyncBranch], () => {
   bodyEl.value?.scrollTo({ top: 0 });
 });
 // ---------------------------------------------------------------------------
@@ -610,7 +626,7 @@ function markGroups() {
 }
 let groupObserver: MutationObserver | null = null;
 watch(
-  [() => props.open, activeCategory, searchQuery, () => settings.language],
+  [() => props.open, activeCategory, activeSyncBranch, searchQuery, () => settings.language],
   async () => {
     await nextTick();
     markGroups();
@@ -628,6 +644,12 @@ onUnmounted(() => groupObserver?.disconnect());
 function pickCategory(id: SettingsCategory) {
   searchQuery.value = '';
   activeCategory.value = id;
+}
+
+function pickSyncBranch(branch: SyncSubTab) {
+  searchQuery.value = '';
+  activeCategory.value = 'sync';
+  activeSyncBranch.value = branch;
 }
 
 /** Esc clears a query before it closes the dialog, and ⌘F / Ctrl+F jumps to
@@ -754,9 +776,10 @@ function onToggleOutlineGlobal() {
 }
 
 async function pickCustomCss() {
+  const themesDir = await invoke<string>('theme_get_dir').catch(() => undefined);
   const path = await openFileDialog({
     multiple: false,
-    defaultPath: await files.filePickerStartDir(),
+    defaultPath: themesDir || (await files.filePickerStartDir()),
     filters: [{ name: 'CSS', extensions: ['css'] }],
   });
   if (path && typeof path === 'string') {
@@ -825,6 +848,11 @@ const baseFontFamilies = [
   // Common CJK faces that already ship on the OS
   { label: 'PingFang SC', value: 'PingFang SC' },
   { label: 'Microsoft YaHei', value: 'Microsoft YaHei' },
+  { label: 'Noto Sans CJK SC (思源黑体)', value: 'Noto Sans CJK SC' },
+  { label: 'Noto Serif CJK SC (思源宋体)', value: 'Noto Serif CJK SC' },
+  { label: 'HarmonyOS Sans SC (鸿蒙黑体)', value: 'HarmonyOS Sans SC' },
+  { label: 'MiSans (小米兰亭)', value: 'MiSans' },
+  { label: 'Roboto', value: 'Roboto' },
   { label: 'Source Han Sans', value: 'Source Han Sans SC' },
   { label: 'Source Han Serif', value: 'Source Han Serif SC' },
   // Writing-friendly CJK faces (open source, install separately if missing)
@@ -881,6 +909,33 @@ function onCustomFontInput(v: string) {
   customFontFamily.value = v;
   if (v.trim()) settings.setFontFamily(v.trim());
 }
+const fontFileInput = ref<HTMLInputElement | null>(null);
+function triggerFontFilePick() {
+  fontFileInput.value?.click();
+}
+async function onFontFilePicked(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const { persistPickedFontFile } = await import('../lib/custom-font');
+    const buf = await file.arrayBuffer();
+    const cleanFamily = await persistPickedFontFile(file.name, buf);
+    await refreshLocalFonts(true);
+    inCustomMode.value = !fontFamilyPresetValues.value.has(cleanFamily);
+    customFontFamily.value = inCustomMode.value ? cleanFamily : '';
+    settings.setFontFamily(cleanFamily);
+    toasts.success(
+      settings.language === 'zh'
+        ? `已加载并保存字体：${cleanFamily}`
+        : `Loaded & saved font: ${cleanFamily}`,
+    );
+  } catch (err) {
+    toasts.error(String(err));
+  } finally {
+    input.value = '';
+  }
+}
 const fontFamilySelectValue = computed(() =>
   inCustomMode.value ? '__custom__' : settings.fontFamily
 );
@@ -934,7 +989,12 @@ function onSelectPdfFont(v: string) {
   <DsModal
     :model-value="open"
     :title="t('settings.title')"
-    width="820px"
+    width="984px"
+    resizable
+    draggable
+    :min-width="760"
+    :min-height="460"
+    persist-key="solomd.settingsModalBounds"
     class="settings-modal"
     @update:model-value="emit('close')"
   >
@@ -990,32 +1050,41 @@ function onSelectPdfFont(v: string) {
         <!-- v3.0 — left-side category nav. Click switches the right-side
              content panel; only one category visible at a time. -->
         <nav class="settings__nav">
-          <button
-            v-for="c in categories"
-            v-show="navVisible(c.id)"
-            :key="c.id"
-            class="settings__nav-item"
-            :class="{ 'settings__nav-item--active': !searching && activeCategory === c.id }"
-            @click="pickCategory(c.id)"
-          >
-            <Icons class="settings__nav-icon" :name="c.icon" :size="16" />
-            <span class="settings__nav-label">{{ t(c.labelKey) }}</span>
-          </button>
-          <button
-            type="button"
-            class="settings__nav-item settings__nav-supporter"
-            :class="{ 'settings__nav-supporter--active': Boolean(activeSupporterBadge) }"
-            @click="supportModalOpen = true"
-          >
-            <Icons class="settings__nav-icon" name="heart" :size="16" />
-            <span class="settings__nav-label">
-              {{
-                activeSupporterBadge
-                  ? `${activeSupporterBadge.icon} ${activeSupporterBadge.label}`
-                  : t('about.sponsor')
-              }}
-            </span>
-          </button>
+          <template v-for="c in categories" :key="c.id">
+            <button
+              v-show="navVisible(c.id)"
+              class="settings__nav-item"
+              :class="{ 'settings__nav-item--active': !searching && activeCategory === c.id }"
+              @click="pickCategory(c.id)"
+            >
+              <Icons class="settings__nav-icon" :name="c.icon" :size="16" />
+              <span class="settings__nav-label">{{ t(c.labelKey) }}</span>
+            </button>
+          </template>
+          <div class="settings__nav-supporter-wrap">
+            <button
+              type="button"
+              class="settings__nav-item settings__nav-supporter"
+              :class="{ 'settings__nav-supporter--active': Boolean(activeSupporterBadge) }"
+              @click="supportModalOpen = true"
+            >
+              <Icons class="settings__nav-icon settings__nav-supporter-icon" name="heart" :size="16" />
+              <span class="settings__nav-label">
+                {{
+                  activeSupporterBadge
+                    ? `${activeSupporterBadge.icon} ${activeSupporterBadge.label}`
+                    : t('about.sponsor')
+                }}
+              </span>
+              <span class="settings__nav-supporter-pill">
+                {{
+                  activeSupporterBadge
+                    ? (isZhLocale ? '已点亮' : 'Active')
+                    : (isZhLocale ? '✨ 徽章' : '✨ Badge')
+                }}
+              </span>
+            </button>
+          </div>
         </nav>
       <div
         ref="bodyEl"
@@ -1024,6 +1093,26 @@ function onSelectPdfFont(v: string) {
         :data-searching="searching ? '' : undefined"
       >
         <h2 v-if="!searching" class="settings__page-title">{{ t(activeCategoryLabelKey) }}</h2>
+        <!-- #528 — Single top-level Sync category tab bar right below the page title -->
+        <nav
+          v-if="!searching && activeCategory === 'sync'"
+          class="settings__sync-subnav"
+          role="tablist"
+          aria-label="Sync mode navigation"
+        >
+          <button
+            v-for="sub in syncBranches"
+            :key="sub.id"
+            type="button"
+            role="tab"
+            class="settings__sync-subnav-tab"
+            :class="{ 'settings__sync-subnav-tab--active': activeSyncBranch === sub.id }"
+            :aria-selected="activeSyncBranch === sub.id"
+            @click="pickSyncBranch(sub.id)"
+          >
+            {{ sub.label }}
+          </button>
+        </nav>
         <template v-if="searching">
           <h2
             v-for="(c, i) in categories"
@@ -1068,6 +1157,52 @@ function onSelectPdfFont(v: string) {
           >
             <option v-for="th in themeOptions(t)" :key="th.value" :value="th.value">{{ th.label }}</option>
           </select>
+          <div class="settings__custom-colors" style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap;font-size:12px;">
+            <label style="display:inline-flex;align-items:center;gap:6px;margin:0;cursor:pointer;">
+              <span>{{ settings.language === 'zh' ? '背景色' : 'Background' }}</span>
+              <input
+                type="color"
+                :value="themeFamily(settings.theme) === 'dark' ? (settings.customBgDark || '#1e1e1e') : (settings.customBgLight || '#ffffff')"
+                style="width:24px;height:24px;padding:0;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:transparent;"
+                @input="settings.setCustomThemeColors(themeFamily(settings.theme) === 'dark' ? { customBgDark: ($event.target as HTMLInputElement).value } : { customBgLight: ($event.target as HTMLInputElement).value })"
+              />
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:6px;margin:0;cursor:pointer;">
+              <span>{{ settings.language === 'zh' ? '文字色' : 'Text' }}</span>
+              <input
+                type="color"
+                :value="themeFamily(settings.theme) === 'dark' ? (settings.customTextDark || '#d4d4d4') : (settings.customTextLight || '#1f2328')"
+                style="width:24px;height:24px;padding:0;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:transparent;"
+                @input="settings.setCustomThemeColors(themeFamily(settings.theme) === 'dark' ? { customTextDark: ($event.target as HTMLInputElement).value } : { customTextLight: ($event.target as HTMLInputElement).value })"
+              />
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:6px;margin:0;cursor:pointer;">
+              <span>{{ settings.language === 'zh' ? '高亮色' : 'Highlight' }}</span>
+              <input
+                type="color"
+                :value="themeFamily(settings.theme) === 'dark' ? (settings.customHighlightDark || '#ffd43b') : (settings.customHighlightLight || '#ffd400')"
+                style="width:24px;height:24px;padding:0;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:transparent;"
+                @input="settings.setCustomThemeColors(themeFamily(settings.theme) === 'dark' ? { customHighlightDark: ($event.target as HTMLInputElement).value } : { customHighlightLight: ($event.target as HTMLInputElement).value })"
+              />
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:6px;margin:0;cursor:pointer;">
+              <span>{{ settings.language === 'zh' ? '当前行色' : 'Active line' }}</span>
+              <input
+                type="color"
+                :value="themeFamily(settings.theme) === 'dark' ? (settings.customActiveLineDark || '#f48fb1') : (settings.customActiveLineLight || '#f48fb1')"
+                style="width:24px;height:24px;padding:0;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:transparent;"
+                @input="settings.setCustomThemeColors(themeFamily(settings.theme) === 'dark' ? { customActiveLineDark: ($event.target as HTMLInputElement).value } : { customActiveLineLight: ($event.target as HTMLInputElement).value })"
+              />
+            </label>
+            <button
+              v-if="settings.customBgLight || settings.customTextLight || settings.customBgDark || settings.customTextDark || settings.customHighlightLight || settings.customHighlightDark || settings.customActiveLineLight || settings.customActiveLineDark"
+              type="button"
+              class="hint-btn"
+              @click="settings.resetCustomThemeColors()"
+            >
+              {{ settings.language === 'zh' ? '恢复默认配色' : 'Reset colors' }}
+            </button>
+          </div>
           <!-- #282 — the reporter picked "Dark (One Dark)" and the app stayed
                light (his screenshots read #e6e5e0, which is Soft UI's --bg to
                the byte). It was doing exactly what it was told: 14 of the 15
@@ -1086,12 +1221,76 @@ function onSelectPdfFont(v: string) {
           </p>
         </section>
 
+        <!-- Supporter micro-guide card on the first page (Option A) -->
+        <div
+          data-cat="basics"
+          class="settings__supporter-guide"
+          :class="{ 'settings__supporter-guide--active': Boolean(activeSupporterBadge) }"
+        >
+          <div class="settings__supporter-guide-main">
+            <div class="settings__supporter-guide-title">
+              <span class="settings__supporter-guide-sparkle">✨</span>
+              <span>
+                {{
+                  activeSupporterBadge
+                    ? (isZhLocale ? '感谢你支持 SoloMD 独立开发' : 'Thank you for supporting SoloMD')
+                    : (isZhLocale ? '喜欢 SoloMD？' : 'Enjoying SoloMD?')
+                }}
+              </span>
+              <span v-if="activeSupporterBadge" class="settings__supporter-guide-tag">
+                {{ activeSupporterBadge.icon }} {{ activeSupporterBadge.label }}
+              </span>
+            </div>
+            <p class="settings__supporter-guide-desc">
+              {{
+                activeSupporterBadge
+                  ? (isZhLocale
+                      ? '你的专属「✨ 支持者」徽章已永久点亮，再次感谢你的认可与鼓励。'
+                      : 'Your exclusive "✨ Supporter" badge is permanently active. Thank you for helping keep SoloMD independent.')
+                  : (isZhLocale
+                      ? 'SoloMD 坚持本地优先、永久免费无广告。请开发者喝杯咖啡，即可永久点亮专属「✨ 支持者」徽章。'
+                      : 'SoloMD is local-first, free forever, and ad-free. Buy the developer a coffee to permanently unlock your "✨ Supporter" badge.')
+              }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="settings__supporter-guide-btn"
+            @click="supportModalOpen = true"
+          >
+            <Icons class="settings__supporter-guide-heart" name="heart" :size="14" />
+            <span>
+              {{
+                activeSupporterBadge
+                  ? (isZhLocale ? '查看支持者徽章' : 'View Badge')
+                  : (isZhLocale ? '支持独立开发' : 'Support SoloMD')
+              }}
+            </span>
+          </button>
+        </div>
+
         <section data-cat="basics">
           <label>{{ t('settings.fontFamily') }}</label>
-          <select :value="fontFamilySelectValue" @change="onSelectFontFamily(($event.target as HTMLSelectElement).value)">
-            <option v-for="f in fontFamilies" :key="f.label" :value="f.value">{{ f.label }}</option>
-            <option value="__custom__">{{ t('settings.customFont') }}</option>
-          </select>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <select
+              :value="fontFamilySelectValue"
+              style="flex:1;min-width:180px;"
+              @change="onSelectFontFamily(($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="f in fontFamilies" :key="f.label" :value="f.value">{{ f.label }}</option>
+              <option value="__custom__">{{ t('settings.customFont') }}</option>
+            </select>
+            <button type="button" class="hint-btn" @click="triggerFontFilePick">
+              {{ settings.language === 'zh' ? '选择字体文件…' : 'Browse font file…' }}
+            </button>
+            <input
+              ref="fontFileInput"
+              type="file"
+              accept=".ttf,.otf,.woff2,.woff,.ttc"
+              style="display:none;"
+              @change="onFontFilePicked"
+            />
+          </div>
           <input
             v-if="fontFamilySelectValue === '__custom__'"
             type="text"
@@ -1210,9 +1409,39 @@ function onSelectPdfFont(v: string) {
 
         <section data-cat="basics">
           <label>
-            <input type="checkbox" :checked="settings.highlightCurrentLine" @change="settings.toggleHighlightCurrentLine()" />
-            {{ t('settings.highlightCurrentLine') }}
+            <input type="checkbox" :checked="settings.collapseBlockSource" @change="settings.toggleCollapseBlockSource()" />
+            {{ t('settings.collapseBlockSource') }}
           </label>
+          <div class="hint">{{ t('settings.collapseBlockSourceHint') }}</div>
+        </section>
+
+        <section data-cat="basics">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <label style="margin:0;">
+              <input type="checkbox" :checked="settings.highlightCurrentLine" @change="settings.toggleHighlightCurrentLine()" />
+              {{ t('settings.highlightCurrentLine') }}
+            </label>
+            <label
+              v-if="settings.highlightCurrentLine"
+              style="display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;cursor:pointer;"
+            >
+              <span>{{ settings.language === 'zh' ? '自定义颜色' : 'Custom color' }}</span>
+              <input
+                type="color"
+                :value="themeFamily(settings.theme) === 'dark' ? (settings.customActiveLineDark || '#f48fb1') : (settings.customActiveLineLight || '#f48fb1')"
+                style="width:22px;height:22px;padding:0;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:transparent;"
+                @input="settings.setCustomThemeColors(themeFamily(settings.theme) === 'dark' ? { customActiveLineDark: ($event.target as HTMLInputElement).value } : { customActiveLineLight: ($event.target as HTMLInputElement).value })"
+              />
+            </label>
+            <button
+              v-if="settings.highlightCurrentLine && (settings.customActiveLineLight || settings.customActiveLineDark)"
+              type="button"
+              class="hint-btn"
+              @click="settings.setCustomThemeColors({ customActiveLineLight: '', customActiveLineDark: '' })"
+            >
+              {{ settings.language === 'zh' ? '恢复默认' : 'Reset' }}
+            </button>
+          </div>
           <div class="hint">{{ t('settings.highlightCurrentLineHint') }}</div>
         </section>
 
@@ -1518,6 +1747,24 @@ function onSelectPdfFont(v: string) {
           </label>
         </section>
 
+        <section v-if="!isMobile()" data-cat="basics">
+          <label>
+            <input type="checkbox" :checked="settings.separateTabBarRow" @change="settings.toggleSeparateTabBarRow()" />
+            {{ settings.language === 'zh' ? '独立标签栏行（将标签页置于顶栏下方独立一行）' : 'Separate Tab Bar Row (show tabs in a dedicated row below header)' }}
+          </label>
+          <label style="margin-top: 6px;">
+            <input type="checkbox" :checked="settings.hideMenuBar" @change="settings.toggleHideMenuBar()" />
+            {{ settings.language === 'zh' ? '隐藏顶部窗口菜单栏（Windows 标题栏中的 文件/编辑/段落 等菜单）' : 'Hide top in-window menu bar (File / Edit / Paragraph on Windows)' }}
+          </label>
+        </section>
+
+        <section v-if="isMobile()" data-cat="basics">
+          <label>
+            <input type="checkbox" :checked="settings.mobileHideStatusBar" @change="settings.toggleMobileHideStatusBar()" />
+            {{ settings.language === 'zh' ? '隐藏顶部状态栏留白（全屏紧凑模式）' : 'Hide top status bar inset (compact full-screen mode)' }}
+          </label>
+        </section>
+
         <!-- 5.0 — the floating format bar over a selection. Desktop only:
              phones and tablets use the bar above the keyboard instead. -->
         <section v-if="!isMobile()" data-cat="writing">
@@ -1526,6 +1773,10 @@ function onSelectPdfFont(v: string) {
             {{ t('settings.selectionBubble') }}
           </label>
           <p class="setting-hint">{{ t('settings.selectionBubbleHint') }}</p>
+          <label style="margin-top: 8px;">
+            <input type="checkbox" :checked="settings.showFormattingBar" @change="settings.toggleFormattingBar()" />
+            {{ settings.language === 'zh' ? '显示顶部常驻格式工具栏（加粗、标题、列表、表格等）' : 'Show persistent top formatting toolbar (Bold, Headings, Lists, Table, etc.)' }}
+          </label>
         </section>
 
         <section data-cat="writing">
@@ -1566,7 +1817,7 @@ function onSelectPdfFont(v: string) {
           </p>
         </section>
 
-        <section v-if="gitBackend" data-cat="sync">
+        <section v-if="gitBackend" v-show="searching || activeSyncBranch === 'git'" data-cat="sync">
           <h3 class="settings__group-title">
             {{ t('settings.versionHistoryHeading') }}
           </h3>
@@ -1577,23 +1828,33 @@ function onSelectPdfFont(v: string) {
           <p class="setting-hint">
             {{ withChord('settings.autoGitHelp', 'file.save') }}
           </p>
+          <label v-if="settings.autoGitEnabled" style="margin-top: 6px;">
+            <input type="checkbox" :checked="settings.autoGitAiMessage" @change="settings.toggleAutoGitAiMessage()" />
+            {{ settings.language === 'zh' ? '使用 AI 自动生成 Git 提交信息摘要（需启用 AI 助手，失败时自动回退为时间戳）' : 'Use AI to summarize changes for AutoGit commit messages (falls back to timestamp)' }}
+          </label>
         </section>
 
         <!-- v2.6.1 cloud-folder banner. Self-hides if the workspace isn't
              inside a known cloud-sync folder. -->
-        <div v-if="gitBackend" data-cat="sync"><CloudFolderBanner /></div>
+        <div v-if="gitBackend" v-show="searching || activeSyncBranch === 'git'" data-cat="sync"><CloudFolderBanner /></div>
 
         <!-- v2.6 GitHub sync — sits right under AutoGit since it pushes the
              same commits AutoGit produces; reads top-down as one story. -->
-        <div v-if="gitBackend" data-cat="sync"><GithubSyncSettings /></div>
-
-        <!-- #458 — WebDAV workspace sync (Nextcloud /堅果云 / Synology / ownCloud). -->
-        <div data-cat="sync"><WebdavSyncSettings /></div>
+        <div v-if="gitBackend" v-show="searching || activeSyncBranch === 'git'" data-cat="sync"><GithubSyncSettings /></div>
 
         <!-- v3.0 — proxy URL (network-level, applies to libgit2 push/pull
              across GitHub / GitLab / Gitea). Pulled out of GithubSyncSettings
              so users hitting timeouts find it at the top of the Sync tab. -->
-        <div v-if="gitBackend" data-cat="sync"><ProxySettings /></div>
+        <div v-if="gitBackend" v-show="searching || activeSyncBranch === 'git'" data-cat="sync"><ProxySettings /></div>
+
+        <!-- #458 / #524 / #525 — Cloud API, Local Cloud Folder, WebDAV, and Version Snapshots. -->
+        <div v-show="searching || activeSyncBranch !== 'git'" data-cat="sync">
+          <WebdavSyncSettings
+            v-model:active-tab="activeSyncBranch"
+            :searching="searching"
+            :include-git-tab="gitBackend"
+          />
+        </div>
 
         <section data-cat="writing">
           <label>
@@ -1933,11 +2194,12 @@ function onSelectPdfFont(v: string) {
           <label>{{ t('settings.attachmentMode') }}</label>
           <select
             :value="settings.attachmentMode"
-            @change="settings.setAttachmentMode(($event.target as HTMLSelectElement).value as 'shared' | 'per-file' | 'custom')"
+            @change="settings.setAttachmentMode(($event.target as HTMLSelectElement).value as 'shared' | 'per-file' | 'custom' | 'base64')"
           >
             <option value="shared">{{ t('settings.attachmentModeShared') }}</option>
             <option value="per-file">{{ t('settings.attachmentModePerFile') }}</option>
             <option value="custom">{{ t('settings.attachmentModeCustom') }}</option>
+            <option value="base64">{{ settings.language === 'zh' ? '内联 Base64（直接嵌入文档，单文件免外部图库）' : 'Inline Base64 (embed directly in .md file)' }}</option>
           </select>
           <p class="setting-hint">{{ t('settings.attachmentModeHint') }}</p>
         </section>
@@ -2272,6 +2534,10 @@ function onSelectPdfFont(v: string) {
             {{ t('settings.toolbarHidden') }}
           </label>
           <p class="setting-hint">{{ withChord('settings.toolbarHiddenHint', 'view.toggleToolbar') }}</p>
+          <label>
+            <input type="checkbox" :checked="settings.toolbarShowLabels" @change="settings.toggleToolbarShowLabels()" />
+            {{ settings.language === 'zh' ? '顶部工具栏按钮显示文字标签（搜索 / 导出 / 侧栏 / 更多）' : 'Show text labels on top toolbar buttons (Search / Export / Sidebar / More)' }}
+          </label>
         </section>
 
         <section data-cat="writing">
@@ -2329,6 +2595,32 @@ function onSelectPdfFont(v: string) {
             <input type="checkbox" :checked="settings.vimMode" @change="settings.toggleVimMode()" />
             {{ t('settings.vimMode') }}
           </label>
+          <div v-if="settings.vimMode" style="margin-top: 8px; padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
+            <label>
+              <input type="checkbox" :checked="settings.vimAutoSwitchIm" @change="settings.toggleVimAutoSwitchIm()" />
+              {{
+                settings.language === 'zh'
+                  ? '自动切换输入法（退回命令模式自动切为英文，进入插入模式恢复原输入法）'
+                  : 'Auto-switch input method (ASCII in Normal mode, restore previous IME in Insert mode)'
+              }}
+            </label>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <span style="font-size: 12px; color: var(--text-muted);">
+                {{
+                  settings.language === 'zh'
+                    ? '自定义 Vimrc 键位映射（每行一条，支持 map / nmap / imap / vmap / nnoremap / inoremap / vnoremap / noremap）：'
+                    : 'Custom Vimrc key mappings (one per line: map / nmap / imap / vmap / nnoremap / inoremap / vnoremap / noremap):'
+                }}
+              </span>
+              <textarea
+                :value="settings.vimrc"
+                rows="3"
+                placeholder="inoremap jj <Esc>&#10;nnoremap H ^&#10;nnoremap L $"
+                style="font-family: var(--font-mono, monospace); font-size: 12px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical;"
+                @input="settings.setVimrc(($event.target as HTMLTextAreaElement).value)"
+              />
+            </div>
+          </div>
         </section>
 
         <section v-if="windowsEditorRuntime" data-cat="writing">
@@ -2733,6 +3025,214 @@ function onSelectPdfFont(v: string) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.settings__nav-supporter-wrap {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: var(--bd-hair);
+}
+.settings__nav-supporter {
+  width: 100%;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 10px;
+  background: color-mix(in srgb, #f59e0b 8%, var(--fill-1));
+  border: 1px solid color-mix(in srgb, #f59e0b 22%, var(--border, rgba(128, 128, 128, 0.16)));
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+.settings__nav-supporter:hover {
+  background: color-mix(in srgb, #f59e0b 14%, var(--fill-1));
+  border-color: color-mix(in srgb, #f59e0b 36%, var(--border, rgba(128, 128, 128, 0.25)));
+}
+.settings__nav-supporter .settings__nav-supporter-icon {
+  color: #f43f5e;
+}
+.settings__nav-supporter-pill {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  border: 1px solid color-mix(in srgb, #f59e0b 32%, transparent);
+}
+:root[data-theme="dark"] .settings__nav-supporter-pill {
+  color: #fbbf24;
+}
+.settings__nav-supporter--active {
+  background: color-mix(in srgb, #f59e0b 12%, var(--fill-1));
+  border-color: color-mix(in srgb, #f59e0b 35%, transparent);
+}
+.settings__supporter-guide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 12px 0;
+  padding: 13px 16px;
+  border-radius: 10px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #f59e0b 8%, var(--bg-elev, var(--fill-1))) 0%,
+    color-mix(in srgb, #f43f5e 6%, var(--bg-elev, var(--fill-1))) 100%
+  );
+  border: 1px solid color-mix(in srgb, #f59e0b 26%, var(--border, rgba(128, 128, 128, 0.18)));
+}
+.settings__body[data-active-cat="basics"] > .settings__supporter-guide[data-cat="basics"] {
+  display: flex;
+}
+.settings__supporter-guide-main {
+  min-width: 0;
+  flex: 1;
+}
+.settings__supporter-guide-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.settings__supporter-guide-sparkle {
+  font-size: 14px;
+  line-height: 1;
+}
+.settings__supporter-guide-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  border: 1px solid color-mix(in srgb, #f59e0b 32%, transparent);
+}
+:root[data-theme="dark"] .settings__supporter-guide-tag {
+  color: #fbbf24;
+}
+.settings__supporter-guide-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.settings__supporter-guide-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 13px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff !important;
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%) !important;
+  border: none !important;
+  box-shadow: 0 2px 6px rgba(225, 29, 72, 0.22);
+  cursor: pointer !important;
+  transition: filter 0.15s ease, transform 0.12s ease;
+}
+.settings__supporter-guide-btn:hover {
+  filter: brightness(1.06);
+}
+.settings__supporter-guide-btn:active {
+  transform: translateY(1px);
+}
+.settings__supporter-guide-heart {
+  color: #fff;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .settings__supporter-guide {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+.settings__nav-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 4px 16px;
+  padding-left: 8px;
+  border-left: 1.5px solid var(--border, rgba(128, 128, 128, 0.22));
+}
+.settings__nav-subitem {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 430;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: default;
+  text-align: left;
+}
+.settings__nav-subitem:hover {
+  background: var(--fill-1);
+  color: var(--text);
+}
+.settings__nav-subitem--active,
+.settings__nav-subitem--active:hover {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 520;
+}
+.settings__nav-subitem-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+.settings__nav-subitem--active .settings__nav-subitem-dot {
+  opacity: 1;
+}
+.settings__sync-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: var(--bg-muted, rgba(128, 128, 128, 0.08));
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.16));
+}
+.settings__sync-subnav-tab {
+  flex: 1 1 auto;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted, var(--text-2));
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+  white-space: nowrap;
+}
+.settings__sync-subnav-tab:hover {
+  color: var(--text);
+  background: rgba(128, 128, 128, 0.08);
+}
+.settings__sync-subnav-tab--active {
+  background: var(--bg-elevated, var(--bg, #fff));
+  color: var(--accent, #2563eb);
+  border-color: var(--border, rgba(37, 99, 235, 0.28));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  font-weight: 600;
 }
 
 /* v3.0 — single-source-of-truth visibility: each section/component
@@ -3348,6 +3848,9 @@ input[type='range']:disabled {
   /* 10px total gap to the search row; 4px of it lives in .settings__search
      so the focus ring is not clipped by the scrolling body. */
   padding-bottom: 6px;
+}
+:root.narrow-viewport .ds-modal.settings-modal .ds-modal__head {
+  padding-top: max(16px, calc(env(safe-area-inset-top, 0px) + 10px));
 }
 .ds-modal.settings-modal .ds-modal__body {
   flex: 1;

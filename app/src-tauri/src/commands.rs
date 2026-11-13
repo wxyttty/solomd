@@ -428,16 +428,20 @@ pub async fn print_webview_to_pdf(
     path: String,
     paper: Option<(f64, f64)>,
     margins: Option<(f64, f64, f64, f64)>,
+    outlines: Option<Vec<(u8, String, usize)>>,
 ) -> Result<(), String> {
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
-    use objc2_foundation::{NSSize, NSString, NSURL};
+    use objc2_foundation::{NSPoint, NSSize, NSString, NSURL};
 
     #[link(name = "AppKit", kind = "framework")]
     extern "C" {
         static NSPrintSaveJob: &'static NSString;
         static NSPrintJobSavingURL: &'static NSString;
     }
+
+    #[link(name = "PDFKit", kind = "framework")]
+    extern "C" {}
 
     let _ = std::fs::remove_file(&path);
     let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
@@ -527,6 +531,54 @@ pub async fn print_webview_to_pdf(
             let mut buf = Vec::new();
             f.read_to_end(&mut buf).map_err(|e| e.to_string())?;
             if buf.windows(5).any(|w| w == b"%%EOF") {
+                if let Some(items) = outlines.as_ref().filter(|v| !v.is_empty()) {
+                    unsafe {
+                        let url = NSURL::fileURLWithPath(&NSString::from_str(&path2));
+                        let doc_alloc: *mut AnyObject = msg_send![class!(PDFDocument), alloc];
+                        let doc: *mut AnyObject = msg_send![doc_alloc, initWithURL: &*url];
+                        if !doc.is_null() {
+                            let page_count: usize = msg_send![doc, pageCount];
+                            if page_count > 0 {
+                                let root: *mut AnyObject = msg_send![class!(PDFOutline), new];
+                                let mut stack: Vec<(u8, *mut AnyObject)> = Vec::new();
+                                for (level, label, page_num) in items {
+                                    let idx = page_num.saturating_sub(1).min(page_count - 1);
+                                    let page: *mut AnyObject = msg_send![doc, pageAtIndex: idx];
+                                    if page.is_null() {
+                                        continue;
+                                    }
+                                    let child: *mut AnyObject = msg_send![class!(PDFOutline), new];
+                                    let label_ns = NSString::from_str(label);
+                                    let _: () = msg_send![child, setLabel: &*label_ns];
+                                    let dest_alloc: *mut AnyObject =
+                                        msg_send![class!(PDFDestination), alloc];
+                                    let dest: *mut AnyObject = msg_send![
+                                        dest_alloc,
+                                        initWithPage: page,
+                                        atPoint: NSPoint::new(0.0, 792.0)
+                                    ];
+                                    if !dest.is_null() {
+                                        let _: () = msg_send![child, setDestination: dest];
+                                        let _: () = msg_send![dest, release];
+                                    }
+                                    while stack.last().is_some_and(|(l, _)| *l >= *level) {
+                                        stack.pop();
+                                    }
+                                    let parent = stack.last().map_or(root, |(_, node)| *node);
+                                    let n_children: usize = msg_send![parent, numberOfChildren];
+                                    let _: () =
+                                        msg_send![parent, insertChild: child, atIndex: n_children];
+                                    let _: () = msg_send![child, release];
+                                    stack.push((*level, child));
+                                }
+                                let _: () = msg_send![doc, setOutlineRoot: root];
+                                let _: bool = msg_send![doc, writeToURL: &*url];
+                                let _: () = msg_send![root, release];
+                            }
+                            let _: () = msg_send![doc, release];
+                        }
+                    }
+                }
                 return Ok(());
             }
         }
@@ -542,6 +594,7 @@ pub async fn print_webview_to_pdf(
     _path: String,
     _paper: Option<(f64, f64)>,
     _margins: Option<(f64, f64, f64, f64)>,
+    _outlines: Option<Vec<(u8, String, usize)>>,
 ) -> Result<(), String> {
     Err("direct PDF export is macOS-only; use print_webview".into())
 }
@@ -768,9 +821,141 @@ pub fn webview_runtime_version() -> Option<String> {
     tauri::webview_version().ok()
 }
 
+/// #541 — Fallback clipboard text reader for Linux Wayland (e.g. Ubuntu 26.04 /
+/// GNOME 50 + GSConnect), where WebKitGTK's `ClipboardEvent.clipboardData` can
+/// arrive empty and `arboard` X11/wlr-data-control cannot read GNOME Shell's
+/// Wayland selection offer while `wl-paste` (or `xclip` / `xsel`) succeeds.
+#[tauri::command]
+pub async fn clipboard_read_text_fallback() -> Result<String, String> {
+    #[cfg(target_os = "linux")]
+    {
+        return tokio::task::spawn_blocking(|| {
+            let candidates: &[(&str, &[&str])] = &[
+                ("wl-paste", &["--no-newline"]),
+                ("wl-paste", &["--no-newline", "--type", "text/plain;charset=utf-8"]),
+                ("wl-paste", &["--no-newline", "--type", "text/plain"]),
+                ("wl-paste", &["--no-newline", "--type", "UTF8_STRING"]),
+                ("xclip", &["-o", "-selection", "clipboard"]),
+                ("xsel", &["-ob"]),
+            ];
+            for (bin, args) in candidates {
+                if let Ok(out) = std::process::Command::new(bin).args(*args).output() {
+                    if out.status.success() && !out.stdout.is_empty() {
+                        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+                        if !text.is_empty() {
+                            return Ok(text);
+                        }
+                    }
+                }
+            }
+            Ok(String::new())
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(String::new())
+    }
+}
+
+/// #492 — Automatically switch the OS input method to an ASCII layout when
+/// leaving Vim Insert mode (`mode == "normal"`), and restore the user's
+/// previous input method when re-entering Insert mode (`mode == "insert"`).
+#[tauri::command]
+pub fn vim_switch_input_method(app: tauri::AppHandle, mode: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::c_void;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[link(name = "Carbon", kind = "framework")]
+        extern "C" {
+            fn TISCopyCurrentKeyboardInputSource() -> *mut c_void;
+            fn TISCopyCurrentASCIICapableKeyboardInputSource() -> *mut c_void;
+            fn TISSelectInputSource(source: *mut c_void) -> i32;
+        }
+        #[link(name = "CoreFoundation", kind = "framework")]
+        extern "C" {
+            fn CFRelease(cf: *const c_void);
+        }
+
+        static SAVED_INPUT_SOURCE: AtomicUsize = AtomicUsize::new(0);
+
+        let is_insert = mode == "insert";
+        let _ = app.run_on_main_thread(move || unsafe {
+            if is_insert {
+                let prev = SAVED_INPUT_SOURCE.swap(0, Ordering::SeqCst) as *mut c_void;
+                if !prev.is_null() {
+                    let _ = TISSelectInputSource(prev);
+                    CFRelease(prev);
+                }
+            } else {
+                let current = TISCopyCurrentKeyboardInputSource();
+                let ascii = TISCopyCurrentASCIICapableKeyboardInputSource();
+                if !current.is_null() && !ascii.is_null() {
+                    if current != ascii {
+                        let old = SAVED_INPUT_SOURCE.swap(current as usize, Ordering::SeqCst)
+                            as *mut c_void;
+                        if !old.is_null() {
+                            CFRelease(old);
+                        }
+                        let _ = TISSelectInputSource(ascii);
+                    } else {
+                        CFRelease(current);
+                    }
+                } else if !current.is_null() {
+                    CFRelease(current);
+                }
+                if !ascii.is_null() {
+                    CFRelease(ascii);
+                }
+            }
+        });
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static SAVED_FCITX_ACTIVE: AtomicBool = AtomicBool::new(false);
+        let _ = &app;
+        let is_insert = mode == "insert";
+        std::thread::spawn(move || {
+            for bin in ["fcitx5-remote", "fcitx-remote"] {
+                if is_insert {
+                    if SAVED_FCITX_ACTIVE.swap(false, Ordering::SeqCst) {
+                        let _ = std::process::Command::new(bin).arg("-o").output();
+                    }
+                    break;
+                } else if let Ok(out) = std::process::Command::new(bin).output() {
+                    if out.status.success() {
+                        let state = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                        if state == "2" {
+                            SAVED_FCITX_ACTIVE.store(true, Ordering::SeqCst);
+                            let _ = std::process::Command::new(bin).arg("-c").output();
+                        }
+                        break;
+                    }
+                }
+            }
+        });
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (&app, mode);
+        Ok(())
+    }
+}
+
 #[tauri::command]
 pub fn fs_dir_exists(path: String) -> bool {
     Path::new(&path).is_dir()
+}
+
+#[tauri::command]
+pub fn fs_files_exist(paths: Vec<String>) -> Vec<bool> {
+    paths.iter().map(|p| Path::new(p).is_file()).collect()
 }
 
 #[tauri::command]
@@ -2101,6 +2286,18 @@ async fn resolve_gitee_asset_url(
     None
 }
 
+/// Set by `cancel_update_download` while a download is in flight. Reset at the
+/// start of every download, so a cancelled run never poisons the next one.
+static UPDATE_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stop the in-flight installer download. The partial file is discarded and
+/// `download_and_install_update` resolves with an `Err("cancelled")` the
+/// frontend recognises instead of falling back to the release page.
+#[tauri::command]
+pub fn cancel_update_download() {
+    UPDATE_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Download the platform installer for `version` (switching to Gitee automatically
 /// when the visitor is in China, with cross-mirror fallback between Gitee and GitHub)
 /// and launch the installer directly.
@@ -2112,7 +2309,10 @@ pub async fn download_and_install_update(
 ) -> Result<String, String> {
     use futures_util::StreamExt;
     use std::io::Write;
+    use std::sync::atomic::Ordering;
     use tauri::Emitter;
+
+    UPDATE_CANCELLED.store(false, Ordering::SeqCst);
 
     let clean_ver = version.trim().trim_start_matches('v').to_string();
     if clean_ver.is_empty() {
@@ -2165,6 +2365,9 @@ pub async fn download_and_install_update(
     let mut downloaded_ok = false;
 
     for (source, url) in candidates {
+        if UPDATE_CANCELLED.load(Ordering::SeqCst) {
+            return Err("cancelled".to_string());
+        }
         let resp = match client.get(&url).send().await {
             Ok(r) => r,
             Err(e) => {
@@ -2199,8 +2402,13 @@ pub async fn download_and_install_update(
             .unwrap_or_else(std::time::Instant::now);
         let mut stream = resp.bytes_stream();
         let mut stream_err: Option<String> = None;
+        let mut cancelled_here = false;
 
         while let Some(chunk_res) = stream.next().await {
+            if UPDATE_CANCELLED.load(Ordering::SeqCst) {
+                cancelled_here = true;
+                break;
+            }
             match chunk_res {
                 Ok(chunk) => {
                     if let Err(e) = file.write_all(&chunk) {
@@ -2234,6 +2442,11 @@ pub async fn download_and_install_update(
                     break;
                 }
             }
+        }
+
+        if cancelled_here {
+            let _ = fs::remove_file(&part_path);
+            return Err("cancelled".to_string());
         }
 
         if let Some(err) = stream_err {

@@ -120,14 +120,17 @@ export function useShortcuts(hooks: Hooks = {}) {
     'file.new': () => void files.newFile(),
     'file.newText': () => void files.newTextFile(),
     'file.newInFolder': () => runById('file.newInFolder'),
+    'file.newFromTemplate': () => runById('file.newFromTemplate'),
     'file.open': () => void files.openFile(),
     'file.import': () => void files.importDocuments(),
     'file.save': () => void files.saveActive(),
     'file.saveAs': () => void files.saveActiveAs(),
+    'file.saveAll': () => void files.saveAll(),
     'file.closeTab': () => {
       if (tabs.activeId) files.closeTabSafe(tabs.activeId);
     },
     'file.openExternal': () => runById('file.openExternal'),
+    'file.copyPath': () => runById('file.copyPath'),
     'tab.reopenClosed': () => void files.reopenClosedTab(),
     'window.new': () => runById('window.new'),
     'file.exit': () => void getCurrentWindow().close(),
@@ -146,6 +149,8 @@ export function useShortcuts(hooks: Hooks = {}) {
     'editor.deleteWord': () => editorCommand('deleteWord'),
     'editor.selectLine': () => editorCommand('selectLine'),
     'editor.jumpToSelection': () => editorCommand('jumpToSelection'),
+    'editor.cursorBack': () => editorCommand('cursorBack'),
+    'editor.cursorForward': () => editorCommand('cursorForward'),
     'heading.promote': () => editorCommand('headingPromote'),
     'heading.demote': () => editorCommand('headingDemote'),
     'heading.paragraph': () => editorCommand('headingParagraph'),
@@ -165,6 +170,7 @@ export function useShortcuts(hooks: Hooks = {}) {
     // and PNG stay palette-only — they're one-off exports.
     'export.copyMd': () => void exporter.copyAsMarkdown(),
     'export.pdfPrint': () => runById('export.pdfPrint'),
+    'export.custom': () => runById('export.custom'),
     'file.print': () => void exporter.printDocument(),
 
     'view.cycleView': () => settings.cycleViewMode(),
@@ -294,7 +300,14 @@ export function useShortcuts(hooks: Hooks = {}) {
     // Pomodoro session, AI rewrite opening its overlay twice. Only file /
     // window / navigation commands still run on top of it.
     const inEditor = e.target instanceof Element && !!e.target.closest('.cm-editor');
-    if (e.defaultPrevented && inEditor && !appRunsAfterEditor(actionId, combo)) return;
+    if (
+      e.defaultPrevented &&
+      inEditor &&
+      ((settings.vimMode && /^Mod\+[DUEYBF]$/i.test(combo)) ||
+        !appRunsAfterEditor(actionId, combo))
+    ) {
+      return;
+    }
     // Menu commands made bindable for the menus' sake (export, quick capture,
     // open folder…) need no handler of their own: they run as the palette does.
     const run = actions[actionId] ?? (commands.some((c) => c.id === actionId) ? () => runById(actionId) : undefined);

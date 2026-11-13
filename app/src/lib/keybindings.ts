@@ -127,6 +127,7 @@ export const KEY_ACTIONS: KeyActionDef[] = [
   // #338 — a note in the folder selected in the file tree (or the selected
   // file's folder).
   { id: 'file.newInFolder', label: 'New Note in Selected Folder', category: 'file', defaults: ['Mod+Alt+Shift+N'] },
+  { id: 'file.newFromTemplate', label: 'New Note from Template…', category: 'file', defaults: [] },
   { id: 'window.new', label: 'New Window', category: 'file', defaults: ['Mod+Shift+N'] },
   { id: 'capture.quick', label: 'Quick Capture…', category: 'file', defaults: [] },
   { id: 'file.open', label: 'Open File…', category: 'file', defaults: ['Mod+O'] },
@@ -138,6 +139,7 @@ export const KEY_ACTIONS: KeyActionDef[] = [
   { id: 'daily.openTomorrow', label: "Open Tomorrow's Daily Note", category: 'file', defaults: [] },
   { id: 'file.save', label: 'Save', category: 'file', defaults: ['Mod+S'] },
   { id: 'file.saveAs', label: 'Save As…', category: 'file', defaults: ['Mod+Shift+S'] },
+  { id: 'file.saveAll', label: 'Save All', category: 'file', defaults: ['Mod+Alt+Shift+S'] },
   { id: 'file.import', label: 'Import Documents…', category: 'file', defaults: ['Mod+Shift+L'] },
   { id: 'image.uploadLocalImages', label: 'Upload Local Images to Image Host…', category: 'file', defaults: [] },
   { id: 'export.html', label: 'Export as HTML', category: 'file', defaults: [] },
@@ -145,6 +147,7 @@ export const KEY_ACTIONS: KeyActionDef[] = [
   { id: 'export.pdfPrint', label: 'Print / PDF', category: 'file', defaults: ['Mod+Alt+Shift+P'] },
   { id: 'export.pdf', label: 'Export as PDF (Image)', category: 'file', defaults: [] },
   { id: 'export.image', label: 'Export as Image', category: 'file', defaults: [] },
+  { id: 'export.custom', label: 'Custom / Batch Export…', category: 'file', defaults: [] },
   { id: 'export.copyHtml', label: 'Copy as HTML', category: 'file', defaults: ['Mod+Shift+C'] },
   { id: 'export.copyWord', label: 'Copy as Word', category: 'file', defaults: [] },
   { id: 'export.copyMd', label: 'Copy as Markdown', category: 'file', defaults: ['Mod+Alt+C'] },
@@ -152,6 +155,7 @@ export const KEY_ACTIONS: KeyActionDef[] = [
   { id: 'inbox.open', label: 'Open Inbox', category: 'file', defaults: [] },
   { id: 'inbox.toggle', label: 'Toggle Inbox Flag / Organize', category: 'file', defaults: ['Mod+E'] },
   { id: 'file.openExternal', label: 'Open in External Editor', category: 'file', defaults: ['Mod+Shift+E'] },
+  { id: 'file.copyPath', label: 'Copy File Path', category: 'file', defaults: ['Mod+Alt+Shift+Y'] },
   { id: 'settings.open', label: 'Settings', category: 'file', defaults: ['Mod+Comma'] },
   { id: 'file.closeTab', label: 'Close Tab', category: 'file', defaults: ['Mod+W'] },
   // B4 — Typora's "reopen closed tab". ⌘⇧T was free, so it ships bound.
@@ -236,6 +240,9 @@ export const KEY_ACTIONS: KeyActionDef[] = [
   // #508 — Switch between recently used tabs (MRU order) via Ctrl+Tab / Ctrl+Shift+Tab.
   { id: 'tab.mru', label: 'Switch to Recent Tab', category: 'navigate', defaults: ['Mod+Tab'] },
   { id: 'tab.mruPrev', label: 'Switch to Previous Recent Tab', category: 'navigate', defaults: ['Mod+Shift+Tab'] },
+  // #491 — Navigate backward / forward through recent cursor positions.
+  { id: 'editor.cursorBack', label: 'Navigate Back (Cursor History)', category: 'navigate', defaults: ['Alt+ArrowLeft'] },
+  { id: 'editor.cursorForward', label: 'Navigate Forward (Cursor History)', category: 'navigate', defaults: ['Alt+ArrowRight'] },
   { id: 'tile.splitRight', label: 'Split Pane Right', category: 'navigate', defaults: ['Mod+Backslash'] },
   { id: 'tile.splitDown', label: 'Split Pane Down', category: 'navigate', defaults: ['Mod+Shift+Backslash'] },
   { id: 'tile.focusNext', label: 'Focus Next Pane', category: 'navigate', defaults: ['Mod+Alt+ArrowRight'] },

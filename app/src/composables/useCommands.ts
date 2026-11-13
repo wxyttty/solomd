@@ -179,9 +179,19 @@ export function useCommands(): Command[] {
         requestNewFileInTree();
       },
     },
+    {
+      // #322 — New Note from Template…
+      id: 'file.newFromTemplate',
+      title: 'New Note from Template…',
+      shortcut: kb('file.newFromTemplate'),
+      run: () => {
+        window.dispatchEvent(new CustomEvent('solomd:open-template-picker'));
+      },
+    },
     { id: 'file.open', title: 'Open File…', shortcut: kb('file.open'), run: () => files.openFile() },
     { id: 'file.save', title: 'Save', shortcut: kb('file.save'), run: () => files.saveActive() },
     { id: 'file.saveAs', title: 'Save As…', shortcut: kb('file.saveAs'), run: () => files.saveActiveAs() },
+    { id: 'file.saveAll', title: 'Save All', shortcut: kb('file.saveAll'), run: () => files.saveAll() },
     {
       id: 'file.openFolder',
       title: 'Open Folder…',
@@ -195,6 +205,7 @@ export function useCommands(): Command[] {
     {
       id: 'file.openExternal',
       title: 'Open in External Editor',
+      shortcut: kb('file.openExternal'),
       hint: 'Open file with system default editor',
       run: async () => {
         const tab = useTabsStore().activeTab;
@@ -210,6 +221,49 @@ export function useCommands(): Command[] {
         }
       },
     },
+    {
+      id: 'file.copyPath',
+      title: 'Copy File Path',
+      shortcut: kb('file.copyPath'),
+      hint: 'Copy the active document’s full file path to clipboard',
+      run: async () => {
+        const tab = useTabsStore().activeTab;
+        const path = tab?.filePath;
+        if (!path) {
+          toasts.warning(settings.language === 'zh' ? '请先保存文件再复制路径' : 'Save the file first before copying its path');
+          return;
+        }
+        try {
+          await writeText(path);
+          toasts.success(settings.language === 'zh' ? '文件路径已复制' : 'File path copied to clipboard');
+        } catch {
+          try {
+            await navigator.clipboard?.writeText?.(path);
+            toasts.success(settings.language === 'zh' ? '文件路径已复制' : 'File path copied to clipboard');
+          } catch (e) {
+            toasts.error(`${e}`);
+          }
+        }
+      },
+    },
+    ...(!isMobile()
+      ? [
+          {
+            id: 'file.openInNewWindow',
+            title: 'Open in New Window',
+            hint: 'Open the active document in a separate SoloMD window',
+            run: () => {
+              const tab = useTabsStore().activeTab;
+              const path = tab?.filePath;
+              if (!path) {
+                toasts.warning(settings.language === 'zh' ? '请先保存文件再在新窗口中打开' : 'Save the file first before opening in a new window');
+                return;
+              }
+              files.spawnAuxWindow(path);
+            },
+          },
+        ]
+      : []),
 
     { id: 'view.editor', title: 'View: Edit Only', run: () => settings.setViewMode('edit') },
     { id: 'view.split', title: 'View: Split', run: () => settings.setViewMode('split') },
@@ -243,6 +297,7 @@ export function useCommands(): Command[] {
     { id: 'view.toggleSpellCheck', title: 'View: Toggle Spell Check', run: () => settings.toggleSpellCheck() },
     { id: 'view.toggleFocusMode', title: 'View: Toggle Focus Mode', shortcut: kb('view.toggleFocusMode'), run: () => settings.toggleFocusMode() },
     { id: 'view.toggleToolbar', title: 'View: Show / Hide Toolbar Buttons', shortcut: kb('view.toggleToolbar'), run: () => settings.toggleToolbarHidden() },
+    { id: 'view.toggleMenuBar', title: 'View: Show / Hide Menu Bar', run: () => settings.toggleHideMenuBar() },
     { id: 'view.toggleTypewriter', title: 'View: Toggle Typewriter Mode', shortcut: kb('view.toggleTypewriter'), run: () => settings.toggleTypewriterMode() },
     { id: 'view.zoomUiIn', title: 'UI: Zoom In', shortcut: kb('view.zoomUiIn'), run: () => settings.zoomIn() },
     { id: 'view.zoomUiOut', title: 'UI: Zoom Out', shortcut: kb('view.zoomUiOut'), run: () => settings.zoomOut() },
@@ -263,6 +318,18 @@ export function useCommands(): Command[] {
     { id: 'tile.splitDown', title: 'Split Editor Down', shortcut: kb('tile.splitDown'), run: () => tiles.splitPane(tiles.focusedPaneId, 'vertical') },
     { id: 'tile.closePane', title: 'Close Pane', run: () => tiles.closePane(tiles.focusedPaneId) },
     { id: 'tile.focusNext', title: 'Focus Next Pane', shortcut: kb('tile.focusNext'), run: () => tiles.focusNextPane() },
+    {
+      id: 'editor.cursorBack',
+      title: 'Navigate Back (Cursor History)',
+      shortcut: kb('editor.cursorBack'),
+      run: () => window.dispatchEvent(new CustomEvent('solomd:editor-command', { detail: { cmd: 'cursorBack' } })),
+    },
+    {
+      id: 'editor.cursorForward',
+      title: 'Navigate Forward (Cursor History)',
+      shortcut: kb('editor.cursorForward'),
+      run: () => window.dispatchEvent(new CustomEvent('solomd:editor-command', { detail: { cmd: 'cursorForward' } })),
+    },
     { id: 'tile.focusPrev', title: 'Focus Previous Pane', shortcut: kb('tile.focusPrev'), run: () => tiles.focusPrevPane() },
 
     {
@@ -278,9 +345,10 @@ export function useCommands(): Command[] {
       title: 'Theme: Set Custom CSS File…',
       hint: 'Pick a .css file to override SoloMD styles',
       run: async () => {
+        const themesDir = await invoke<string>('theme_get_dir').catch(() => undefined);
         const path = await openFileDialog({
           multiple: false,
-          defaultPath: await files.filePickerStartDir(),
+          defaultPath: themesDir || (await files.filePickerStartDir()),
           filters: [{ name: 'CSS', extensions: ['css'] }],
         });
         if (path && typeof path === 'string') {
@@ -391,6 +459,13 @@ export function useCommands(): Command[] {
     },
 
     {
+      id: 'insert.table',
+      title: 'Insert Table…',
+      hint: 'Pick rows × columns from a grid or enter custom table dimensions',
+      run: () => window.dispatchEvent(new CustomEvent('solomd:open-insert-table-dialog')),
+    },
+
+    {
       id: 'editor.tableEditor',
       title: 'Edit Table…',
       shortcut: kb('editor.tableEditor'),
@@ -445,6 +520,28 @@ export function useCommands(): Command[] {
           multiple: false,
           defaultPath: await files.filePickerStartDir(),
           filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif', 'tiff'] }],
+        });
+        if (typeof sel !== 'string') return;
+        window.dispatchEvent(
+          new CustomEvent('solomd:insert-image-path', {
+            detail: { path: sel, paneId: tiles.focusedPaneId },
+          }),
+        );
+      },
+    },
+
+    {
+      id: 'editor.insertAttachment',
+      title: 'Insert attachment…',
+      hint: 'Pick any file — it is copied into the note’s attachments folder and a Markdown link is inserted',
+      run: async () => {
+        if (!tabs.activeTab) {
+          toasts.warning('No active document');
+          return;
+        }
+        const sel = await openFileDialog({
+          multiple: false,
+          defaultPath: await files.filePickerStartDir(),
         });
         if (typeof sel !== 'string') return;
         window.dispatchEvent(
@@ -597,6 +694,7 @@ export function useCommands(): Command[] {
     { id: 'file.print', title: 'Print…', hint: 'Open the system print dialog', shortcut: kb('file.print'), run: () => exporter.printDocument() },
     { id: 'export.pdf', title: 'Export to PDF (image)…', hint: 'rasterised, text not selectable', run: () => exporter.exportPdf() },
     { id: 'export.image', title: 'Export to Image (PNG)…', run: () => exporter.exportImage() },
+    { id: 'export.custom', title: 'Custom / Batch Export…', hint: 'export current file or entire folder to a custom directory', shortcut: kb('export.custom'), run: () => exporter.openCustomExportDialog() },
     { id: 'export.epub', title: 'Export to EPUB…', hint: 'via Pandoc', run: () => pandoc.exportTo('epub') },
     { id: 'export.odt', title: 'Export to ODT…', hint: 'via Pandoc', run: () => pandoc.exportTo('odt') },
     { id: 'export.latex', title: 'Export to LaTeX…', hint: 'via Pandoc', run: () => pandoc.exportTo('latex') },

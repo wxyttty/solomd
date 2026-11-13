@@ -311,7 +311,7 @@ function pickViewMode(mode: ViewModeId) {
 }
 
 const formatItems: Array<{ kind: string; label: string; action: string }> = [
-  'bold', 'italic', 'strike', 'highlight', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'task',
+  'bold', 'italic', 'underline', 'strike', 'highlight', 'superscript', 'subscript', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'task',
 ].map((kind) => ({ kind, label: `cmd.fmt.${kind}`, action: `fmt.${kind}` }));
 const menuPos = ref<{ top: number; left?: number; right?: number } | null>(null);
 const floatStyle = computed<Record<string, string | number> | undefined>(() => {
@@ -422,6 +422,11 @@ function openImageUrlDialog() {
   window.dispatchEvent(new CustomEvent('solomd:open-image-url-dialog'));
 }
 
+function openInsertTableDialog() {
+  closeAllDropdowns();
+  window.dispatchEvent(new CustomEvent('solomd:open-insert-table-dialog'));
+}
+
 function shortPath(p: string) {
   const parts = p.split(/[\\/]/);
   return parts[parts.length - 1] || p;
@@ -441,6 +446,12 @@ function closeAllDropdowns() {
 function act(fn: () => unknown) {
   closeAllDropdowns();
   void fn();
+}
+function onDropdownMenuClick(e: MouseEvent) {
+  const btn = (e.target as HTMLElement | null)?.closest('button.dropdown__item');
+  if (btn) {
+    btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  }
 }
 function toggleThemeFromMenu() {
   closeAllDropdowns();
@@ -649,14 +660,33 @@ function openByKey(name: DropdownName) {
   if (!dropdowns[name].open.value) toggleDropdown(name);
   void focusMenuItem('first');
 }
-const anyToolbarMenuOpen = computed(() => exportOpen.value || moreOpen.value);
-watch(
-  () => [menuPos.value, anyToolbarMenuOpen.value, menubarOpen.value],
-  () => {
-    if (anyToolbarMenuOpen.value || menubarOpen.value) keepMenuOnScreen();
-  },
-  { flush: 'post' },
+const anyToolbarMenuOpen = computed(
+  () => exportOpen.value || moreOpen.value || pomoOpen.value || Boolean(menubarOpen.value),
 );
+let menuHistoryDepth = 0;
+let menuHistoryPopping = false;
+watch(anyToolbarMenuOpen, (v, old) => {
+  window.dispatchEvent(new CustomEvent('solomd:toolbar-menu-state', { detail: v }));
+  if (v && !old) {
+    history.pushState({ solomdMenu: true }, '');
+    menuHistoryDepth++;
+  } else if (!v && old && menuHistoryDepth > 0 && !menuHistoryPopping && history.state?.solomdMenu) {
+    menuHistoryDepth--;
+    menuHistoryPopping = true;
+    window.dispatchEvent(new Event('solomd:menu-history-back'));
+    history.back();
+  }
+});
+function onMenuPopState() {
+  if (menuHistoryPopping) {
+    menuHistoryPopping = false;
+    return;
+  }
+  if (menuHistoryDepth > 0) {
+    menuHistoryDepth--;
+    closeAllDropdowns();
+  }
+}
 watch(
   () => [menuPos.value, anyToolbarMenuOpen.value, menubarOpen.value],
   () => {
@@ -750,6 +780,7 @@ onMounted(() => {
   document.addEventListener('keydown', onEscapeKey, true);
   window.addEventListener('resize', onViewportChange);
   window.addEventListener('scroll', onScrollAnywhere, true);
+  window.addEventListener('popstate', onMenuPopState);
   // Android Back on the phone shell (App.vue) closes an open menu too.
   window.addEventListener('solomd:close-menus', closeAllDropdowns);
   // Two Toolbars exist on Windows; only the header answers these.
@@ -758,6 +789,7 @@ onMounted(() => {
   window.addEventListener('solomd:toolbar-ai-rewrite', onAIRewrite);
 });
 onBeforeUnmount(() => {
+  window.removeEventListener('popstate', onMenuPopState);
   window.removeEventListener('solomd:close-menus', closeAllDropdowns);
   document.removeEventListener('click', onDocClick, true);
   document.removeEventListener('keydown', onEscapeKey, true);
@@ -778,7 +810,7 @@ onBeforeUnmount(() => {
     @dblclick="onTitleBarDblClick"
   >
     <span class="titlebar__icon" aria-hidden="true"><BrandMark :size="18" /></span>
-    <nav class="menubar" data-no-drag :aria-label="t('menubar.file')">
+    <nav v-if="!settings.hideMenuBar" class="menubar" data-no-drag :aria-label="t('menubar.file')">
       <button
         v-for="m in menubarTree"
         :key="m.id"
@@ -876,6 +908,7 @@ onBeforeUnmount(() => {
       'toolbar--lead': !settings.showFileTree,
       'toolbar--minimal': settings.toolbarHidden,
       'toolbar--narrow': isNarrow,
+      'toolbar--with-labels': settings.toolbarShowLabels && !isNarrow,
     }"
     @mousedown.capture="onTitleBarMouseDown"
     @dblclick="onTitleBarDblClick"
@@ -898,9 +931,14 @@ onBeforeUnmount(() => {
     </button>
 
     <!-- A single pane's tab strip is teleported in here (PaneHost.vue); with
-         a split, each pane keeps its own strip and this stays an empty,
-         draggable stretch of title bar. -->
-    <div id="header-tabs" class="toolbar__tabs" />
+         a split (or when separateTabBarRow is enabled), each pane keeps its
+         own strip and this stays an empty, draggable stretch of title bar. -->
+    <div id="header-tabs" class="toolbar__tabs">
+      <span
+        v-if="settings.separateTabBarRow && tiles.root.type === 'leaf'"
+        class="toolbar__doc-title"
+      >{{ activeTabDisplayTitle }}</span>
+    </div>
 
     <div
       v-if="isMarkdown && !settings.toolbarHidden"
@@ -941,6 +979,7 @@ onBeforeUnmount(() => {
         :aria-label="t('toolbar.searchTooltip')"
       >
         <Icon name="search" />
+        <span v-if="settings.toolbarShowLabels" class="icon-btn__label">{{ settings.language === 'zh' ? '搜索' : 'Search' }}</span>
       </button>
 
       <div class="dropdown">
@@ -956,9 +995,17 @@ onBeforeUnmount(() => {
           :aria-label="t('toolbar.exportTooltip')"
         >
           <Icon name="share" />
+          <span v-if="settings.toolbarShowLabels && !isNarrow" class="icon-btn__label">{{ settings.language === 'zh' ? '导出' : 'Export' }}</span>
         </button>
         <Teleport to="body">
-          <div v-if="exportOpen" class="dropdown__menu" role="menu" data-tb-menu :style="floatStyle" @keydown="onMenuKeydown">
+          <div
+            v-if="exportOpen"
+            class="dropdown__backdrop"
+            aria-hidden="true"
+            @pointerdown.stop.prevent="closeAllDropdowns"
+            @click.stop.prevent="closeAllDropdowns"
+          ></div>
+          <div v-if="exportOpen" class="dropdown__menu" role="menu" data-tb-menu :style="floatStyle" @keydown="onMenuKeydown" @click="onDropdownMenuClick">
             <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(() => exporter.exportHtml())">
               <span class="dropdown__name">{{ t('toolbar.exportHtml') }}</span>
             </button>
@@ -980,6 +1027,10 @@ onBeforeUnmount(() => {
             </button>
             <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(() => exporter.exportImage())">
               <span class="dropdown__name">{{ t('toolbar.exportImage') }}</span>
+            </button>
+            <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(() => exporter.openCustomExportDialog())">
+              <span class="dropdown__name">{{ t('toolbar.exportCustom') }}</span>
+              <span v-if="chord('export.custom')" class="dropdown__shortcut">{{ chord('export.custom') }}</span>
             </button>
             <div class="dropdown__sep"></div>
             <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(() => exporter.copyAsHtml())">
@@ -1027,6 +1078,7 @@ onBeforeUnmount(() => {
         :aria-pressed="!settings.rightSidebarHidden"
       >
         <Icon name="sidebar-right" />
+        <span v-if="settings.toolbarShowLabels" class="icon-btn__label">{{ settings.language === 'zh' ? '侧栏' : 'Sidebar' }}</span>
       </button>
 
       <div class="dropdown">
@@ -1042,8 +1094,16 @@ onBeforeUnmount(() => {
           :aria-label="t('header.more')"
         >
           <Icon name="more" />
+          <span v-if="settings.toolbarShowLabels && !isNarrow" class="icon-btn__label">{{ settings.language === 'zh' ? '更多' : 'More' }}</span>
         </button>
         <Teleport to="body">
+          <div
+            v-if="moreOpen"
+            class="dropdown__backdrop"
+            aria-hidden="true"
+            @pointerdown.stop.prevent="closeAllDropdowns"
+            @click.stop.prevent="closeAllDropdowns"
+          ></div>
           <div
             v-if="moreOpen"
             class="dropdown__menu dropdown__menu--more"
@@ -1051,6 +1111,7 @@ onBeforeUnmount(() => {
             data-tb-menu
             :style="floatStyle"
             @keydown="onMenuKeydown"
+            @click="onDropdownMenuClick"
           >
             <!-- Root page -->
             <template v-if="morePage === 'root'">
@@ -1107,6 +1168,11 @@ onBeforeUnmount(() => {
                 <span class="dropdown__name">{{ t('menubar.saveAs') }}</span>
                 <span v-if="chord('file.saveAs')" class="dropdown__shortcut">{{ chord('file.saveAs') }}</span>
               </button>
+              <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(() => files.saveAll())">
+                <span class="dropdown__check"></span>
+                <span class="dropdown__name">{{ t('menubar.saveAll') }}</span>
+                <span v-if="chord('file.saveAll')" class="dropdown__shortcut">{{ chord('file.saveAll') }}</span>
+              </button>
               <template v-if="isMarkdown">
                 <div class="dropdown__sep"></div>
                 <button class="dropdown__item dropdown__item--single dropdown__item--sub" role="menuitem" tabindex="-1" @mousedown.prevent="goMorePage('insert')">
@@ -1138,7 +1204,6 @@ onBeforeUnmount(() => {
               </template>
               <div class="dropdown__sep"></div>
               <button
-                v-if="isNarrow"
                 class="dropdown__item dropdown__item--single"
                 role="menuitemcheckbox"
                 :aria-checked="!settings.rightSidebarHidden"
@@ -1147,6 +1212,7 @@ onBeforeUnmount(() => {
               >
                 <span class="dropdown__check">{{ settings.rightSidebarHidden ? '' : '✓' }}</span>
                 <span class="dropdown__name">{{ t('menubar.toggleRightSidebar') }}</span>
+                <span v-if="chord('view.toggleRightSidebar')" class="dropdown__shortcut">{{ chord('view.toggleRightSidebar') }}</span>
               </button>
               <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="act(() => $emit('open-palette'))">
                 <span class="dropdown__check"></span>
@@ -1264,7 +1330,7 @@ onBeforeUnmount(() => {
                 <span class="dropdown__check"></span>
                 <span class="dropdown__name">{{ t('toolbar.insertMathInline') }}</span>
               </button>
-              <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="dispatchInsert('\n| $|$ | Header |\n| --- | --- |\n| cell | cell |\n')">
+              <button class="dropdown__item dropdown__item--single" role="menuitem" tabindex="-1" @mousedown.prevent="openInsertTableDialog()">
                 <span class="dropdown__check"></span>
                 <span class="dropdown__name">{{ t('toolbar.insertTable') }}</span>
               </button>
@@ -1386,6 +1452,67 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
 }
+.toolbar__doc-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  padding: 0 6px;
+}
+.fmt-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 2px 12px;
+  background: var(--bg-sidebar);
+  border-bottom: var(--bd-hair);
+  overflow-x: auto;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.fmt-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+  flex-shrink: 0;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.fmt-bar__btn:hover {
+  background: var(--fill-1);
+  color: var(--text);
+}
+.fmt-bar__btn:active {
+  background: var(--fill-2);
+  color: var(--text);
+}
+.fmt-bar__btn--bold { font-weight: 700; }
+.fmt-bar__btn--italic { font-style: italic; font-family: Georgia, serif; }
+.fmt-bar__btn--underline { text-decoration: underline; }
+.fmt-bar__btn--strike { text-decoration: line-through; }
+.fmt-bar__btn--mono { font-family: var(--font-mono); font-size: 11px; }
+.fmt-bar__sep {
+  width: 1px;
+  height: 16px;
+  background: var(--hairline);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
 .toolbar__actions {
   display: flex;
   align-items: center;
@@ -1424,6 +1551,17 @@ onBeforeUnmount(() => {
 .icon-btn:focus-visible {
   outline: none;
   box-shadow: var(--ring);
+}
+.toolbar--with-labels .icon-btn {
+  width: auto;
+  min-width: 32px;
+  padding: 0 8px;
+  gap: 5px;
+}
+.icon-btn__label {
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 /* Touch screens (iPad): finger-sized targets in the header. */
@@ -1661,6 +1799,12 @@ onBeforeUnmount(() => {
   color: var(--text);
   border-radius: var(--r-sm);
   cursor: default;
+}
+.dropdown__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: transparent;
 }
 .dropdown__item:hover,
 .dropdown__item:focus-visible {

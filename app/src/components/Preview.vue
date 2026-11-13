@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
-import { bindMermaidInteractions, initMermaid } from '../lib/mermaid-lazy';
+import { bindMermaidInteractions, renderMermaidCached } from '../lib/mermaid-lazy';
 import { mermaidThemeFor } from '../lib/themes';
 import { openRenderedLink } from '../lib/link-open';
 import { renderMarkdown, extractImageRoot } from '../lib/markdown';
@@ -176,8 +176,6 @@ function onMathKeydown(e: KeyboardEvent) {
   else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveMathEdit(); }
 }
 
-let mermaidIdSeq = 0;
-
 const renderDepsVersion = useRenderDepsVersion();
 
 const html = computed(() => {
@@ -227,36 +225,165 @@ function processPlantuml() {
   }
 }
 
+// #522 — viewport-gated mermaid rendering through the page-wide SVG cache.
+// The old loop rendered every diagram in the note, one `await` after the
+// next, as soon as the preview HTML changed: a note with dozens of diagrams
+// locked the main thread for up to a minute (each render is CPU-bound JS,
+// and a chain of already-resolved promises never hands the event loop back
+// to input or frames). Worse, the HTML is rebuilt on every keystroke in
+// split view, so those renders ran again for each character typed.
+//
+// Now an IntersectionObserver queues the diagrams near the viewport first,
+// through `renderMermaidCached` (one render at a time, yielding between
+// jobs, cached by theme+source and shared with the live editor). The rest
+// follow at low priority so the note is fully rendered well before the
+// reader reaches it and scrolling doesn't shift under them. Late renders
+// bind their own overlay handlers because the post-render pass has finished.
+let mermaidViewportObserver: IntersectionObserver | null = null;
+
+// #522 follow-up — `await processMermaid()` no longer means the diagrams are
+// in the DOM: it only *queues* them. Restoring the reading position while the
+// fences are still short <pre> placeholders clamps scrollTop to the bottom
+// of that short document, and scrollToSourceLineQuiet / onHostScroll then
+// wrote that bogus value back into the tab memory — so every subsequent open
+// landed at the end of the note and the real position was lost. Keep the
+// memory untouched until the render burst settles, then re-apply the saved
+// anchor against the final layout.
+let restoringTabScroll = false;
+let explicitLineJumped = false;
+let mermaidRenderPending = false;
+let mermaidSettleTimer: ReturnType<typeof setTimeout> | null = null;
+let userScrolledDuringRender = false;
+
+/** A wheel / key / pointer gesture means the user owns the viewport now. */
+function markMermaidUserIntent(): void {
+  userScrolledDuringRender = true;
+}
+
+/** Only persist a scroll offset once the DOM has its final height. */
+function canPersistScrollMemory(): boolean {
+  return !restoringTabScroll && (!mermaidRenderPending || userScrolledDuringRender);
+}
+
+/**
+ * Debounced re-restore once the render queue goes quiet. Every finished
+ * diagram refreshes the timer; the last one leaves the document at its final
+ * height, which is the only moment a saved pixel / line anchor is meaningful.
+ */
+function scheduleMermaidScrollRestore(): void {
+  if (mermaidSettleTimer) clearTimeout(mermaidSettleTimer);
+  mermaidSettleTimer = setTimeout(() => {
+    mermaidSettleTimer = null;
+    mermaidRenderPending = false;
+    if (!props.tabId || explicitLineJumped || userScrolledDuringRender) return;
+    if (!(previewScrollMemory.has(props.tabId) || tabTopLineMemory.has(props.tabId))) return;
+    restoreTabScroll(props.tabId);
+  }, 120);
+}
+
 async function processMermaid() {
   if (!host.value) return;
   const blocks = host.value.querySelectorAll('pre > code.language-mermaid');
   if (!blocks.length) return;   // a note without diagrams never loads mermaid
-  const mermaid = await initMermaid({
-    startOnLoad: false,
-    securityLevel: 'strict',
-    theme: mermaidThemeFor(settings.theme),
-  });
+  const theme = mermaidThemeFor(settings.theme);
+
+  const renderOne = async (pre: HTMLElement, front: boolean) => {
+    try {
+      const codeEl = pre.querySelector('code.language-mermaid');
+      const code = (codeEl?.textContent || pre.textContent || '').trim();
+      const result = await renderMermaidCached(theme, code, { front });
+      // The HTML may have been rebuilt while this job waited in the queue; a
+      // detached <pre> belongs to the old DOM and must not be touched.
+      if (!pre.isConnected) return;
+      if (result.svg) {
+        const wrap = document.createElement('div');
+        wrap.className = 'mermaid-block';
+        // Keep the source so a theme switch can re-render this diagram.
+        wrap.dataset.mermaidSource = code;
+        wrap.innerHTML = result.svg;
+        bindMermaidInteractions(wrap, result.bindFunctions);
+        pre.replaceWith(wrap);
+        // Idempotent via dataset.overlayBound, like every other attach pass.
+        attachImageOverlayHandlers();
+      } else {
+        const err = document.createElement('pre');
+        err.className = 'mermaid-error';
+        err.textContent = `Mermaid error: ${result.error ?? 'unknown error'}`;
+        pre.replaceWith(err);
+      }
+    } finally {
+      // Each finished diagram changes the document height. Refresh the
+      // settle window; the last one triggers the final scroll restore.
+      scheduleMermaidScrollRestore();
+    }
+  };
+
+  // Claim the blocks; the claim also makes re-entrant processMermaid calls
+  // (theme switch, PlantUML toggle) skip work already queued for this DOM.
+  const targets: HTMLElement[] = [];
   for (const block of Array.from(blocks)) {
     const pre = block.parentElement as HTMLElement | null;
     if (!pre || pre.dataset.rendered === '1') continue;
-    const code = (block.textContent || '').trim();
-    const id = `mmd-${++mermaidIdSeq}`;
-    try {
-      const { svg, bindFunctions } = await mermaid.render(id, code);
-      const wrap = document.createElement('div');
-      wrap.className = 'mermaid-block';
-      // Keep the source so a theme switch can re-render this diagram.
-      wrap.dataset.mermaidSource = code;
-      wrap.innerHTML = svg;
-      pre.replaceWith(wrap);
-      bindMermaidInteractions(wrap, bindFunctions);
-    } catch (e) {
-      const err = document.createElement('pre');
-      err.className = 'mermaid-error';
-      err.textContent = `Mermaid error: ${(e as Error).message}`;
-      pre.replaceWith(err);
-    }
+    pre.dataset.rendered = '1';
+    targets.push(pre);
   }
+  if (!targets.length) {
+    // Nothing new to render: still let a previous burst's pending flag clear.
+    scheduleMermaidScrollRestore();
+    return;
+  }
+  // From here until the render queue settles the document is still growing;
+  // never let a restore against the placeholder DOM overwrite the memory.
+  mermaidRenderPending = true;
+
+  // A new render pass invalidates whatever the previous one was watching.
+  mermaidViewportObserver?.disconnect();
+
+  // One render per DOM node, even when both the viewport observer and the
+  // background pass claim it. Whichever fires first sets the priority.
+  const queueRender = (pre: HTMLElement, front: boolean) => {
+    if (pre.dataset.mermaidQueued === '1') return;
+    pre.dataset.mermaidQueued = '1';
+    void renderOne(pre, front);
+  };
+
+  // Old WebViews without IntersectionObserver simply take the background
+  // path for every block — still serialised, still interruptible.
+  if (typeof IntersectionObserver === 'undefined') {
+    mermaidViewportObserver = null;
+    for (const pre of targets) queueRender(pre, false);
+    return;
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      // A newer render pass (theme switch, source edit) already disconnected
+      // this observer; any records still queued belong to the old DOM.
+      if (mermaidViewportObserver !== observer) return;
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const pre = entry.target as HTMLElement;
+        observer.unobserve(pre);
+        queueRender(pre, true);
+      }
+    },
+    // root: null (the window) is deliberate: it keeps working when the
+    // scrolling container is the pane, the window, or anything else, because
+    // scrolling the pane moves the blocks relative to the window too.
+    { root: null, rootMargin: '500px 0px' },
+  );
+  mermaidViewportObserver = observer;
+  for (const pre of targets) observer.observe(pre);
+
+  // Low-priority fill of everything the viewport hasn't claimed. The short
+  // delay lets the observer deliver its initial entries first (so visible
+  // diagrams own the front of the queue); cached hits resolve immediately,
+  // so re-renders on each keystroke cost no mermaid work at all. A hidden or
+  // never-visible pane still gets all of its diagrams this way.
+  setTimeout(() => {
+    if (mermaidViewportObserver !== observer) return; // a newer pass took over
+    for (const pre of targets) queueRender(pre, false);
+  }, 150);
 }
 
 // v4.6 F7 — render ```tldraw fences as static board thumbnails in the preview.
@@ -288,43 +415,50 @@ async function processWhiteboards() {
     const fence = fences[idx];
     const wrap = document.createElement('div');
     wrap.className = 'whiteboard-block';
-    const makeEditable = (svg: string) => {
-      wrap.innerHTML = svg;
-      // Only the editor preview can write back — read-only skins (slideshow,
-      // export) omit tabId, so the thumbnail stays a static image there.
-      if (fence && props.tabId) {
-        wrap.classList.add('whiteboard-block--clickable');
-        wrap.setAttribute('role', 'button');
-        wrap.setAttribute('tabindex', '0');
-        wrap.title = t('whiteboard.openFull');
-        const openFull = () => {
-          window.dispatchEvent(
-            new CustomEvent('solomd:whiteboard-open', {
-              detail: { boardId: fence.boardId, tabId: props.tabId, snapshot: fence.snapshot },
-            }),
-          );
-        };
-        wrap.addEventListener('click', openFull);
-        wrap.addEventListener('keydown', (ev) => {
-          if (ev.key === 'Enter' || ev.key === ' ') {
-            ev.preventDefault();
-            openFull();
-          }
-        });
-      }
+    const attachEditButton = () => {
+      if (!fence || !props.tabId) return;
+      wrap.classList.add('whiteboard-block--clickable');
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.title = t('whiteboard.openFull');
+      const openFull = () => {
+        window.dispatchEvent(
+          new CustomEvent('solomd:whiteboard-open', {
+            detail: { boardId: fence.boardId, tabId: props.tabId, snapshot: fence.snapshot },
+          }),
+        );
+      };
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'whiteboard-block__edit-btn';
+      editBtn.textContent = settings.language?.startsWith('zh') ? '✎ 编辑绘图' : '✎ Edit Drawing';
+      editBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openFull();
+      });
+      wrap.appendChild(editBtn);
+      wrap.addEventListener('click', openFull);
+      wrap.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          openFull();
+        }
+      });
     };
     try {
       const svg = await boardToSvg(snapshot, theme);
       if (svg) {
-        makeEditable(svg);
+        wrap.innerHTML = svg;
       } else {
         wrap.classList.add('whiteboard-block--empty');
         wrap.textContent = t('whiteboard.empty');
       }
+      attachEditButton();
       pre.replaceWith(wrap);
     } catch {
       wrap.classList.add('whiteboard-block--empty');
       wrap.textContent = t('whiteboard.loadFailed');
+      attachEditButton();
       pre.replaceWith(wrap);
     }
   }
@@ -460,9 +594,8 @@ async function copyDiagramPng(svg: SVGElement) {
 
 // #456 / #406 — Remember per-tab reading scroll offset in Preview / Reading
 // mode via shared `previewScrollMemory` & `tabTopLineMemory` so switching tabs
-// or view modes restores each document's reading position.
-let restoringTabScroll = false;
-let explicitLineJumped = false;
+// or view modes restores each document's reading position. The flags live
+// with the mermaid render state above because the render pass needs them.
 
 function scrollToSourceLineQuiet(line: number, offsetTop?: number): boolean {
   const article = host.value;
@@ -503,7 +636,9 @@ function scrollToSourceLineQuiet(line: number, offsetTop?: number): boolean {
   const desiredOffset = typeof offsetTop === 'number' ? Math.max(0, offsetTop) : TOP_GAP;
   const delta = targetRect.top + inBlockOffset - container.getBoundingClientRect().top;
   container.scrollTop = Math.max(0, container.scrollTop + delta - desiredOffset);
-  previewScrollMemory.set(props.tabId || '', container.scrollTop);
+  if (canPersistScrollMemory()) {
+    previewScrollMemory.set(props.tabId || '', container.scrollTop);
+  }
   return true;
 }
 
@@ -530,6 +665,14 @@ watch(
   () => props.tabId,
   async (newId, oldId) => {
     if (newId === oldId) return;
+    // A tab switch is an explicit navigation: the user has not touched the
+    // new viewport yet, so the post-render restore is allowed again. Clearing
+    // the outline-jump flag too matters — it otherwise stays true for the
+    // whole component lifetime and would suppress the settle restore for
+    // every tab opened afterwards.
+    userScrolledDuringRender = false;
+    mermaidRenderPending = false;
+    explicitLineJumped = false;
     await nextTick();
     restoreTabScroll(newId);
   },
@@ -582,8 +725,74 @@ function handleLinkClick(e: MouseEvent) {
   openRenderedLink(anchor, e, props.filePath);
 }
 
+// #377 — Bidirectional hover block highlight in Split View mode.
+let hoveredPreviewBlock: HTMLElement | null = null;
+function setHoveredPreviewBlock(el: HTMLElement | null) {
+  if (hoveredPreviewBlock === el) return;
+  hoveredPreviewBlock?.classList.remove('preview-split-hover');
+  hoveredPreviewBlock = el;
+  hoveredPreviewBlock?.classList.add('preview-split-hover');
+}
+
+function onPreviewMouseOver(e: MouseEvent) {
+  if (settings.viewMode !== 'split') {
+    setHoveredPreviewBlock(null);
+    return;
+  }
+  const block = (e.target as HTMLElement | null)?.closest?.(
+    '[data-source-line]',
+  ) as HTMLElement | null;
+  setHoveredPreviewBlock(block);
+  const line = block ? Number(block.getAttribute('data-source-line') || 0) : 0;
+  window.dispatchEvent(
+    new CustomEvent('solomd:split-hover-line', {
+      detail: { tabId: props.tabId, line, source: 'preview' },
+    }),
+  );
+}
+
+function onPreviewMouseLeave() {
+  if (!hoveredPreviewBlock) return;
+  setHoveredPreviewBlock(null);
+  window.dispatchEvent(
+    new CustomEvent('solomd:split-hover-line', {
+      detail: { tabId: props.tabId, line: 0, source: 'preview' },
+    }),
+  );
+}
+
+function onSplitHoverEvent(e: Event) {
+  const detail = (
+    e as CustomEvent<{ tabId?: string; line: number; source: 'editor' | 'preview' }>
+  ).detail;
+  if (!detail || detail.source === 'preview') return;
+  if (detail.tabId && props.tabId && detail.tabId !== props.tabId) return;
+  if (settings.viewMode !== 'split' || !detail.line || !host.value) {
+    setHoveredPreviewBlock(null);
+    return;
+  }
+  const nodes = Array.from(
+    host.value.querySelectorAll<HTMLElement>('[data-source-line]'),
+  );
+  if (!nodes.length) {
+    setHoveredPreviewBlock(null);
+    return;
+  }
+  let best = nodes[0];
+  for (const node of nodes) {
+    const ln = Number(node.getAttribute('data-source-line') || 0);
+    if (ln <= detail.line) best = node;
+    else break;
+  }
+  setHoveredPreviewBlock(best);
+}
+
 onMounted(async () => {
   await nextTick();
+  const scrollHost = host.value?.parentElement as HTMLElement | null;
+  for (const ev of ['wheel', 'pointerdown', 'touchstart', 'keydown'] as const) {
+    scrollHost?.addEventListener(ev, markMermaidUserIntent, { passive: true });
+  }
   if (props.tabId && (previewScrollMemory.has(props.tabId) || tabTopLineMemory.has(props.tabId))) {
     restoreTabScroll(props.tabId);
   }
@@ -593,22 +802,37 @@ onMounted(async () => {
   attachImageOverlayHandlers();
   attachCodeCopyButtons();
   enableTaskCheckboxes();
-  if (
-    props.tabId &&
-    !explicitLineJumped &&
-    (previewScrollMemory.has(props.tabId) || tabTopLineMemory.has(props.tabId))
-  ) {
-    restoreTabScroll(props.tabId);
-  }
+  // #522 — deliberately no restore here. processMermaid() only queued the
+  // renders, so the DOM is still short placeholders at this point. The saved
+  // anchor is re-applied by scheduleMermaidScrollRestore() once the SVGs have
+  // landed and the document has its final height.
   host.value?.addEventListener('click', handleLinkClick);
   host.value?.addEventListener('click', onTaskCheckboxClick);
   host.value?.addEventListener('dblclick', onPreviewDblClick);
+  host.value?.addEventListener('mouseover', onPreviewMouseOver);
+  host.value?.addEventListener('mouseleave', onPreviewMouseLeave);
+  window.addEventListener('solomd:split-hover-line', onSplitHoverEvent);
 });
 
 onBeforeUnmount(() => {
   host.value?.removeEventListener('click', handleLinkClick);
   host.value?.removeEventListener('click', onTaskCheckboxClick);
   host.value?.removeEventListener('dblclick', onPreviewDblClick);
+  host.value?.removeEventListener('mouseover', onPreviewMouseOver);
+  host.value?.removeEventListener('mouseleave', onPreviewMouseLeave);
+  window.removeEventListener('solomd:split-hover-line', onSplitHoverEvent);
+  const scrollHost = host.value?.parentElement as HTMLElement | null;
+  for (const ev of ['wheel', 'pointerdown', 'touchstart', 'keydown'] as const) {
+    scrollHost?.removeEventListener(ev, markMermaidUserIntent);
+  }
+  if (mermaidSettleTimer) {
+    clearTimeout(mermaidSettleTimer);
+    mermaidSettleTimer = null;
+  }
+  mermaidRenderPending = false;
+  // #522 — stop watching diagram fences nobody will scroll to any more.
+  mermaidViewportObserver?.disconnect();
+  mermaidViewportObserver = null;
 });
 
 function openSearch() {
@@ -681,7 +905,7 @@ function flashTarget(el: HTMLElement) {
 // (plus the jump gap), at most once per frame.
 let toplineRaf = 0;
 function onHostScroll() {
-  if (props.tabId && !restoringTabScroll) {
+  if (props.tabId && canPersistScrollMemory()) {
     const container = host.value?.parentElement as HTMLElement | null;
     if (container) {
       previewScrollMemory.set(props.tabId, container.scrollTop);
@@ -700,7 +924,7 @@ function onHostScroll() {
       line = Number(el.getAttribute('data-source-line') || 0) || line;
     }
     const topLine = line || 1;
-    if (props.tabId && !restoringTabScroll) {
+    if (props.tabId && canPersistScrollMemory()) {
       tabTopLineMemory.set(props.tabId, topLine);
     }
     emit('topline', topLine);
@@ -984,33 +1208,42 @@ defineExpose({ scrollToLine, openSearch });
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
+:where(.preview-content) dl {
+  margin: 0.9em 0;
+}
+:where(.preview-content) dt {
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 0.7em;
+}
+:where(.preview-content) dt:first-child {
+  margin-top: 0;
+}
+:where(.preview-content) dd {
+  margin: 0.25em 0 0.55em 1.5em;
+  padding-left: 0.65em;
+  border-left: 2px solid var(--border);
+  color: var(--text-2);
+}
 :where(.preview-content) table {
   border-collapse: collapse;
   margin: 1em 0;
-}
-:where(.preview-content--fit) table {
   width: 100%;
-}
-/* #367 — a table wider than the column scrolls on its own instead of
-   pushing the whole preview sideways (where the headings and prose scroll
-   away with it). `display: block` + `max-content` is the GitHub recipe: a
-   narrow table still sizes to its content, a wide one is capped at the column
-   and gets its own horizontal scrollbar. On screen only and only in the
-   preview pane — print/PDF overlays reuse `.preview-content` and must not
-   clip. Fit-width mode keeps its full-width tables (the block box would stop
-   them stretching); there the pane itself still scrolls. */
-@media screen {
-  .preview-host .preview-content:not(.preview-content--fit) table {
-    display: block;
-    width: max-content;
-    max-width: 100%;
-    overflow-x: auto;
-  }
+  max-width: 100%;
 }
 :where(.preview-content) th,
 :where(.preview-content) td {
   border: 1px solid var(--border);
   padding: 6px 12px;
+  overflow-wrap: break-word;
+}
+:where(.preview-content) th::after,
+:where(.preview-content) td::after {
+  content: '\00a0';
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  visibility: hidden;
 }
 :where(.preview-content) hr {
   border: none;
@@ -1028,7 +1261,7 @@ defineExpose({ scrollToLine, openSearch });
 }
 :where(.preview-content) .mermaid-block {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   margin: 1.5em 0;
   cursor: zoom-in;
   transition: opacity 0.15s;
@@ -1271,5 +1504,10 @@ defineExpose({ scrollToLine, openSearch });
   opacity: 0.6;
   font-size: 11px;
   margin-left: 2px;
+}
+:where(.preview-content) .preview-split-hover {
+  background: color-mix(in srgb, var(--accent-soft) 32%, transparent);
+  border-radius: 4px;
+  transition: background 0.12s ease;
 }
 </style>

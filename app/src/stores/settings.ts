@@ -43,6 +43,75 @@ export function buildEditorFontStack(face: string): string {
  *  YaHei on Windows via buildEditorFontStack's CJK tail. */
 export const DEFAULT_EDITOR_FONT = '-apple-system, "Segoe UI", system-ui, sans-serif';
 
+export interface SyncVaultEntry {
+  id: string;
+  name: string;
+  localPath: string;
+  enabled: boolean;
+}
+
+function normalizeVaultPath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+export function isPathInsideFolder(fileOrDirPath: string, folderPath: string): boolean {
+  const f = normalizeVaultPath(fileOrDirPath);
+  const d = normalizeVaultPath(folderPath);
+  if (!f || !d) return false;
+  return f === d || f.startsWith(`${d}/`);
+}
+
+/**
+ * #531 — Resolve which Vault folder (if any) owns `filePath` or `currentFolder`
+ * for auto-sync and save-triggered sync:
+ * 1. If `filePath` is inside a registered enabled Vault in `syncVaults`, return
+ *    that Vault's `localPath` (even if `currentFolder` is a different folder or null).
+ * 2. If `syncOnlyRegisteredVaults` is enabled (or `syncVaults` has entries and
+ *    `syncOnlyRegisteredVaults` is true), only registered enabled Vaults can sync;
+ *    files or folders outside registered Vaults return `null`.
+ * 3. Otherwise, if `filePath` is provided, only return `currentFolder` when
+ *    `filePath` is actually inside `currentFolder` (saving an external file on
+ *    Desktop/Downloads never triggers workspace sync).
+ */
+export function resolveSyncTargetFolder(
+  filePath: string | undefined,
+  currentFolder: string | null | undefined,
+  syncVaults: SyncVaultEntry[] = [],
+  syncOnlyRegisteredVaults = false,
+): string | null {
+  const validVaults = (syncVaults || []).filter((v) => v && v.localPath?.trim());
+  const enabledVaults = validVaults.filter((v) => v.enabled);
+  if (filePath) {
+    // Match the most specific (longest path) registered vault containing filePath
+    const matchingVaults = validVaults
+      .filter((v) => isPathInsideFolder(filePath, v.localPath))
+      .sort((a, b) => b.localPath.length - a.localPath.length);
+    if (matchingVaults.length > 0) {
+      return matchingVaults[0].enabled ? matchingVaults[0].localPath : null;
+    }
+    if (syncOnlyRegisteredVaults || validVaults.length > 0) {
+      return null;
+    }
+    if (currentFolder && isPathInsideFolder(filePath, currentFolder)) {
+      return currentFolder;
+    }
+    return null;
+  }
+  if (currentFolder) {
+    const matchingVaults = validVaults
+      .filter((v) => isPathInsideFolder(currentFolder, v.localPath))
+      .sort((a, b) => b.localPath.length - a.localPath.length);
+    if (matchingVaults.length > 0) {
+      return matchingVaults[0].enabled ? matchingVaults[0].localPath : null;
+    }
+    if (syncOnlyRegisteredVaults || enabledVaults.length > 0 || validVaults.length > 0) {
+      return null;
+    }
+    return currentFolder;
+  }
+  return null;
+}
+
 interface Settings {
   theme: Theme;
   /** D6 — follow the OS light/dark appearance. While on, `theme` holds the
@@ -61,10 +130,17 @@ interface Settings {
   solidCursor: boolean;
   // 5.0 — floating format bar over a text selection (desktop only).
   selectionBubble: boolean;
+  // 5.0 — the formatting toolbar above the editor (bold, headings, lists,
+  // code, links, images, tables, undo). Default ON.
+  formatBar: boolean;
   // #353 — keep Markdown markers (`#`, `**`, …) visible in the CodeMirror
   // live views instead of hiding them off the caret line, so clicking a line
   // doesn't reflow it. Styling (heading size, bold) still applies.
   alwaysShowMarkers: boolean;
+  // Separate toggle for block-level live rendering (tables, Mermaid, PlantUML,
+  // math blocks, etc.): when true (default), table and diagram source code is
+  // hidden/collapsed into rendered widgets even if `alwaysShowMarkers` is on.
+  collapseBlockSource: boolean;
   // #344 — tint the caret line's background in the CodeMirror editor.
   highlightCurrentLine: boolean;
   /** Use the document's first non-empty line as the tab title instead of the
@@ -126,12 +202,23 @@ interface Settings {
    *  Windows menubar) stays. Where the OS draws the title bar, the whole
    *  toolbar goes. */
   toolbarHidden: boolean;
+  /** #208: hide the in-window top menubar (`File Edit Paragraph ...`) on
+   *  custom-titlebar platforms (Windows). */
+  hideMenuBar: boolean;
+  /** #318: show text labels next to toolbar icons (icon + label mode). */
+  toolbarShowLabels: boolean;
+  /** #479: hide the top mobile status-bar reservation for full-screen immersion. */
+  mobileHideStatusBar: boolean;
   typewriterMode: boolean;
   /** One-time tips when Markdown formatting is typed by hand (useFormatHints). */
   formatHints: boolean;
   /** Hint keys already shown — `bold`, `heading`, … Never shown twice. */
   formatHintsSeen: string[];
   vimMode: boolean;
+  /** #492: automatically switch to ASCII input method on Vim Normal mode and restore on Insert mode. */
+  vimAutoSwitchIm: boolean;
+  /** #492: user-defined .vimrc mappings (e.g. `inoremap jj <Esc>`, `nnoremap H ^`). */
+  vimrc: string;
   /** Windows only: 'auto' (default — CodeMirror on WebView2 154+, the
    *  IME-safe native textarea below that), 'native' or 'codemirror' (#328,
    *  #344). Vim mode forces CodeMirror regardless. Ignored elsewhere. */
@@ -246,13 +333,29 @@ interface Settings {
   aiEnabled: boolean;
   aiProvider: string;
   aiModel: string;
+  aiModels: Record<string, string>;
   aiBaseUrl: string;
+  // #327: Optional custom background, text, highlight & active-line color overrides for light and dark theme families.
+  customBgLight: string;
+  customTextLight: string;
+  customBgDark: string;
+  customTextDark: string;
+  customHighlightLight: string;
+  customHighlightDark: string;
+  customActiveLineLight: string;
+  customActiveLineDark: string;
+  // #415 / #497: Optional persistent Markdown formatting toolbar row.
+  showFormattingBar: boolean;
+  // #519: Optional dedicated full-width row for the tab bar instead of sharing the header row.
+  separateTabBarRow: boolean;
   // v2.0 F5: Pandoc + citations
   workspaceBibliography: string;
   workspaceCsl: string;
   // v2.2: AutoGit per-note version history
   autoGitEnabled: boolean;
   autoGitDebounceSeconds: number;
+  /** #129: generate concise AI commit messages for AutoGit snapshots when AI is configured. */
+  autoGitAiMessage: boolean;
   /** Show the History pane in the right sidebar. v4.0.2: decoupled from
    *  autoGitEnabled so users can hide just the panel without disabling git
    *  sync entirely (issue #55 — Agent + History fighting for vertical space
@@ -291,18 +394,41 @@ interface Settings {
   webdavEncrypted: boolean;
   webdavPassphrase: string;
   webdavAutoSync: boolean;
-  // Local personal cloud drive encrypted backup & sync directory (百度网盘 / 阿里云盘 / 夸克网盘 / OneDrive / iCloud / 坚果云).
+  webdavAutoSubdir: boolean;
+  webdavCategorizeFiles: boolean;
+  // Local personal cloud drive backup & sync directory (百度网盘 / 阿里云盘 / 夸克网盘 / OneDrive / iCloud / 坚果云).
   cloudVaultDir: string;
   cloudVaultPassphrase: string;
   cloudVaultAutoSync: boolean;
-  // Direct Personal Cloud Drive OpenAPI encrypted backup & sync (百度网盘 OpenAPI / 阿里云盘 OpenAPI / OneDrive / Dropbox).
-  cloudApiProvider: 'baidu' | 'alipan' | 'onedrive' | 'dropbox';
+  cloudVaultEncrypted: boolean;
+  cloudVaultAutoSubdir: boolean;
+  cloudVaultCategorizeFiles: boolean;
+  // Direct Personal Cloud Drive OpenAPI backup & sync (百度网盘 / 阿里云盘 / OneDrive / Dropbox / Google Drive / Cloudflare R2).
+  cloudApiProvider: 'baidu' | 'alipan' | 'onedrive' | 'dropbox' | 'gdrive' | 'r2';
   cloudApiToken: string;
   cloudApiClientId: string;
   cloudApiClientSecret: string;
   cloudApiRemotePath: string;
   cloudApiPassphrase: string;
   cloudApiAutoSync: boolean;
+  cloudApiSyncMode: 'folder' | 'bundle';
+  cloudApiEncrypted: boolean;
+  cloudApiAutoSubdir: boolean;
+  cloudApiCategorizeFiles: boolean;
+  cloudR2Endpoint: string;
+  cloudR2Bucket: string;
+  cloudR2AccessKeyId: string;
+  cloudR2SecretAccessKey: string;
+  // Local & Cloud Sync version snapshot retention settings
+  syncMaxVersions: number;
+  autoSnapshotOnSave: boolean;
+  // #531 — Registered sync vaults ("笔记库管理") so auto-sync only runs for
+  // designated vault folders and saving an external file never triggers sync.
+  syncVaults: SyncVaultEntry[];
+  syncOnlyRegisteredVaults: boolean;
+  // #535 / #359 / #505 — Custom export dialog remembered directory & format.
+  lastCustomExportDir: string;
+  lastCustomExportFormat: 'pdf' | 'html' | 'docx' | 'png' | 'textpack';
   // v2.5 F2: writing stats — show the per-doc word/char goal pill in the
   // status bar. Off-by-default-ish: the pill stays inert unless the doc's
   // YAML front matter sets a `goal:` key, so this toggle is a hard kill
@@ -461,6 +587,9 @@ interface Settings {
   /** #347 — one-time: a saved `pdfDefaults.pageSize` of `A4` from before
    *  `Auto` existed was the untouched default, not a choice. */
   pdfPageSizeAutoMigrated: boolean;
+  /** #515 — one-time: `pdfDefaults.toc` used to default to `false` and is
+   *  stored inside the whole `pdfDefaults` blob. Flip it on once. */
+  pdfTocDefaultOnMigrated: boolean;
   // Promote plain numbered-section lines (`6.2 出口许可证管理目录`,
   // `6.2.1 …`) to headings whose level tracks the numbering depth. Off by
   // default — the promotion is heuristic (a line opening with a decimal like
@@ -487,7 +616,7 @@ interface Settings {
    *    changes). Better when notes get reshuffled often; clutters the file
    *    tree if every note has images. Issue: user feedback 2026-05-26.
    */
-  attachmentMode: 'shared' | 'per-file' | 'custom';
+  attachmentMode: 'shared' | 'per-file' | 'custom' | 'base64';
   // #7 (顾河) — Typora-style custom path template for `custom` attachment mode.
   // Supports `${filename}` (the note's name without extension). Relative
   // templates (`./images/${filename}/`, `assets/`) resolve against the note's
@@ -602,7 +731,7 @@ export function defaultPdfDefaults(): PdfDefaults {
     fontSize: 11,
     footer: true,
     codeTheme: 'preview',
-    toc: false,
+    toc: true,
   };
 }
 
@@ -655,7 +784,9 @@ function defaults(): Settings {
     showLineNumbers: false,
     solidCursor: false,
     selectionBubble: true,
+    formatBar: false,
     alwaysShowMarkers: false,
+    collapseBlockSource: true,
     highlightCurrentLine: true,
     tabTitleFromFirstLine: false,
     confirmSaveMissingFile: false,
@@ -684,10 +815,15 @@ function defaults(): Settings {
     spellCheck: true,
     focusMode: false,
     toolbarHidden: false,
+    hideMenuBar: false,
+    toolbarShowLabels: false,
+    mobileHideStatusBar: false,
     typewriterMode: false,
     formatHints: true,
     formatHintsSeen: [],
     vimMode: false,
+    vimAutoSwitchIm: true,
+    vimrc: '',
     windowsEditorEngine: 'auto',
     windowsEditorEngineExplicit: false,
     uiFontSize: 13,
@@ -754,11 +890,23 @@ function defaults(): Settings {
     aiEnabled: false,
     aiProvider: 'openai',
     aiModel: '',
+    aiModels: {},
     aiBaseUrl: '',
+    customBgLight: '',
+    customTextLight: '',
+    customBgDark: '',
+    customTextDark: '',
+    customHighlightLight: '',
+    customHighlightDark: '',
+    customActiveLineLight: '',
+    customActiveLineDark: '',
+    showFormattingBar: true,
+    separateTabBarRow: false,
     workspaceBibliography: '',
     workspaceCsl: '',
     autoGitEnabled: false,
     autoGitDebounceSeconds: 30,
+    autoGitAiMessage: false,
     showHistoryPanel: true,
     showInspector: false,
     rightSidebarPaneHeights: {},
@@ -777,9 +925,14 @@ function defaults(): Settings {
     webdavEncrypted: false,
     webdavPassphrase: '',
     webdavAutoSync: false,
+    webdavAutoSubdir: true,
+    webdavCategorizeFiles: true,
     cloudVaultDir: '',
     cloudVaultPassphrase: '',
     cloudVaultAutoSync: false,
+    cloudVaultEncrypted: false,
+    cloudVaultAutoSubdir: true,
+    cloudVaultCategorizeFiles: true,
     cloudApiProvider: 'baidu',
     cloudApiToken: '',
     cloudApiClientId: '',
@@ -787,6 +940,20 @@ function defaults(): Settings {
     cloudApiRemotePath: '/apps/SoloMD',
     cloudApiPassphrase: '',
     cloudApiAutoSync: false,
+    cloudApiSyncMode: 'folder',
+    cloudApiEncrypted: false,
+    cloudApiAutoSubdir: true,
+    cloudApiCategorizeFiles: true,
+    cloudR2Endpoint: '',
+    cloudR2Bucket: '',
+    cloudR2AccessKeyId: '',
+    cloudR2SecretAccessKey: '',
+    syncMaxVersions: 20,
+    autoSnapshotOnSave: true,
+    syncVaults: [],
+    syncOnlyRegisteredVaults: false,
+    lastCustomExportDir: '',
+    lastCustomExportFormat: 'pdf',
     showWritingStats: true,
     showWorkspaceDailyTotal: false,
     pdfDefaults: defaultPdfDefaults(),
@@ -832,6 +999,7 @@ function defaults(): Settings {
     keybindings: {},
     smartQuotesOptInMigrated: true,
     pdfPageSizeAutoMigrated: true,
+    pdfTocDefaultOnMigrated: true,
     markdownAutoNumberHeadings: false,
     rsPaneOrder: ['search', 'outline', 'backlinks', 'relationships', 'tags', 'tasks', 'neighborhood', 'types', 'history', 'inspector', 'agent'],
     previewFontSize: 16,
@@ -943,6 +1111,15 @@ function load(): Settings {
           if (isTreeSortMode(v)) merged.explorerSortByFolder[k] = v;
         }
       }
+      merged.aiModels = {};
+      if (parsed.aiModels && typeof parsed.aiModels === 'object') {
+        for (const [k, v] of Object.entries(parsed.aiModels)) {
+          if (typeof v === 'string' && v.trim() !== '') merged.aiModels[k] = v;
+        }
+      }
+      if (merged.aiProvider && merged.aiModel && !merged.aiModels[merged.aiProvider]) {
+        merged.aiModels[merged.aiProvider] = merged.aiModel;
+      }
       merged.splitRatio = clampSplitRatio(merged.splitRatio);
       if (!LT_MODES.includes(merged.ltMode)) merged.ltMode = 'off';
       if (merged.ltLevel !== 'picky') merged.ltLevel = 'default';
@@ -993,6 +1170,12 @@ function load(): Settings {
         }
         merged.pdfPageSizeAutoMigrated = true;
       }
+      // #515 — `pdfDefaults.toc` used to start `false`. Turn it on once so
+      // existing installs get a table of contents by default too.
+      if (!parsed.pdfTocDefaultOnMigrated) {
+        merged.pdfDefaults = { ...merged.pdfDefaults, toc: true };
+        merged.pdfTocDefaultOnMigrated = true;
+      }
       if (!parsed.smartQuotesOptInMigrated) {
         merged.smartQuotes = false;
         merged.smartQuotesOptInMigrated = true;
@@ -1002,10 +1185,14 @@ function load(): Settings {
       // default) while the preview is still at its own old default (15) —
       // untouched installs keep their 14/15 pair unchanged.
       if (!parsed.v4810PreviewFontSynced) {
-        if ((parsed.previewFontSize ?? 15) === 15 && merged.fontSize !== 14) {
+        if ((parsed.previewFontSize ?? 15) === 15) {
           merged.previewFontSize = Math.max(10, Math.min(32, merged.fontSize));
         }
         merged.v4810PreviewFontSynced = true;
+      } else if (parsed.previewFontSize === 15 && merged.fontSize === 14) {
+        // #384 — Ensure legacy 14/15 split defaults align so Reading / Preview
+        // mode font size matches Live Edit mode out of the box.
+        merged.previewFontSize = 14;
       }
       // #148 (mobile) — one-time: existing phone installs had the right sidebar
       // on, squeezing the editor. Hide it once; desktop untouched. User can
@@ -1036,7 +1223,7 @@ function load(): Settings {
 }
 
 const THEMES: readonly Theme[] = [
-  'light', 'dark', 'nord', 'solarized-light', 'solarized-dark', 'monokai', 'github-light', 'dracula',
+  'light', 'dark', 'lucius', 'nord', 'solarized-light', 'solarized-dark', 'monokai', 'github-light', 'dracula',
 ];
 export function isTheme(v: unknown): v is Theme {
   return typeof v === 'string' && (THEMES as readonly string[]).includes(v);
@@ -1217,6 +1404,10 @@ export const useSettingsStore = defineStore('settings', {
       this.alwaysShowMarkers = !this.alwaysShowMarkers;
       this.persist();
     },
+    toggleCollapseBlockSource() {
+      this.collapseBlockSource = !this.collapseBlockSource;
+      this.persist();
+    },
     toggleHighlightCurrentLine() {
       this.highlightCurrentLine = !this.highlightCurrentLine;
       this.persist();
@@ -1352,12 +1543,12 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
     toggleLivePreview() {
-      if (this.viewMode === 'split') {
-        this.livePreview = !this.livePreview;
-        this.persist();
-        return;
+      this.livePreview = !this.livePreview;
+      if (this.viewMode !== 'split' && (this.viewMode === 'edit' || this.viewMode === 'liveEdit')) {
+        this.viewMode = this.livePreview ? 'liveEdit' : 'edit';
+        this.lastNonReadingViewMode = this.viewMode;
       }
-      this.setViewMode(this.viewMode === 'liveEdit' ? 'edit' : 'liveEdit');
+      this.persist();
     },
     toggleSpellCheck() {
       this.spellCheck = !this.spellCheck;
@@ -1369,6 +1560,18 @@ export const useSettingsStore = defineStore('settings', {
     },
     toggleToolbarHidden() {
       this.toolbarHidden = !this.toolbarHidden;
+      this.persist();
+    },
+    toggleHideMenuBar() {
+      this.hideMenuBar = !this.hideMenuBar;
+      this.persist();
+    },
+    toggleToolbarShowLabels() {
+      this.toolbarShowLabels = !this.toolbarShowLabels;
+      this.persist();
+    },
+    toggleMobileHideStatusBar() {
+      this.mobileHideStatusBar = !this.mobileHideStatusBar;
       this.persist();
     },
     toggleFormatHints() {
@@ -1385,6 +1588,14 @@ export const useSettingsStore = defineStore('settings', {
     },
     toggleVimMode() {
       this.vimMode = !this.vimMode;
+      this.persist();
+    },
+    toggleVimAutoSwitchIm() {
+      this.vimAutoSwitchIm = !this.vimAutoSwitchIm;
+      this.persist();
+    },
+    setVimrc(v: string) {
+      this.vimrc = typeof v === 'string' ? v : '';
       this.persist();
     },
     setWindowsEditorEngine(engine: WindowsEditorEngine) {
@@ -1524,11 +1735,71 @@ export const useSettingsStore = defineStore('settings', {
       this.persist();
     },
     setAiProvider(p: string) {
+      if (this.aiProvider && this.aiModel) {
+        this.aiModels = { ...(this.aiModels || {}), [this.aiProvider]: this.aiModel };
+      }
       this.aiProvider = p;
+      const savedModel = this.aiModels?.[p];
+      if (typeof savedModel === 'string' && savedModel.trim() !== '') {
+        this.aiModel = savedModel;
+      }
       this.persist();
     },
     setAiModel(m: string) {
       this.aiModel = m;
+      if (this.aiProvider) {
+        this.aiModels = { ...(this.aiModels || {}), [this.aiProvider]: m };
+      }
+      this.persist();
+    },
+    setCustomThemeColors(
+      patch: Partial<
+        Pick<
+          Settings,
+          | 'customBgLight'
+          | 'customTextLight'
+          | 'customBgDark'
+          | 'customTextDark'
+          | 'customHighlightLight'
+          | 'customHighlightDark'
+          | 'customActiveLineLight'
+          | 'customActiveLineDark'
+        >
+      >,
+    ) {
+      if (patch.customBgLight !== undefined) this.customBgLight = patch.customBgLight;
+      if (patch.customTextLight !== undefined) this.customTextLight = patch.customTextLight;
+      if (patch.customBgDark !== undefined) this.customBgDark = patch.customBgDark;
+      if (patch.customTextDark !== undefined) this.customTextDark = patch.customTextDark;
+      if (patch.customHighlightLight !== undefined) this.customHighlightLight = patch.customHighlightLight;
+      if (patch.customHighlightDark !== undefined) this.customHighlightDark = patch.customHighlightDark;
+      if (patch.customActiveLineLight !== undefined) this.customActiveLineLight = patch.customActiveLineLight;
+      if (patch.customActiveLineDark !== undefined) this.customActiveLineDark = patch.customActiveLineDark;
+      this.persist();
+    },
+    resetCustomThemeColors() {
+      this.customBgLight = '';
+      this.customTextLight = '';
+      this.customBgDark = '';
+      this.customTextDark = '';
+      this.customHighlightLight = '';
+      this.customHighlightDark = '';
+      this.customActiveLineLight = '';
+      this.customActiveLineDark = '';
+      this.persist();
+    },
+    toggleFormattingBar() {
+      this.formatBar = !this.formatBar;
+      this.showFormattingBar = this.formatBar;
+      this.persist();
+    },
+    toggleFormatBar() {
+      this.formatBar = !this.formatBar;
+      this.showFormattingBar = this.formatBar;
+      this.persist();
+    },
+    toggleSeparateTabBarRow() {
+      this.separateTabBarRow = !this.separateTabBarRow;
       this.persist();
     },
     setAiBaseUrl(u: string) {
@@ -1549,6 +1820,10 @@ export const useSettingsStore = defineStore('settings', {
       // pane no longer disables sync. Re-enabling sync surfaces the panel
       // again only if the user hasn't explicitly hidden it.
       if (this.autoGitEnabled && !this.showHistoryPanel) this.showHistoryPanel = true;
+      this.persist();
+    },
+    toggleAutoGitAiMessage() {
+      this.autoGitAiMessage = !this.autoGitAiMessage;
       this.persist();
     },
     toggleHistoryPanel() {
@@ -1603,6 +1878,49 @@ export const useSettingsStore = defineStore('settings', {
     },
     setCustomCssPath(p: string) {
       this.customCssPath = p;
+      this.persist();
+    },
+    setLastCustomExportDir(dir: string) {
+      this.lastCustomExportDir = dir;
+      this.persist();
+    },
+    setLastCustomExportFormat(fmt: 'pdf' | 'html' | 'docx' | 'png' | 'textpack') {
+      this.lastCustomExportFormat = fmt;
+      this.persist();
+    },
+    addSyncVault(localPath: string, name?: string) {
+      const trimmed = localPath.trim();
+      if (!trimmed) return;
+      const norm = trimmed.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+      if (this.syncVaults.some((v) => v.localPath.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() === norm)) {
+        return;
+      }
+      const fallbackName = trimmed.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() || trimmed;
+      this.syncVaults.push({
+        id: `vault-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: (name || fallbackName).trim(),
+        localPath: trimmed,
+        enabled: true,
+      });
+      this.syncOnlyRegisteredVaults = true;
+      this.persist();
+    },
+    removeSyncVault(id: string) {
+      this.syncVaults = this.syncVaults.filter((v) => v.id !== id);
+      if (this.syncVaults.length === 0) {
+        this.syncOnlyRegisteredVaults = false;
+      }
+      this.persist();
+    },
+    toggleSyncVault(id: string) {
+      const v = this.syncVaults.find((x) => x.id === id);
+      if (v) {
+        v.enabled = !v.enabled;
+        this.persist();
+      }
+    },
+    toggleSyncOnlyRegisteredVaults() {
+      this.syncOnlyRegisteredVaults = !this.syncOnlyRegisteredVaults;
       this.persist();
     },
     togglePreviewFitWidth() {
@@ -1832,9 +2150,15 @@ export const useSettingsStore = defineStore('settings', {
     resetPreviewFontSize() { this.setPreviewFontSize(defaults().previewFontSize); },
     /** v4.3.5 — flip between `shared` (`_assets/`) and `per-file`
      *  (`<basename>.assets/`) attachment storage layouts. */
-    setAttachmentMode(mode: 'shared' | 'per-file' | 'custom') {
+    setAttachmentMode(mode: 'shared' | 'per-file' | 'custom' | 'base64') {
       this.attachmentMode =
-        mode === 'per-file' ? 'per-file' : mode === 'custom' ? 'custom' : 'shared';
+        mode === 'per-file'
+          ? 'per-file'
+          : mode === 'custom'
+            ? 'custom'
+            : mode === 'base64'
+              ? 'base64'
+              : 'shared';
       this.persist();
     },
     setDefaultExportDir(dir: string) {

@@ -16,7 +16,12 @@ import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 
-import { findTableCellOffsetInLine, liveBlocksExtension } from './cm-live-blocks.ts';
+import {
+  findTableCellOffsetInLine,
+  liveBlocksExtension,
+  toggleMermaidFoldEffect,
+  toggleTableFoldEffect,
+} from './cm-live-blocks.ts';
 import { dragAwareExtension, dragStartEffect, dragEndEffect } from './cm-drag-aware.ts';
 import { extractImageReferenceDefinitions, findMarkdownImagesInLine } from './md-image-url.ts';
 
@@ -279,6 +284,101 @@ test('#504: findTableCellOffsetInLine locates exact column offsets in Markdown t
   const emptyCellPos = findTableCellOffsetInLine(edgeLine, 1, 0.5);
   assert.ok(emptyCellPos > secondPipe && emptyCellPos <= thirdPipe);
   assert.equal(findTableCellOffsetInLine(edgeLine, 2, 0), edgeLine.indexOf('第三列'));
+
+  // Outer-pipeless GFM table row (T08-6)
+  const noOuterPipe = '无首尾管道 | 2 | 3';
+  assert.equal(findTableCellOffsetInLine(noOuterPipe, 0, 0), 0);
+  assert.equal(findTableCellOffsetInLine(noOuterPipe, 1, 0), noOuterPipe.indexOf('2'));
+  assert.equal(findTableCellOffsetInLine(noOuterPipe, 2, 0), noOuterPipe.indexOf('3'));
+});
+
+test('#500: liveBlocksExtension renders outer-pipeless tables, header-only tables, 1-2 dash delimiters, and splits adjacent tables', () => {
+  const doc = [
+    'cursor line',
+    '',
+    'A | B | C',
+    '--- | :---: | ---',
+    '无首尾管道 | 2 | 3',
+    '',
+    '| 空表 | 只有表头 |',
+    '| :--- | ---: |',
+    '',
+    '| 变体A | 变体B | 变体C |',
+    '| :-- | --: | :-: |',
+    '| 1 | 2 | 3 |',
+    '',
+    '| 表一 | 列 |',
+    '| --- | --- |',
+    '| A | 1 |',
+    '| 表二 | 列 |',
+    '| --- | --- |',
+    '| B | 2 |',
+  ].join('\n');
+  const state = EditorState.create({
+    doc,
+    extensions: [
+      markdown({ base: markdownLanguage, addKeymap: false }),
+      liveBlocksExtension(),
+    ],
+    selection: { anchor: 0 },
+  });
+  const tableRanges: Array<[number, number]> = [];
+  for (const set of state.facet(EditorView.decorations)) {
+    set.between(0, state.doc.length, (from, to, deco) => {
+      const w = (deco.spec as { widget?: { constructor: { name: string } } }).widget;
+      if (w?.constructor.name === 'TableWidget') {
+        tableRanges.push([state.doc.lineAt(from).number, state.doc.lineAt(to).number]);
+      }
+    });
+  }
+  assert.deepEqual(tableRanges, [
+    [3, 5],   // T08-6 outer-pipeless table
+    [7, 8],   // T08-5 header-only table
+    [10, 12], // T08-7 2-dash delimiter table
+    [14, 16], // T09-5 adjacent table 1
+    [17, 19], // T09-5 adjacent table 2
+  ]);
+});
+
+test('#500: liveBlocksExtension ignores tables inside fenced code blocks past 4KB and dedents 4-space list tables', () => {
+  const padding = Array.from({ length: 120 }, (_, i) => `Paragraph line ${i + 1} with filler text to exceed 4KB initial Lezer parse budget.`).join('\n\n');
+  const doc = [
+    'cursor line',
+    '',
+    '- 列表项二',
+    '',
+    '    | 列A | 列B |',
+    '    | --- | --- |',
+    '    | 缩进 | 4 空格 |',
+    '',
+    padding,
+    '',
+    '```markdown',
+    '| 假表格 | 列 |',
+    '| --- | --- |',
+    '| 应保持 | 源码文本 |',
+    '```',
+  ].join('\n');
+  const state = EditorState.create({
+    doc,
+    extensions: [
+      markdown({ base: markdownLanguage, addKeymap: false }),
+      liveBlocksExtension(),
+    ],
+    selection: { anchor: 0 },
+  });
+  const tableWidgets: Array<{ fromLine: number; source: string }> = [];
+  for (const set of state.facet(EditorView.decorations)) {
+    set.between(0, state.doc.length, (from, _to, deco) => {
+      const w = (deco.spec as { widget?: { constructor: { name: string }; source?: string } }).widget;
+      if (w?.constructor.name === 'TableWidget') {
+        tableWidgets.push({ fromLine: state.doc.lineAt(from).number, source: w.source ?? '' });
+      }
+    });
+  }
+  // Only the list-indented table at line 5 should become a TableWidget; the fenced table past 4KB must stay code.
+  assert.equal(tableWidgets.length, 1);
+  assert.equal(tableWidgets[0].fromLine, 5);
 });
 
 test('liveBlocksExtension stays frozen while dragging and flushes on dragEndEffect', () => {
@@ -315,4 +415,281 @@ test('liveBlocksExtension stays frozen while dragging and flushes on dragEndEffe
   // Releasing the pointer dispatches dragEndEffect and reveals the selected block source
   state = state.update({ effects: dragEndEffect.of(null) }).state;
   assert.equal(countImageWidgets(state), 0);
+});
+
+test('#500: liveBlocksExtension keeps GFM tables rendered when cursor is inside unless keepSource is enabled', () => {
+  const doc = ['| 列A | 列B |', '| --- | --- |', '| 1 | 2 |'].join('\n');
+  const countTableWidgets = (s: EditorState) => {
+    let n = 0;
+    for (const set of s.facet(EditorView.decorations)) {
+      set.between(0, s.doc.length, (_from, _to, deco) => {
+        const w = (deco.spec as { widget?: { constructor: { name: string } } }).widget;
+        if (w?.constructor.name === 'TableWidget') n++;
+      });
+    }
+    return n;
+  };
+
+  let keepSource = false;
+  const stateInside = EditorState.create({
+    doc,
+    extensions: [
+      markdown({ base: markdownLanguage, addKeymap: false }),
+      liveBlocksExtension({ keepSource: () => keepSource }),
+    ],
+    selection: { anchor: 2 }, // Cursor right inside header row!
+  });
+  assert.equal(countTableWidgets(stateInside), 1);
+
+  keepSource = true;
+  const stateKeepSource = EditorState.create({
+    doc,
+    extensions: [
+      markdown({ base: markdownLanguage, addKeymap: false }),
+      liveBlocksExtension({ keepSource: () => keepSource }),
+    ],
+    selection: { anchor: 2 },
+  });
+  assert.equal(countTableWidgets(stateKeepSource), 0);
+});
+
+test('#372: liveBlocksExtension renders MermaidWidget below the fence when cursor is inside or keepSource is enabled', () => {
+  const doc = ['```mermaid', 'graph TD', '  A --> B', '```'].join('\n');
+  const getMermaidRanges = (s: EditorState) => {
+    const out: Array<{ from: number; to: number }> = [];
+    for (const set of s.facet(EditorView.decorations)) {
+      set.between(0, s.doc.length, (from, to, deco) => {
+        const w = (deco.spec as { widget?: { constructor: { name: string } } }).widget;
+        if (w?.constructor.name === 'MermaidWidget') out.push({ from, to });
+      });
+    }
+    return out;
+  };
+
+  // Cursor inside the mermaid fence: renders as a block widget right below the closing fence (from === to === doc.length)
+  const stateInside = EditorState.create({
+    doc,
+    extensions: [
+      markdown({ base: markdownLanguage, addKeymap: false }),
+      liveBlocksExtension({ keepSource: () => false }),
+    ],
+    selection: { anchor: 12 },
+  });
+  assert.deepEqual(getMermaidRanges(stateInside), [{ from: doc.length, to: doc.length }]);
+
+  // keepSource = true: also renders as a block widget below the closing fence
+  const stateKeepSource = EditorState.create({
+    doc,
+    extensions: [
+      markdown({ base: markdownLanguage, addKeymap: false }),
+      liveBlocksExtension({ keepSource: () => true }),
+    ],
+    selection: { anchor: 0 },
+  });
+  assert.deepEqual(getMermaidRanges(stateKeepSource), [{ from: doc.length, to: doc.length }]);
+
+  // #530: toggling fold collapses lines 2..4 while keeping line 1 (` ```mermaid `) visible
+  const collapsedState = stateKeepSource.update({
+    effects: toggleMermaidFoldEffect.of({ line: 1, collapsed: true }),
+  }).state;
+  assert.deepEqual(getMermaidRanges(collapsedState), [
+    { from: collapsedState.doc.line(2).from, to: doc.length },
+  ]);
+
+  const expandedState = collapsedState.update({
+    effects: toggleMermaidFoldEffect.of({ line: 1, collapsed: false }),
+  }).state;
+  assert.deepEqual(getMermaidRanges(expandedState), [{ from: doc.length, to: doc.length }]);
+});
+
+test('Windows 10 CRLF and all 8 table forms render as <table> in Preview, CodeMirror Live Edit, and parseTable', async () => {
+  const { renderMarkdown } = await import('./markdown.ts');
+  const { parseTable } = await import('./markdown-table.ts');
+
+  const lfDoc = [
+    '# Windows 10 表格渲染全场景测试文档',
+    '',
+    '## 1. 标准 GFM 表格（左/中/右对齐）',
+    '| 功能模块 | 支持状态 | 快捷键 |',
+    '| :--- | :---: | ---: |',
+    '| 实时表格渲染 | 已支持 | `Ctrl+E` |',
+    '| 单元格内联编辑 | 已支持 | `Tab` / `Enter` |',
+    '',
+    '## 2. 无首尾管道符表格',
+    '字段名 | 类型 | 说明',
+    '--- | :---: | ---',
+    'id | number | 主键 ID',
+    'title | string | 笔记标题',
+    '',
+    '## 3. 紧跟段落文字无空行的表格',
+    '下方表格紧跟在本段文字后（中间无空行）：',
+    '| 平台 | 默认引擎 | 推荐设置 |',
+    '| --- | --- | --- |',
+    '| Windows 10 | Auto / CodeMirror | 设置 → 书写 → 编辑器引擎 |',
+    '',
+    '## 4. 列表项内嵌套的 4 空格缩进表格（含连续两个缩进表格）',
+    '- 列表项说明：',
+    '',
+    '    | 阶段 | 负责人 |',
+    '    | --- | --- |',
+    '    | 开发 | 张三 |',
+    '',
+    '    | 阶段 | 负责人 |',
+    '    | --- | --- |',
+    '    | 测试 | 李四 |',
+    '',
+    '## 5. 有序列表下紧跟的无缩进表格',
+    '1. 第一季度汇总：',
+    '| 月份 | 完成率 |',
+    '| --- | --- |',
+    '| 1月 | 100% |',
+    '',
+    '## 6. 顶层 4 空格缩进表格',
+    '    | 缩进列A | 缩进列B |',
+    '    | --- | --- |',
+    '    | 顶层4空格 | 正常渲染为表格 |',
+    '',
+    '## 7. 引用块内表格',
+    '> | 引用列1 | 引用列2 |',
+    '> | --- | --- |',
+    '> | 引用内容A | 引用内容B |',
+    '',
+    '## 8. 含转义管道符、行内代码与列数容错的表格',
+    '| 表达式 | 含义 | 示例 |',
+    '| --- | --- | --- | --- |',
+    '| `a \\| b` | 按位或 \\| 管道 | **通过** |',
+  ].join('\n');
+
+  // Simulate Windows 10 CRLF line endings
+  const crlfDoc = lfDoc.replace(/\n/g, '\r\n');
+
+  // 1) Preview / Reading mode (renderMarkdown) on CRLF document:
+  // All 9 tables (including the 2 consecutive 4-space tables in section 4) must render as <table>, NEVER <pre><code>
+  const html = renderMarkdown(crlfDoc);
+  const tableCount = (html.match(/<table\b/g) || []).length;
+  assert.equal(tableCount, 9, `expected all 9 tables to render as <table> in Preview, got ${tableCount}`);
+  assert.equal(html.includes('<pre><code>'), false, 'no table should fall back to an indented <pre><code> block');
+
+  // 2) CodeMirror Live Edit mode (liveBlocksExtension) on document:
+  const state = EditorState.create({
+    doc: lfDoc,
+    extensions: [
+      markdown({ base: markdownLanguage, addKeymap: false }),
+      liveBlocksExtension({ keepSource: () => false }),
+    ],
+    selection: { anchor: 0 },
+  });
+  const cmTableWidgets: number[] = [];
+  for (const set of state.facet(EditorView.decorations)) {
+    set.between(0, state.doc.length, (from, _to, deco) => {
+      const w = (deco.spec as { widget?: { constructor: { name: string } } }).widget;
+      if (w?.constructor.name === 'TableWidget') {
+        cmTableWidgets.push(state.doc.lineAt(from).number);
+      }
+    });
+  }
+  assert.equal(
+    cmTableWidgets.length,
+    9,
+    `expected all 9 tables to collapse to TableWidget in CodeMirror Live Edit, got ${cmTableWidgets.length} at lines ${JSON.stringify(cmTableWidgets)}`,
+  );
+
+  // 3) parseTable on CRLF and indented tables:
+  assert.notEqual(parseTable('    | 缩进列A | 缩进列B |\r\n    | --- | --- |\r\n    | 1 | 2 |'), null);
+  assert.notEqual(parseTable('> | 引用列1 | 引用列2 |\r\n> | --- | --- |\r\n> | 1 | 2 |'), null);
+});
+
+test('toggleTableFoldEffect expands and folds table source code independently of alwaysShowMarkers', () => {
+  const doc = ['# 标题', '- 列表项', '', '| 列A | 列B |', '| --- | --- |', '| 1 | 2 |'].join('\n');
+  const getWidgets = (s: EditorState) => {
+    const names: string[] = [];
+    for (const set of s.facet(EditorView.decorations)) {
+      set.between(0, s.doc.length, (_from, _to, deco) => {
+        const w = (deco.spec as { widget?: { constructor: { name: string } } }).widget;
+        if (w) names.push(w.constructor.name);
+      });
+    }
+    return names;
+  };
+
+  // Default (collapseBlockSource = true -> keepSource = false): table is folded into TableWidget
+  const initial = EditorState.create({
+    doc,
+    extensions: [
+      markdown({ base: markdownLanguage, addKeymap: false }),
+      liveBlocksExtension({ keepSource: () => false }),
+    ],
+    selection: { anchor: 0 },
+  });
+  assert.deepEqual(getWidgets(initial), ['TableWidget']);
+
+  // Click "</> 源码" on the table (line 4): expands table source and mounts TableFoldToggleWidget
+  const expanded = initial.update({
+    effects: toggleTableFoldEffect.of({ line: 4, collapsed: false }),
+  }).state;
+  assert.deepEqual(getWidgets(expanded), ['TableFoldToggleWidget']);
+
+  // Click "−" on line 4: folds table source back into TableWidget
+  const refolded = expanded.update({
+    effects: toggleTableFoldEffect.of({ line: 4, collapsed: true }),
+  }).state;
+  assert.deepEqual(getWidgets(refolded), ['TableWidget']);
+});
+
+test('#536: Mermaid and PlantUML stay collapsed when cursor touches fence boundaries and only expand manually via toggleMermaidFoldEffect', () => {
+  const doc = [
+    '# Title',
+    '',
+    '```mermaid',
+    'graph TD; A-->B;',
+    '```',
+    '',
+    '```plantuml',
+    '@startuml',
+    'Alice -> Bob: Hi',
+    '@enduml',
+    '```',
+  ].join('\n');
+
+  const collect = (s: EditorState) => {
+    const out: Array<{ name: string; from: number; to: number }> = [];
+    for (const set of s.facet(EditorView.decorations)) {
+      set.between(0, s.doc.length, (from, to, deco) => {
+        const w = (deco.spec as { widget?: { constructor: { name: string } } }).widget;
+        if (w) out.push({ name: w.constructor.name, from, to });
+      });
+    }
+    return out;
+  };
+
+  // Cursor on opening fence line 3 (` ```mermaid `): Mermaid stays collapsed (from < to)
+  const onFenceStart = EditorState.create({
+    doc,
+    extensions: [
+      markdown({ base: markdownLanguage, addKeymap: false }),
+      liveBlocksExtension({
+        keepSource: () => false,
+        getPlantuml: () => ({ enabled: true, server: 'https://www.plantuml.com/plantuml' }),
+      }),
+    ],
+    selection: { anchor: doc.split('\n').slice(0, 2).join('\n').length + 1 },
+  });
+  const decosAtStart = collect(onFenceStart);
+  const mermaidAtStart = decosAtStart.find((d) => d.name === 'MermaidWidget');
+  const plantumlAtStart = decosAtStart.find((d) => d.name === 'PlantumlWidget');
+  assert.ok(mermaidAtStart && mermaidAtStart.from < mermaidAtStart.to, 'Mermaid must stay collapsed when cursor is on opening fence line');
+  assert.ok(plantumlAtStart && plantumlAtStart.from < plantumlAtStart.to, 'PlantUML must stay collapsed by default');
+
+  // Manually expand Mermaid (line 3) and PlantUML (line 7) via `+` button:
+  const manuallyExpanded = onFenceStart.update({
+    effects: [
+      toggleMermaidFoldEffect.of({ line: 3, collapsed: false }),
+      toggleMermaidFoldEffect.of({ line: 7, collapsed: false }),
+    ],
+  }).state;
+  const decosExpanded = collect(manuallyExpanded);
+  const mermaidExpanded = decosExpanded.find((d) => d.name === 'MermaidWidget');
+  const plantumlExpanded = decosExpanded.find((d) => d.name === 'PlantumlWidget');
+  assert.ok(mermaidExpanded && mermaidExpanded.from === mermaidExpanded.to, 'Mermaid renders as block widget below closing fence when expanded');
+  assert.ok(plantumlExpanded && plantumlExpanded.from === plantumlExpanded.to, 'PlantUML renders as block widget below closing fence when expanded');
 });

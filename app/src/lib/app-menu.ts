@@ -163,6 +163,7 @@ export function buildAppMenu(ctx: MenuContext): TopMenu[] {
     item('file.new', t('menubar.newMd')),
     item('file.newText', t('menubar.newText')),
     item('file.newInFolder', t('cmd.file.newInFolder')),
+    item('file.newFromTemplate', t('types.templateLabel')),
     item('window.new', t('menubar.newWindow')),
     item('capture.quick', t('menubar.quickCapture')),
     sep,
@@ -182,6 +183,7 @@ export function buildAppMenu(ctx: MenuContext): TopMenu[] {
     sep,
     item('file.save', t('menubar.save')),
     item('file.saveAs', t('menubar.saveAs')),
+    item('file.saveAll', t('menubar.saveAll')),
     item('file.autoSave', t('menubar.autoSave'), { checked: state.autoSave }),
     sep,
     item('file.import', t('menubar.importDocs')),
@@ -197,6 +199,7 @@ export function buildAppMenu(ctx: MenuContext): TopMenu[] {
         item('export.pdfPrint', t('toolbar.exportPdfPrint')),
         item('export.pdf', t('toolbar.exportPdf')),
         item('export.image', t('toolbar.exportImage')),
+        item('export.custom', t('toolbar.exportCustom')),
         sep,
         // Pandoc-based: they tell the user when Pandoc is not installed.
         item('export.epub', t('cmd.export.epub')),
